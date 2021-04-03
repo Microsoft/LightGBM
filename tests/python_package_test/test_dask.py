@@ -133,7 +133,7 @@ def _create_ranking_data(n_samples=100, output='array', chunk_size=50, **kwargs)
     return X, y, w, g_rle, dX, dy, dw, dg
 
 
-def _create_data(objective, n_samples=1_000, output='array', chunk_size=500, **kwargs):
+def _create_data(objective, n_samples=1_000, output='array', chunk_size=50, **kwargs):
     if objective.endswith('classification'):
         if objective == 'binary-classification':
             centers = [[-4, -4], [4, 4]]
@@ -255,7 +255,7 @@ def test_classifier(output, task, boosting_type, tree_learner, client):
             'bagging_fraction': 0.9,
         })
     elif boosting_type == 'goss':
-        params['top_rate'] = 0.5
+        params['top_rate'] = 0.7
 
     dask_classifier = lgb.DaskLGBMClassifier(
         client=client,
