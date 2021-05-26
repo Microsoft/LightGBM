@@ -42,8 +42,11 @@ URL: https://github.com/Microsoft/LightGBM
 BugReports: https://github.com/Microsoft/LightGBM/issues
 NeedsCompilation: yes
 Biarch: true
+VignetteBuilder: knitr
 Suggests:
+    knitr,
     processx,
+    rmarkdown,
     testthat
 Depends:
     R (>= 3.5),

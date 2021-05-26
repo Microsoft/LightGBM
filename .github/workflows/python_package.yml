@@ -1,79 +1,79 @@
-name: Python-package
+# name: Python-package
 
-on:
-  push:
-    branches:
-    - master
-  pull_request:
-    branches:
-    - master
+# on:
+#   push:
+#     branches:
+#     - master
+#   pull_request:
+#     branches:
+#     - master
 
-env:
-  CONDA_ENV: test-env
-  GITHUB_ACTIONS: 'true'
+# env:
+#   CONDA_ENV: test-env
+#   GITHUB_ACTIONS: 'true'
 
-jobs:
-  test:
-    name: ${{ matrix.task }} ${{ matrix.method }} (${{ matrix.os }}, Python ${{ matrix.python_version }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macOS-latest
-            task: regular
-            python_version: 3.6
-          - os: macOS-latest
-            task: sdist
-            python_version: 3.9
-          - os: macOS-latest
-            task: bdist
-            python_version: 3.8
-          - os: macOS-latest
-            task: if-else
-            python_version: 3.8
-          - os: macOS-latest
-            task: mpi
-            method: source
-            python_version: 3.9
-          - os: macOS-latest
-            task: mpi
-            method: pip
-            python_version: 3.6
-          - os: macOS-latest
-            task: mpi
-            method: wheel
-            python_version: 3.7
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2.3.4
-        with:
-          fetch-depth: 5
-          submodules: true
-      - name: Setup and run tests
-        shell: bash
-        run: |
-          export TASK="${{ matrix.task }}"
-          export METHOD="${{ matrix.method }}"
-          export PYTHON_VERSION="${{ matrix.python_version }}"
-          if [[ "${{ matrix.os }}" == "macOS-latest" ]]; then
-              export COMPILER="gcc"
-              export OS_NAME="macos"
-          elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-              export COMPILER="clang"
-              export OS_NAME="linux"
-          fi
-          export BUILD_DIRECTORY="$GITHUB_WORKSPACE"
-          export LGB_VER=$(head -n 1 VERSION.txt)
-          export CONDA=${HOME}/miniconda
-          export PATH=${CONDA}/bin:${PATH}
-          $GITHUB_WORKSPACE/.ci/setup.sh || exit -1
-          $GITHUB_WORKSPACE/.ci/test.sh || exit -1
-  all-successful:
-    # https://github.community/t/is-it-possible-to-require-all-github-actions-tasks-to-pass-without-enumerating-them/117957/4?u=graingert
-    runs-on: ubuntu-latest
-    needs: [test]
-    steps:
-    - name: Note that all tests succeeded
-      run: echo "🎉"
+# jobs:
+#   test:
+#     name: ${{ matrix.task }} ${{ matrix.method }} (${{ matrix.os }}, Python ${{ matrix.python_version }})
+#     runs-on: ${{ matrix.os }}
+#     timeout-minutes: 60
+#     strategy:
+#       fail-fast: false
+#       matrix:
+#         include:
+#           - os: macOS-latest
+#             task: regular
+#             python_version: 3.6
+#           - os: macOS-latest
+#             task: sdist
+#             python_version: 3.9
+#           - os: macOS-latest
+#             task: bdist
+#             python_version: 3.8
+#           - os: macOS-latest
+#             task: if-else
+#             python_version: 3.8
+#           - os: macOS-latest
+#             task: mpi
+#             method: source
+#             python_version: 3.9
+#           - os: macOS-latest
+#             task: mpi
+#             method: pip
+#             python_version: 3.6
+#           - os: macOS-latest
+#             task: mpi
+#             method: wheel
+#             python_version: 3.7
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v2.3.4
+#         with:
+#           fetch-depth: 5
+#           submodules: true
+#       - name: Setup and run tests
+#         shell: bash
+#         run: |
+#           export TASK="${{ matrix.task }}"
+#           export METHOD="${{ matrix.method }}"
+#           export PYTHON_VERSION="${{ matrix.python_version }}"
+#           if [[ "${{ matrix.os }}" == "macOS-latest" ]]; then
+#               export COMPILER="gcc"
+#               export OS_NAME="macos"
+#           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+#               export COMPILER="clang"
+#               export OS_NAME="linux"
+#           fi
+#           export BUILD_DIRECTORY="$GITHUB_WORKSPACE"
+#           export LGB_VER=$(head -n 1 VERSION.txt)
+#           export CONDA=${HOME}/miniconda
+#           export PATH=${CONDA}/bin:${PATH}
+#           $GITHUB_WORKSPACE/.ci/setup.sh || exit -1
+#           $GITHUB_WORKSPACE/.ci/test.sh || exit -1
+#   all-successful:
+#     # https://github.community/t/is-it-possible-to-require-all-github-actions-tasks-to-pass-without-enumerating-them/117957/4?u=graingert
+#     runs-on: ubuntu-latest
+#     needs: [test]
+#     steps:
+#     - name: Note that all tests succeeded
+#       run: echo "🎉"

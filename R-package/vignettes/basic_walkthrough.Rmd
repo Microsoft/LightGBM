@@ -1,0 +1,117 @@
+---
+title:
+  "Basic Walkthrough"
+description: >
+  This vignette describes how to train a LightGBM model for binary classification.
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Basic Walkthrough}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE
+  , comment = "#>"
+  , warning = FALSE
+  , message = FALSE
+)
+```
+
+## Introduction
+
+Welcome to the world of [LightGBM](https://lightgbm.readthedocs.io/en/latest/), a hightly efficient gradient boosting implementation (Ke et al. 2017). 
+
+```{r setup}
+library(lightgbm)
+```
+
+This vignette will guide you through its basic usage. It will show how to build a simple binary classification model based on a subset of the `bank` dataset (Moro, Cortez, and Rita 2014). You will use the two input features "age" and "balance" to predict whether a client has subscribed a term deposit. 
+
+## The dataset
+
+The dataset looks as follows.
+
+```{r}
+data(bank, package = "lightgbm")
+
+bank[1L:5L, c("y", "age", "balance")]
+
+# Distribution of the response
+table(bank$y)
+```
+
+## Training the model
+
+The R package of LightGBM offers two functions to train a model:
+
+- `lgb.train()`: This is the main training logic. It offers full flexibility but requires a `Dataset` object created by the `lgb.Dataset()` function.
+- `lightgbm()`: Simpler, but less flexible. Data can be passed without having to bother with `lgb.Dataset()`.
+
+
+### Using the `lightgbm()` function
+
+In a first step, you need to convert data to numeric. Afterwards, you are ready to fit the model by the `lightgbm()` function.
+
+```{r}
+# Numeric response and feature matrix
+y <- as.numeric(bank$y == "yes")
+X <- data.matrix(bank[, c("age", "balance")])
+
+# Train
+fit <- lightgbm(
+  data = X
+  , label = y
+  , num_leaves = 4L
+  , learning_rate = 1.0
+  , nrounds = 10L
+  , objective = "binary"
+  , verbose = -1L
+)
+
+# Result
+summary(predict(fit, X))
+```
+
+It seems to have worked! And the predictions are indeed probabilities between 0 and 1.
+
+### Using the `lgb.train()` function
+
+Alternatively, you can go for the more flexible interface `lgb.train()`. Here, as an additional step, you need to prepare `y` and `X` by the data API `lgb.Dataset()` of LightGBM. Parameters are passed to `lgb.train()` as a named list.
+
+```{r}
+# Data interface
+dtrain <- lgb.Dataset(X, label = y)
+
+# Parameters
+params <- list(
+  objective = "binary"
+  , num_leaves = 4L
+  , learning_rate = 1.0
+)
+
+# Train
+fit <- lgb.train(
+  params
+  , data = dtrain
+  , nrounds = 10L
+  , verbose = -1L
+)
+```
+
+Try it out! If stuck, visit LightGBM's [documentation](https://lightgbm.readthedocs.io/en/latest/R/index.html) for more details.
+
+```{r, echo = FALSE, results = "hide"}
+# Cleanup
+if (file.exists("lightgbm.model")) {
+  file.remove("lightgbm.model")
+}
+```
+
+## References
+
+Ke, Guolin, Qi Meng, Thomas Finley, Taifeng Wang, Wei Chen, Weidong Ma, Qiwei Ye, and Tie-Yan Liu. 2017. "LightGBM: A Highly Efficient Gradient Boosting Decision Tree." In Advances in Neural Information Processing Systems 30 (Nip 2017).
+
+Moro, Sérgio, Paulo Cortez, and Paulo Rita. 2014. "A Data-Driven Approach to Predict the Success of Bank Telemarketing." Decision Support Systems 62: 22–31.

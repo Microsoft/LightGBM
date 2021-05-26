@@ -1,382 +1,382 @@
-trigger:
-  branches:
-    include:
-    - master
-  tags:
-    include:
-    - v*
-pr:
-- master
-variables:
-  AZURE: 'true'
-  PYTHON_VERSION: 3.9
-  CONDA_ENV: test-env
-resources:
-  containers:
-  - container: ubuntu1404
-    image: lightgbm/vsts-agent:ubuntu-14.04
-  - container: ubuntu-latest
-    image: 'ubuntu:latest'
-    options: "--name ci-container -v /usr/bin/docker:/tmp/docker:ro"
-  - container: rbase
-    image: rocker/r-base
-jobs:
-###########################################
-- job: Linux
-###########################################
-  variables:
-    COMPILER: gcc
-    SETUP_CONDA: 'false'
-    OS_NAME: 'linux'
-    PRODUCES_ARTIFACTS: 'true'
-  pool: sh-ubuntu
-  container: ubuntu1404
-  strategy:
-    matrix:
-      regular:
-        TASK: regular
-      sdist:
-        TASK: sdist
-        PYTHON_VERSION: 3.7
-      bdist:
-        TASK: bdist
-      inference:
-        TASK: if-else
-      mpi_source:
-        TASK: mpi
-        METHOD: source
-        PYTHON_VERSION: 3.8
-      gpu_source:
-        TASK: gpu
-        METHOD: source
-      swig:
-        TASK: swig
-      cpp_tests:
-        TASK: cpp-tests
-  steps:
-  - script: |
-      echo "##vso[task.setvariable variable=BUILD_DIRECTORY]$BUILD_SOURCESDIRECTORY"
-      echo "##vso[task.setvariable variable=LGB_VER]$(head -n 1 VERSION.txt)"
-      echo "##vso[task.prependpath]$CONDA/bin"
-      AMDAPPSDK_PATH=$BUILD_SOURCESDIRECTORY/AMDAPPSDK
-      echo "##vso[task.setvariable variable=AMDAPPSDK_PATH]$AMDAPPSDK_PATH"
-      LD_LIBRARY_PATH=$AMDAPPSDK_PATH/lib/x86_64:$LD_LIBRARY_PATH
-      echo "##vso[task.setvariable variable=LD_LIBRARY_PATH]$LD_LIBRARY_PATH"
-      echo "##vso[task.setvariable variable=OPENCL_VENDOR_PATH]$AMDAPPSDK_PATH/etc/OpenCL/vendors"
-    displayName: 'Set variables'
-  - bash: $(Build.SourcesDirectory)/.ci/setup.sh
-    displayName: Setup
-  - bash: $(Build.SourcesDirectory)/.ci/test.sh
-    displayName: Test
-  - task: PublishBuildArtifacts@1
-    condition: and(succeeded(), in(variables['TASK'], 'regular', 'sdist', 'bdist', 'swig'), not(startsWith(variables['Build.SourceBranch'], 'refs/pull/')))
-    inputs:
-      pathtoPublish: '$(Build.ArtifactStagingDirectory)'
-      artifactName: PackageAssets
-      artifactType: container
-###########################################
-- job: Linux_latest
-###########################################
-  variables:
-    COMPILER: clang
-    DEBIAN_FRONTEND: 'noninteractive'
-    IN_UBUNTU_LATEST_CONTAINER: 'true'
-    OS_NAME: 'linux'
-    SETUP_CONDA: 'true'
-  pool: sh-ubuntu
-  container: ubuntu-latest
-  strategy:
-    matrix:
-      regular:
-        TASK: regular
-        PYTHON_VERSION: 3.6
-      sdist:
-        TASK: sdist
-      bdist:
-        TASK: bdist
-        PYTHON_VERSION: 3.8
-      inference:
-        TASK: if-else
-      mpi_source:
-        TASK: mpi
-        METHOD: source
-      mpi_pip:
-        TASK: mpi
-        METHOD: pip
-        PYTHON_VERSION: 3.8
-      mpi_wheel:
-        TASK: mpi
-        METHOD: wheel
-        PYTHON_VERSION: 3.7
-      gpu_source:
-        TASK: gpu
-        METHOD: source
-      gpu_pip:
-        TASK: gpu
-        METHOD: pip
-        PYTHON_VERSION: 3.6
-      gpu_wheel:
-        TASK: gpu
-        METHOD: wheel
-        PYTHON_VERSION: 3.7
-  steps:
-  - script: |
-      echo "##vso[task.setvariable variable=BUILD_DIRECTORY]$BUILD_SOURCESDIRECTORY"
-      echo "##vso[task.setvariable variable=LGB_VER]$(head -n 1 VERSION.txt)"
-      CONDA=$HOME/miniconda
-      echo "##vso[task.setvariable variable=CONDA]$CONDA"
-      echo "##vso[task.prependpath]$CONDA/bin"
-      AMDAPPSDK_PATH=$BUILD_SOURCESDIRECTORY/AMDAPPSDK
-      echo "##vso[task.setvariable variable=AMDAPPSDK_PATH]$AMDAPPSDK_PATH"
-      LD_LIBRARY_PATH=$AMDAPPSDK_PATH/lib/x86_64:$LD_LIBRARY_PATH
-      echo "##vso[task.setvariable variable=LD_LIBRARY_PATH]$LD_LIBRARY_PATH"
-      echo "##vso[task.setvariable variable=OPENCL_VENDOR_PATH]$AMDAPPSDK_PATH/etc/OpenCL/vendors"
-    displayName: 'Set variables'
-  # https://github.com/microsoft/azure-pipelines-agent/issues/2043#issuecomment-687983301
-  - script: |
-      /tmp/docker exec -t -u 0 ci-container \
-      sh -c "apt-get update && apt-get -o Dpkg::Options::="--force-confold" -y install sudo"
-    displayName: 'Install sudo'
-  - bash: $(Build.SourcesDirectory)/.ci/setup.sh
-    displayName: Setup
-  - bash: $(Build.SourcesDirectory)/.ci/test.sh
-    displayName: Test
-###########################################
-- job: QEMU_multiarch
-###########################################
-  variables:
-    COMPILER: gcc
-    OS_NAME: 'linux'
-    PRODUCES_ARTIFACTS: 'true'
-  pool:
-    vmImage: ubuntu-latest
-  timeoutInMinutes: 120
-  strategy:
-    matrix:
-      bdist:
-        TASK: bdist
-        ARCH: aarch64
-  steps:
-  - script: |
-      sudo apt-get update
-      sudo apt-get install --no-install-recommends -y \
-        binfmt-support \
-        qemu \
-        qemu-user \
-        qemu-user-static
-    displayName: 'Install QEMU'
-  - script: |
-      docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-    displayName: 'Enable Docker multi-architecture support'
-  - script: |
-      export ROOT_DOCKER_FOLDER=/LightGBM
-      cat > docker.env <<EOF
-      AZURE=$AZURE
-      OS_NAME=$OS_NAME
-      COMPILER=$COMPILER
-      TASK=$TASK
-      METHOD=$METHOD
-      CONDA_ENV=$CONDA_ENV
-      PYTHON_VERSION=$PYTHON_VERSION
-      BUILD_DIRECTORY=$ROOT_DOCKER_FOLDER
-      LGB_VER=$(head -n 1 VERSION.txt)
-      PRODUCES_ARTIFACTS=$PRODUCES_ARTIFACTS
-      BUILD_ARTIFACTSTAGINGDIRECTORY=$BUILD_ARTIFACTSTAGINGDIRECTORY
-      EOF
-      cat > docker-script.sh <<EOF
-      export CONDA=\$HOME/miniconda
-      export PATH=\$CONDA/bin:\$PATH
-      $ROOT_DOCKER_FOLDER/.ci/setup.sh || exit -1
-      $ROOT_DOCKER_FOLDER/.ci/test.sh || exit -1
-      EOF
-      docker run \
-        --rm \
-        --env-file docker.env \
-        -v "$(Build.SourcesDirectory)":"$ROOT_DOCKER_FOLDER" \
-        -v "$(Build.ArtifactStagingDirectory)":"$(Build.ArtifactStagingDirectory)" \
-        "quay.io/pypa/manylinux2014_$ARCH" \
-        /bin/bash $ROOT_DOCKER_FOLDER/docker-script.sh
-    displayName: 'Setup and run tests'
-  - task: PublishBuildArtifacts@1
-    condition: and(succeeded(), in(variables['TASK'], 'bdist'), not(startsWith(variables['Build.SourceBranch'], 'refs/pull/')))
-    inputs:
-      pathtoPublish: '$(Build.ArtifactStagingDirectory)'
-      artifactName: PackageAssets
-      artifactType: container
-###########################################
-- job: macOS
-###########################################
-  variables:
-    COMPILER: clang
-    OS_NAME: 'macos'
-    PRODUCES_ARTIFACTS: 'true'
-  pool:
-    vmImage: 'macOS-10.14'
-  strategy:
-    matrix:
-      regular:
-        TASK: regular
-        PYTHON_VERSION: 3.7
-      sdist:
-        TASK: sdist
-        PYTHON_VERSION: 3.8
-      bdist:
-        TASK: bdist
-      swig:
-        TASK: swig
-      cpp_tests:
-        TASK: cpp-tests
-  steps:
-  - script: |
-      echo "##vso[task.setvariable variable=BUILD_DIRECTORY]$BUILD_SOURCESDIRECTORY"
-      echo "##vso[task.setvariable variable=LGB_VER]$(head -n 1 VERSION.txt)"
-      CONDA=$AGENT_HOMEDIRECTORY/miniconda
-      echo "##vso[task.setvariable variable=CONDA]$CONDA"
-      echo "##vso[task.prependpath]$CONDA/bin"
-      echo "##vso[task.setvariable variable=JAVA_HOME]$JAVA_HOME_8_X64"
-    displayName: 'Set variables'
-  - bash: $(Build.SourcesDirectory)/.ci/setup.sh
-    displayName: Setup
-  - bash: $(Build.SourcesDirectory)/.ci/test.sh
-    displayName: Test
-  - task: PublishBuildArtifacts@1
-    condition: and(succeeded(), in(variables['TASK'], 'regular', 'bdist', 'swig'), not(startsWith(variables['Build.SourceBranch'], 'refs/pull/')))
-    inputs:
-      pathtoPublish: '$(Build.ArtifactStagingDirectory)'
-      artifactName: PackageAssets
-      artifactType: container
-###########################################
-- job: Windows
-###########################################
-  pool:
-    vmImage: 'vs2017-win2016'
-  strategy:
-    matrix:
-      regular:
-        TASK: regular
-        PYTHON_VERSION: 3.6
-      sdist:
-        TASK: sdist
-        PYTHON_VERSION: 3.8
-      bdist:
-        TASK: bdist
-      swig:
-        TASK: swig
-      cpp_tests:
-        TASK: cpp-tests
-  steps:
-  - powershell: |
-      Write-Host "##vso[task.prependpath]$env:CONDA\Scripts"
-    displayName: 'Set Variables'
-  - script: |
-      cmd /c "powershell -ExecutionPolicy Bypass -File %BUILD_SOURCESDIRECTORY%/.ci/install_opencl.ps1"
-    condition: eq(variables['TASK'], 'bdist')
-    displayName: 'Install OpenCL'
-  - script: |
-      cmd /c "conda init powershell"
-      cmd /c "powershell -ExecutionPolicy Bypass -File %BUILD_SOURCESDIRECTORY%/.ci/test_windows.ps1"
-    displayName: Test
-  - task: PublishBuildArtifacts@1
-    condition: and(succeeded(), in(variables['TASK'], 'regular', 'bdist', 'swig'), not(startsWith(variables['Build.SourceBranch'], 'refs/pull/')))
-    inputs:
-      pathtoPublish: '$(Build.ArtifactStagingDirectory)'
-      artifactName: PackageAssets
-      artifactType: container
-###########################################
-- job: R_artifact
-###########################################
-  condition: not(startsWith(variables['Build.SourceBranch'], 'refs/pull/'))
-  pool:
-    vmImage: 'ubuntu-latest'
-  container: rbase
-  steps:
-  - script: |
-      LGB_VER=$(head -n 1 VERSION.txt | sed "s/rc/-/g")
-      sh build-cran-package.sh || exit -1
-      mv lightgbm_${LGB_VER}.tar.gz $(Build.ArtifactStagingDirectory)/lightgbm-${LGB_VER}-r-cran.tar.gz
-    displayName: 'Build CRAN R-package'
-  - task: PublishBuildArtifacts@1
-    condition: succeeded()
-    inputs:
-      pathtoPublish: $(Build.ArtifactStagingDirectory)
-      artifactName: R-package
-      artifactType: container
+# trigger:
+#   branches:
+#     include:
+#     - master
+#   tags:
+#     include:
+#     - v*
+# pr:
+# - master
+# variables:
+#   AZURE: 'true'
+#   PYTHON_VERSION: 3.9
+#   CONDA_ENV: test-env
+# resources:
+#   containers:
+#   - container: ubuntu1404
+#     image: lightgbm/vsts-agent:ubuntu-14.04
+#   - container: ubuntu-latest
+#     image: 'ubuntu:latest'
+#     options: "--name ci-container -v /usr/bin/docker:/tmp/docker:ro"
+#   - container: rbase
+#     image: rocker/r-base
+# jobs:
+# ###########################################
+# - job: Linux
+# ###########################################
+#   variables:
+#     COMPILER: gcc
+#     SETUP_CONDA: 'false'
+#     OS_NAME: 'linux'
+#     PRODUCES_ARTIFACTS: 'true'
+#   pool: sh-ubuntu
+#   container: ubuntu1404
+#   strategy:
+#     matrix:
+#       regular:
+#         TASK: regular
+#       sdist:
+#         TASK: sdist
+#         PYTHON_VERSION: 3.7
+#       bdist:
+#         TASK: bdist
+#       inference:
+#         TASK: if-else
+#       mpi_source:
+#         TASK: mpi
+#         METHOD: source
+#         PYTHON_VERSION: 3.8
+#       gpu_source:
+#         TASK: gpu
+#         METHOD: source
+#       swig:
+#         TASK: swig
+#       cpp_tests:
+#         TASK: cpp-tests
+#   steps:
+#   - script: |
+#       echo "##vso[task.setvariable variable=BUILD_DIRECTORY]$BUILD_SOURCESDIRECTORY"
+#       echo "##vso[task.setvariable variable=LGB_VER]$(head -n 1 VERSION.txt)"
+#       echo "##vso[task.prependpath]$CONDA/bin"
+#       AMDAPPSDK_PATH=$BUILD_SOURCESDIRECTORY/AMDAPPSDK
+#       echo "##vso[task.setvariable variable=AMDAPPSDK_PATH]$AMDAPPSDK_PATH"
+#       LD_LIBRARY_PATH=$AMDAPPSDK_PATH/lib/x86_64:$LD_LIBRARY_PATH
+#       echo "##vso[task.setvariable variable=LD_LIBRARY_PATH]$LD_LIBRARY_PATH"
+#       echo "##vso[task.setvariable variable=OPENCL_VENDOR_PATH]$AMDAPPSDK_PATH/etc/OpenCL/vendors"
+#     displayName: 'Set variables'
+#   - bash: $(Build.SourcesDirectory)/.ci/setup.sh
+#     displayName: Setup
+#   - bash: $(Build.SourcesDirectory)/.ci/test.sh
+#     displayName: Test
+#   - task: PublishBuildArtifacts@1
+#     condition: and(succeeded(), in(variables['TASK'], 'regular', 'sdist', 'bdist', 'swig'), not(startsWith(variables['Build.SourceBranch'], 'refs/pull/')))
+#     inputs:
+#       pathtoPublish: '$(Build.ArtifactStagingDirectory)'
+#       artifactName: PackageAssets
+#       artifactType: container
+# ###########################################
+# - job: Linux_latest
+# ###########################################
+#   variables:
+#     COMPILER: clang
+#     DEBIAN_FRONTEND: 'noninteractive'
+#     IN_UBUNTU_LATEST_CONTAINER: 'true'
+#     OS_NAME: 'linux'
+#     SETUP_CONDA: 'true'
+#   pool: sh-ubuntu
+#   container: ubuntu-latest
+#   strategy:
+#     matrix:
+#       regular:
+#         TASK: regular
+#         PYTHON_VERSION: 3.6
+#       sdist:
+#         TASK: sdist
+#       bdist:
+#         TASK: bdist
+#         PYTHON_VERSION: 3.8
+#       inference:
+#         TASK: if-else
+#       mpi_source:
+#         TASK: mpi
+#         METHOD: source
+#       mpi_pip:
+#         TASK: mpi
+#         METHOD: pip
+#         PYTHON_VERSION: 3.8
+#       mpi_wheel:
+#         TASK: mpi
+#         METHOD: wheel
+#         PYTHON_VERSION: 3.7
+#       gpu_source:
+#         TASK: gpu
+#         METHOD: source
+#       gpu_pip:
+#         TASK: gpu
+#         METHOD: pip
+#         PYTHON_VERSION: 3.6
+#       gpu_wheel:
+#         TASK: gpu
+#         METHOD: wheel
+#         PYTHON_VERSION: 3.7
+#   steps:
+#   - script: |
+#       echo "##vso[task.setvariable variable=BUILD_DIRECTORY]$BUILD_SOURCESDIRECTORY"
+#       echo "##vso[task.setvariable variable=LGB_VER]$(head -n 1 VERSION.txt)"
+#       CONDA=$HOME/miniconda
+#       echo "##vso[task.setvariable variable=CONDA]$CONDA"
+#       echo "##vso[task.prependpath]$CONDA/bin"
+#       AMDAPPSDK_PATH=$BUILD_SOURCESDIRECTORY/AMDAPPSDK
+#       echo "##vso[task.setvariable variable=AMDAPPSDK_PATH]$AMDAPPSDK_PATH"
+#       LD_LIBRARY_PATH=$AMDAPPSDK_PATH/lib/x86_64:$LD_LIBRARY_PATH
+#       echo "##vso[task.setvariable variable=LD_LIBRARY_PATH]$LD_LIBRARY_PATH"
+#       echo "##vso[task.setvariable variable=OPENCL_VENDOR_PATH]$AMDAPPSDK_PATH/etc/OpenCL/vendors"
+#     displayName: 'Set variables'
+#   # https://github.com/microsoft/azure-pipelines-agent/issues/2043#issuecomment-687983301
+#   - script: |
+#       /tmp/docker exec -t -u 0 ci-container \
+#       sh -c "apt-get update && apt-get -o Dpkg::Options::="--force-confold" -y install sudo"
+#     displayName: 'Install sudo'
+#   - bash: $(Build.SourcesDirectory)/.ci/setup.sh
+#     displayName: Setup
+#   - bash: $(Build.SourcesDirectory)/.ci/test.sh
+#     displayName: Test
+# ###########################################
+# - job: QEMU_multiarch
+# ###########################################
+#   variables:
+#     COMPILER: gcc
+#     OS_NAME: 'linux'
+#     PRODUCES_ARTIFACTS: 'true'
+#   pool:
+#     vmImage: ubuntu-latest
+#   timeoutInMinutes: 120
+#   strategy:
+#     matrix:
+#       bdist:
+#         TASK: bdist
+#         ARCH: aarch64
+#   steps:
+#   - script: |
+#       sudo apt-get update
+#       sudo apt-get install --no-install-recommends -y \
+#         binfmt-support \
+#         qemu \
+#         qemu-user \
+#         qemu-user-static
+#     displayName: 'Install QEMU'
+#   - script: |
+#       docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+#     displayName: 'Enable Docker multi-architecture support'
+#   - script: |
+#       export ROOT_DOCKER_FOLDER=/LightGBM
+#       cat > docker.env <<EOF
+#       AZURE=$AZURE
+#       OS_NAME=$OS_NAME
+#       COMPILER=$COMPILER
+#       TASK=$TASK
+#       METHOD=$METHOD
+#       CONDA_ENV=$CONDA_ENV
+#       PYTHON_VERSION=$PYTHON_VERSION
+#       BUILD_DIRECTORY=$ROOT_DOCKER_FOLDER
+#       LGB_VER=$(head -n 1 VERSION.txt)
+#       PRODUCES_ARTIFACTS=$PRODUCES_ARTIFACTS
+#       BUILD_ARTIFACTSTAGINGDIRECTORY=$BUILD_ARTIFACTSTAGINGDIRECTORY
+#       EOF
+#       cat > docker-script.sh <<EOF
+#       export CONDA=\$HOME/miniconda
+#       export PATH=\$CONDA/bin:\$PATH
+#       $ROOT_DOCKER_FOLDER/.ci/setup.sh || exit -1
+#       $ROOT_DOCKER_FOLDER/.ci/test.sh || exit -1
+#       EOF
+#       docker run \
+#         --rm \
+#         --env-file docker.env \
+#         -v "$(Build.SourcesDirectory)":"$ROOT_DOCKER_FOLDER" \
+#         -v "$(Build.ArtifactStagingDirectory)":"$(Build.ArtifactStagingDirectory)" \
+#         "quay.io/pypa/manylinux2014_$ARCH" \
+#         /bin/bash $ROOT_DOCKER_FOLDER/docker-script.sh
+#     displayName: 'Setup and run tests'
+#   - task: PublishBuildArtifacts@1
+#     condition: and(succeeded(), in(variables['TASK'], 'bdist'), not(startsWith(variables['Build.SourceBranch'], 'refs/pull/')))
+#     inputs:
+#       pathtoPublish: '$(Build.ArtifactStagingDirectory)'
+#       artifactName: PackageAssets
+#       artifactType: container
+# ###########################################
+# - job: macOS
+# ###########################################
+#   variables:
+#     COMPILER: clang
+#     OS_NAME: 'macos'
+#     PRODUCES_ARTIFACTS: 'true'
+#   pool:
+#     vmImage: 'macOS-10.14'
+#   strategy:
+#     matrix:
+#       regular:
+#         TASK: regular
+#         PYTHON_VERSION: 3.7
+#       sdist:
+#         TASK: sdist
+#         PYTHON_VERSION: 3.8
+#       bdist:
+#         TASK: bdist
+#       swig:
+#         TASK: swig
+#       cpp_tests:
+#         TASK: cpp-tests
+#   steps:
+#   - script: |
+#       echo "##vso[task.setvariable variable=BUILD_DIRECTORY]$BUILD_SOURCESDIRECTORY"
+#       echo "##vso[task.setvariable variable=LGB_VER]$(head -n 1 VERSION.txt)"
+#       CONDA=$AGENT_HOMEDIRECTORY/miniconda
+#       echo "##vso[task.setvariable variable=CONDA]$CONDA"
+#       echo "##vso[task.prependpath]$CONDA/bin"
+#       echo "##vso[task.setvariable variable=JAVA_HOME]$JAVA_HOME_8_X64"
+#     displayName: 'Set variables'
+#   - bash: $(Build.SourcesDirectory)/.ci/setup.sh
+#     displayName: Setup
+#   - bash: $(Build.SourcesDirectory)/.ci/test.sh
+#     displayName: Test
+#   - task: PublishBuildArtifacts@1
+#     condition: and(succeeded(), in(variables['TASK'], 'regular', 'bdist', 'swig'), not(startsWith(variables['Build.SourceBranch'], 'refs/pull/')))
+#     inputs:
+#       pathtoPublish: '$(Build.ArtifactStagingDirectory)'
+#       artifactName: PackageAssets
+#       artifactType: container
+# ###########################################
+# - job: Windows
+# ###########################################
+#   pool:
+#     vmImage: 'vs2017-win2016'
+#   strategy:
+#     matrix:
+#       regular:
+#         TASK: regular
+#         PYTHON_VERSION: 3.6
+#       sdist:
+#         TASK: sdist
+#         PYTHON_VERSION: 3.8
+#       bdist:
+#         TASK: bdist
+#       swig:
+#         TASK: swig
+#       cpp_tests:
+#         TASK: cpp-tests
+#   steps:
+#   - powershell: |
+#       Write-Host "##vso[task.prependpath]$env:CONDA\Scripts"
+#     displayName: 'Set Variables'
+#   - script: |
+#       cmd /c "powershell -ExecutionPolicy Bypass -File %BUILD_SOURCESDIRECTORY%/.ci/install_opencl.ps1"
+#     condition: eq(variables['TASK'], 'bdist')
+#     displayName: 'Install OpenCL'
+#   - script: |
+#       cmd /c "conda init powershell"
+#       cmd /c "powershell -ExecutionPolicy Bypass -File %BUILD_SOURCESDIRECTORY%/.ci/test_windows.ps1"
+#     displayName: Test
+#   - task: PublishBuildArtifacts@1
+#     condition: and(succeeded(), in(variables['TASK'], 'regular', 'bdist', 'swig'), not(startsWith(variables['Build.SourceBranch'], 'refs/pull/')))
+#     inputs:
+#       pathtoPublish: '$(Build.ArtifactStagingDirectory)'
+#       artifactName: PackageAssets
+#       artifactType: container
+# ###########################################
+# - job: R_artifact
+# ###########################################
+#   condition: not(startsWith(variables['Build.SourceBranch'], 'refs/pull/'))
+#   pool:
+#     vmImage: 'ubuntu-latest'
+#   container: rbase
+#   steps:
+#   - script: |
+#       LGB_VER=$(head -n 1 VERSION.txt | sed "s/rc/-/g")
+#       sh build-cran-package.sh || exit -1
+#       mv lightgbm_${LGB_VER}.tar.gz $(Build.ArtifactStagingDirectory)/lightgbm-${LGB_VER}-r-cran.tar.gz
+#     displayName: 'Build CRAN R-package'
+#   - task: PublishBuildArtifacts@1
+#     condition: succeeded()
+#     inputs:
+#       pathtoPublish: $(Build.ArtifactStagingDirectory)
+#       artifactName: R-package
+#       artifactType: container
 
-###########################################
-- job: Package
-###########################################
-  dependsOn:
-  - Linux
-  - Linux_latest
-  - QEMU_multiarch
-  - macOS
-  - Windows
-  - R_artifact
-  condition: and(succeeded(), not(startsWith(variables['Build.SourceBranch'], 'refs/pull/')))
-  pool:
-    vmImage: 'ubuntu-latest'
-  steps:
-  # Create archives with complete source code included (with git submodules)
-  - task: ArchiveFiles@2
-    displayName: Create zip archive
-    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
-    inputs:
-      rootFolderOrFile: $(Build.SourcesDirectory)
-      includeRootFolder: false
-      archiveType: zip
-      archiveFile: '$(Build.ArtifactStagingDirectory)/archives/LightGBM-complete_source_code_zip.zip'
-      replaceExistingArchive: true
-  - task: ArchiveFiles@2
-    displayName: Create tar.gz archive
-    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
-    inputs:
-      rootFolderOrFile: $(Build.SourcesDirectory)
-      includeRootFolder: false
-      archiveType: tar
-      tarCompression: gz
-      archiveFile: '$(Build.ArtifactStagingDirectory)/archives/LightGBM-complete_source_code_tar_gz.tar.gz'
-      replaceExistingArchive: true
-  # Download all agent packages from all previous phases
-  - task: DownloadBuildArtifacts@0
-    displayName: Download package assets
-    inputs:
-      artifactName: PackageAssets
-      downloadPath: $(Build.SourcesDirectory)/binaries
-  - task: DownloadBuildArtifacts@0
-    displayName: Download R-package
-    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
-    inputs:
-      artifactName: R-package
-      downloadPath: $(Build.SourcesDirectory)/R
-  - script: |
-      python "$(Build.SourcesDirectory)/.nuget/create_nuget.py" "$(Build.SourcesDirectory)/binaries/PackageAssets"
-    displayName: 'Create NuGet configuration files'
-  - task: NuGetCommand@2
-    inputs:
-      command: pack
-      packagesToPack: '$(Build.SourcesDirectory)/.nuget/*.nuspec'
-      packDestination: '$(Build.ArtifactStagingDirectory)/nuget'
-  - task: PublishBuildArtifacts@1
-    inputs:
-      pathtoPublish: '$(Build.ArtifactStagingDirectory)/nuget'
-      artifactName: NuGet
-      artifactType: container
-  - task: GitHubRelease@0
-    displayName: 'Create GitHub Release'
-    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
-    inputs:
-      gitHubConnection: guolinke
-      repositoryName: '$(Build.Repository.Name)'
-      action: 'create'
-      target: '$(Build.SourceVersion)'
-      tagSource: 'auto'
-      title: '$(Build.SourceBranchName)'
-      assets: |
-        $(Build.SourcesDirectory)/binaries/PackageAssets/*
-        $(Build.SourcesDirectory)/R/R-package/*
-        $(Build.ArtifactStagingDirectory)/nuget/*.nupkg
-        $(Build.ArtifactStagingDirectory)/archives/*
-      assetUploadMode: 'delete'
-      isDraft: true
-      isPreRelease: false
-      addChangeLog: false
+# ###########################################
+# - job: Package
+# ###########################################
+#   dependsOn:
+#   - Linux
+#   - Linux_latest
+#   - QEMU_multiarch
+#   - macOS
+#   - Windows
+#   - R_artifact
+#   condition: and(succeeded(), not(startsWith(variables['Build.SourceBranch'], 'refs/pull/')))
+#   pool:
+#     vmImage: 'ubuntu-latest'
+#   steps:
+#   # Create archives with complete source code included (with git submodules)
+#   - task: ArchiveFiles@2
+#     displayName: Create zip archive
+#     condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
+#     inputs:
+#       rootFolderOrFile: $(Build.SourcesDirectory)
+#       includeRootFolder: false
+#       archiveType: zip
+#       archiveFile: '$(Build.ArtifactStagingDirectory)/archives/LightGBM-complete_source_code_zip.zip'
+#       replaceExistingArchive: true
+#   - task: ArchiveFiles@2
+#     displayName: Create tar.gz archive
+#     condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
+#     inputs:
+#       rootFolderOrFile: $(Build.SourcesDirectory)
+#       includeRootFolder: false
+#       archiveType: tar
+#       tarCompression: gz
+#       archiveFile: '$(Build.ArtifactStagingDirectory)/archives/LightGBM-complete_source_code_tar_gz.tar.gz'
+#       replaceExistingArchive: true
+#   # Download all agent packages from all previous phases
+#   - task: DownloadBuildArtifacts@0
+#     displayName: Download package assets
+#     inputs:
+#       artifactName: PackageAssets
+#       downloadPath: $(Build.SourcesDirectory)/binaries
+#   - task: DownloadBuildArtifacts@0
+#     displayName: Download R-package
+#     condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
+#     inputs:
+#       artifactName: R-package
+#       downloadPath: $(Build.SourcesDirectory)/R
+#   - script: |
+#       python "$(Build.SourcesDirectory)/.nuget/create_nuget.py" "$(Build.SourcesDirectory)/binaries/PackageAssets"
+#     displayName: 'Create NuGet configuration files'
+#   - task: NuGetCommand@2
+#     inputs:
+#       command: pack
+#       packagesToPack: '$(Build.SourcesDirectory)/.nuget/*.nuspec'
+#       packDestination: '$(Build.ArtifactStagingDirectory)/nuget'
+#   - task: PublishBuildArtifacts@1
+#     inputs:
+#       pathtoPublish: '$(Build.ArtifactStagingDirectory)/nuget'
+#       artifactName: NuGet
+#       artifactType: container
+#   - task: GitHubRelease@0
+#     displayName: 'Create GitHub Release'
+#     condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
+#     inputs:
+#       gitHubConnection: guolinke
+#       repositoryName: '$(Build.Repository.Name)'
+#       action: 'create'
+#       target: '$(Build.SourceVersion)'
+#       tagSource: 'auto'
+#       title: '$(Build.SourceBranchName)'
+#       assets: |
+#         $(Build.SourcesDirectory)/binaries/PackageAssets/*
+#         $(Build.SourcesDirectory)/R/R-package/*
+#         $(Build.ArtifactStagingDirectory)/nuget/*.nupkg
+#         $(Build.ArtifactStagingDirectory)/archives/*
+#       assetUploadMode: 'delete'
+#       isDraft: true
+#       isPreRelease: false
+#       addChangeLog: false

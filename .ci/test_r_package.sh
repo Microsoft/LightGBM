@@ -94,7 +94,7 @@ fi
 
 # Manually install Depends and Imports libraries + 'testthat'
 # to avoid a CI-time dependency on devtools (for devtools::install_deps())
-packages="c('data.table', 'jsonlite', 'Matrix', 'R6', 'testthat')"
+packages="c('data.table', 'jsonlite', 'Matrix', 'R6', 'knitr', 'rmarkdown', 'testthat')"
 compile_from_source="both"
 if [[ $OS_NAME == "macos" ]]; then
     packages+=", type = 'binary'"
@@ -140,13 +140,18 @@ elif [[ $R_BUILD_TYPE == "cran" ]]; then
     cd ${R_CMD_CHECK_DIR}
 fi
 
+# vignettes are only built for CRAN builds
+CHECK_ARGS="--as-cran --run-donttest"
+if [[ $R_BUILD_TYPE != "cran" ]]; then
+    CHECK_ARGS="${CHECK_FLAGS} --ignore-vignettes"
+fi
+
 # fails tests if either ERRORs or WARNINGs are thrown by
 # R CMD CHECK
 check_succeeded="yes"
 (
     R CMD check ${PKG_TARBALL} \
-        --as-cran \
-        --run-donttest \
+        ${CHECK_ARGS} \
     || check_succeeded="no"
 ) &
 

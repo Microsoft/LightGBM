@@ -1,43 +1,43 @@
-version: 3.2.1.99.{build}
+# version: 3.2.1.99.{build}
 
-image: Visual Studio 2015
-platform: x64
-configuration:  # a trick to construct a build matrix with multiple Python versions
-  - 3.7
+# image: Visual Studio 2015
+# platform: x64
+# configuration:  # a trick to construct a build matrix with multiple Python versions
+#   - 3.7
 
-# only build pull requests and
-# commits to 'master'
-branches:
-  only:
-    - master
+# # only build pull requests and
+# # commits to 'master'
+# branches:
+#   only:
+#     - master
 
-environment:
-  matrix:
-    - COMPILER: MSVC
-      TASK: python
-    - COMPILER: MINGW
-      TASK: python
+# environment:
+#   matrix:
+#     - COMPILER: MSVC
+#       TASK: python
+#     - COMPILER: MINGW
+#       TASK: python
 
-clone_depth: 5
+# clone_depth: 5
 
-install:
-  - git submodule update --init --recursive  # get `external_libs` folder
-  - set PATH=%PATH:C:\Program Files\Git\usr\bin;=%  # delete sh.exe from PATH (mingw32-make fix)
-  - set PATH=C:\mingw-w64\x86_64-8.1.0-posix-seh-rt_v6-rev0\mingw64\bin;%PATH%
-  - set PYTHON_VERSION=%CONFIGURATION%
-  - set CONDA_ENV="test-env"
-  - ps: |
-      switch ($env:PYTHON_VERSION) {
-          "3.6" {$env:MINICONDA = "C:\Miniconda36-x64"}
-          "3.7" {$env:MINICONDA = "C:\Miniconda37-x64"}
-          default {$env:MINICONDA = "C:\Miniconda37-x64"}
-      }
-      $env:PATH = "$env:MINICONDA;$env:MINICONDA\Scripts;$env:PATH"
-      $env:BUILD_SOURCESDIRECTORY = "$env:APPVEYOR_BUILD_FOLDER"
-      $env:LGB_VER = (Get-Content $env:APPVEYOR_BUILD_FOLDER\VERSION.txt).trim()
+# install:
+#   - git submodule update --init --recursive  # get `external_libs` folder
+#   - set PATH=%PATH:C:\Program Files\Git\usr\bin;=%  # delete sh.exe from PATH (mingw32-make fix)
+#   - set PATH=C:\mingw-w64\x86_64-8.1.0-posix-seh-rt_v6-rev0\mingw64\bin;%PATH%
+#   - set PYTHON_VERSION=%CONFIGURATION%
+#   - set CONDA_ENV="test-env"
+#   - ps: |
+#       switch ($env:PYTHON_VERSION) {
+#           "3.6" {$env:MINICONDA = "C:\Miniconda36-x64"}
+#           "3.7" {$env:MINICONDA = "C:\Miniconda37-x64"}
+#           default {$env:MINICONDA = "C:\Miniconda37-x64"}
+#       }
+#       $env:PATH = "$env:MINICONDA;$env:MINICONDA\Scripts;$env:PATH"
+#       $env:BUILD_SOURCESDIRECTORY = "$env:APPVEYOR_BUILD_FOLDER"
+#       $env:LGB_VER = (Get-Content $env:APPVEYOR_BUILD_FOLDER\VERSION.txt).trim()
 
-build: false
+# build: false
 
-test_script:
-  - conda init powershell
-  - powershell.exe -ExecutionPolicy Bypass -File %APPVEYOR_BUILD_FOLDER%\.ci\test_windows.ps1
+# test_script:
+#   - conda init powershell
+#   - powershell.exe -ExecutionPolicy Bypass -File %APPVEYOR_BUILD_FOLDER%\.ci\test_windows.ps1

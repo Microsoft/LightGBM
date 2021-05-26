@@ -38,7 +38,7 @@ jobs:
       - name: Install packages
         shell: bash
         run: |
-          RDscriptvalgrind -e "install.packages(c('R6', 'data.table', 'jsonlite', 'testthat'), repos = 'https://cran.r-project.org', Ncpus = parallel::detectCores())"
+          RDscriptvalgrind -e "install.packages(c('R6', 'data.table', 'jsonlite', 'knitr', 'rmarkdown', 'testthat'), repos = 'https://cran.r-project.org', Ncpus = parallel::detectCores())"
           sh build-cran-package.sh
           RDvalgrind CMD INSTALL --preclean --install-tests lightgbm_*.tar.gz || exit -1
       - name: Run tests with valgrind

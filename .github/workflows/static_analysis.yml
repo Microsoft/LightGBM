@@ -57,7 +57,7 @@ jobs:
       - name: Install packages
         shell: bash
         run: |
-          Rscript -e "install.packages(c('R6', 'data.table', 'jsonlite', 'roxygen2', 'testthat'), repos = 'https://cran.r-project.org', Ncpus = parallel::detectCores())"
+          Rscript -e "install.packages(c('R6', 'data.table', 'jsonlite', 'roxygen2', 'testthat', 'knitr', 'rmarkdown'), repos = 'https://cran.r-project.org', Ncpus = parallel::detectCores())"
           sh build-cran-package.sh || exit -1
           R CMD INSTALL --with-keep.source lightgbm_*.tar.gz || exit -1
       - name: Test documentation

@@ -1,3 +1,6 @@
+\.o$
+\.so$
+\.dll$
 \.appveyor\.yml
 AUTOCONF_UBUNTU_VERSION
 ^autom4te.cache/.*$
@@ -6,17 +9,14 @@ AUTOCONF_UBUNTU_VERSION
 \.clang-format
 ^cran-comments\.md$
 ^docs$
-^.*\.dll
 \.drone\.yml
 \.git
 \.gitkeep$
 ^.*\.history
 ^Makefile$
-^.*\.o
 ^.*\.out
 ^pkgdown$
 ^recreate-configure\.sh$
-^.*\.so
 ^src/build/.*$
 ^src/CMakeLists.txt$
 ^src/external_libs/compute/.appveyor.yml$

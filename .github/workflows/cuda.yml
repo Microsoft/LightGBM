@@ -1,96 +1,96 @@
-name: CUDA Version
+# name: CUDA Version
 
-on:
-  push:
-    branches:
-    - master
-  pull_request:
-    branches:
-    - master
+# on:
+#   push:
+#     branches:
+#     - master
+#   pull_request:
+#     branches:
+#     - master
 
-env:
-  github_actions: 'true'
-  os_name: linux
-  task: cuda
-  conda_env: test-env
+# env:
+#   github_actions: 'true'
+#   os_name: linux
+#   task: cuda
+#   conda_env: test-env
 
-jobs:
-  test:
-    name: cuda ${{ matrix.cuda_version }} ${{ matrix.method }} (linux, ${{ matrix.compiler }}, Python ${{ matrix.python_version }})
-    runs-on: [self-hosted, linux]
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - method: source
-            compiler: gcc
-            python_version: 3.7
-            cuda_version: "11.2.2"
-          - method: pip
-            compiler: clang
-            python_version: 3.8
-            cuda_version: "10.0"
-          - method: wheel
-            compiler: gcc
-            python_version: 3.9
-            cuda_version: "9.0"
-    steps:
-      - name: Setup or update software on host machine
-        run: |
-            sudo apt-get update
-            sudo apt-get install --no-install-recommends -y \
-                apt-transport-https \
-                ca-certificates \
-                curl \
-                git \
-                gnupg-agent \
-                software-properties-common
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
-            sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" -y
-            curl -sL https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-            curl -sL https://nvidia.github.io/nvidia-docker/$(. /etc/os-release;echo $ID$VERSION_ID)/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
-            sudo apt-get update
-            sudo apt-get install --no-install-recommends -y \
-                containerd.io \
-                docker-ce \
-                docker-ce-cli \
-                nvidia-docker2
-            sudo chmod a+rw /var/run/docker.sock
-            sudo systemctl restart docker
-      - name: Remove old folder with repository
-        run: sudo rm -rf $GITHUB_WORKSPACE
-      - name: Checkout repository
-        uses: actions/checkout@v1
-        with:
-          fetch-depth: 5
-          submodules: true
-      - name: Setup and run tests
-        run: |
-            export ROOT_DOCKER_FOLDER=/LightGBM
-            cat > docker.env <<EOF
-            GITHUB_ACTIONS=${{ env.github_actions }}
-            OS_NAME=${{ env.os_name }}
-            COMPILER=${{ matrix.compiler }}
-            TASK=${{ env.task }}
-            METHOD=${{ matrix.method }}
-            CONDA_ENV=${{ env.conda_env }}
-            PYTHON_VERSION=${{ matrix.python_version }}
-            BUILD_DIRECTORY=$ROOT_DOCKER_FOLDER
-            LGB_VER=$(head -n 1 VERSION.txt)
-            EOF
-            cat > docker-script.sh <<EOF
-            export CONDA=\$HOME/miniconda
-            export PATH=\$CONDA/bin:\$PATH
-            nvidia-smi
-            $ROOT_DOCKER_FOLDER/.ci/setup.sh || exit -1
-            $ROOT_DOCKER_FOLDER/.ci/test.sh || exit -1
-            EOF
-            docker run --env-file docker.env -v "$GITHUB_WORKSPACE":"$ROOT_DOCKER_FOLDER" --rm --gpus all "nvcr.io/nvidia/cuda:${{ matrix.cuda_version }}-devel" /bin/bash $ROOT_DOCKER_FOLDER/docker-script.sh
-  all-successful:
-    # https://github.community/t/is-it-possible-to-require-all-github-actions-tasks-to-pass-without-enumerating-them/117957/4?u=graingert
-    runs-on: ubuntu-latest
-    needs: [test]
-    steps:
-    - name: Note that all tests succeeded
-      run: echo "🎉"
+# jobs:
+#   test:
+#     name: cuda ${{ matrix.cuda_version }} ${{ matrix.method }} (linux, ${{ matrix.compiler }}, Python ${{ matrix.python_version }})
+#     runs-on: [self-hosted, linux]
+#     timeout-minutes: 60
+#     strategy:
+#       fail-fast: false
+#       matrix:
+#         include:
+#           - method: source
+#             compiler: gcc
+#             python_version: 3.7
+#             cuda_version: "11.2.2"
+#           - method: pip
+#             compiler: clang
+#             python_version: 3.8
+#             cuda_version: "10.0"
+#           - method: wheel
+#             compiler: gcc
+#             python_version: 3.9
+#             cuda_version: "9.0"
+#     steps:
+#       - name: Setup or update software on host machine
+#         run: |
+#             sudo apt-get update
+#             sudo apt-get install --no-install-recommends -y \
+#                 apt-transport-https \
+#                 ca-certificates \
+#                 curl \
+#                 git \
+#                 gnupg-agent \
+#                 software-properties-common
+#             curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+#             sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" -y
+#             curl -sL https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+#             curl -sL https://nvidia.github.io/nvidia-docker/$(. /etc/os-release;echo $ID$VERSION_ID)/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+#             sudo apt-get update
+#             sudo apt-get install --no-install-recommends -y \
+#                 containerd.io \
+#                 docker-ce \
+#                 docker-ce-cli \
+#                 nvidia-docker2
+#             sudo chmod a+rw /var/run/docker.sock
+#             sudo systemctl restart docker
+#       - name: Remove old folder with repository
+#         run: sudo rm -rf $GITHUB_WORKSPACE
+#       - name: Checkout repository
+#         uses: actions/checkout@v1
+#         with:
+#           fetch-depth: 5
+#           submodules: true
+#       - name: Setup and run tests
+#         run: |
+#             export ROOT_DOCKER_FOLDER=/LightGBM
+#             cat > docker.env <<EOF
+#             GITHUB_ACTIONS=${{ env.github_actions }}
+#             OS_NAME=${{ env.os_name }}
+#             COMPILER=${{ matrix.compiler }}
+#             TASK=${{ env.task }}
+#             METHOD=${{ matrix.method }}
+#             CONDA_ENV=${{ env.conda_env }}
+#             PYTHON_VERSION=${{ matrix.python_version }}
+#             BUILD_DIRECTORY=$ROOT_DOCKER_FOLDER
+#             LGB_VER=$(head -n 1 VERSION.txt)
+#             EOF
+#             cat > docker-script.sh <<EOF
+#             export CONDA=\$HOME/miniconda
+#             export PATH=\$CONDA/bin:\$PATH
+#             nvidia-smi
+#             $ROOT_DOCKER_FOLDER/.ci/setup.sh || exit -1
+#             $ROOT_DOCKER_FOLDER/.ci/test.sh || exit -1
+#             EOF
+#             docker run --env-file docker.env -v "$GITHUB_WORKSPACE":"$ROOT_DOCKER_FOLDER" --rm --gpus all "nvcr.io/nvidia/cuda:${{ matrix.cuda_version }}-devel" /bin/bash $ROOT_DOCKER_FOLDER/docker-script.sh
+#   all-successful:
+#     # https://github.community/t/is-it-possible-to-require-all-github-actions-tasks-to-pass-without-enumerating-them/117957/4?u=graingert
+#     runs-on: ubuntu-latest
+#     needs: [test]
+#     steps:
+#     - name: Note that all tests succeeded
+#       run: echo "🎉"
