@@ -30,6 +30,7 @@ OBJECTS = \
     io/bin.o \
     io/config.o \
     io/config_auto.o \
+    io/category_encoding_provider.o \
     io/dataset.o \
     io/dataset_loader.o \
     io/file_io.o \

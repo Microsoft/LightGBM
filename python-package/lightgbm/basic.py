@@ -450,8 +450,22 @@ def convert_from_sliced_object(data):
     return data
 
 
+def c_float_label(label):
+    """Get pointer of float numpy array / list for label."""
+    if label is None:
+        ptr_label = None
+        type_label = C_API_DTYPE_FLOAT32
+    else:
+        label = list_to_1d_numpy(_label_from_pandas(label), name="label")
+        label = convert_from_sliced_object(label)
+        assert label.flags.c_contiguous
+        ptr_label = label.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+        type_label = C_API_DTYPE_FLOAT32
+    return ptr_label, type_label
+
+
 def c_float_array(data):
-    """Get pointer of float numpy array / list."""
+    """Get pointer of float numpy array / list for data."""
     if is_1d_list(data):
         data = np.array(data, copy=False)
     if is_numpy_1d_array(data):
@@ -819,6 +833,8 @@ class _InnerPredictor:
         # create numpy array from output arrays
         data_indices_len = out_shape[0]
         indptr_len = out_shape[1]
+        nrow = out_shape[2]
+        ncol = out_shape[3]
         if indptr_type == C_API_DTYPE_INT32:
             out_indptr = cint32_array_to_numpy(out_ptr_indptr, indptr_len)
         elif indptr_type == C_API_DTYPE_INT64:
@@ -833,7 +849,10 @@ class _InnerPredictor:
             raise TypeError("Expected float32 or float64 type for data")
         out_indices = cint32_array_to_numpy(out_ptr_indices, data_indices_len)
         # break up indptr based on number of rows (note more than one matrix in multiclass case)
-        per_class_indptr_shape = cs.indptr.shape[0]
+        if is_csr:
+            per_class_indptr_shape = cs.indptr.shape[0]
+        else:
+            per_class_indptr_shape = ncol + 1
         # for CSC there is extra column added
         if not is_csr:
             per_class_indptr_shape += 1
@@ -847,7 +866,7 @@ class _InnerPredictor:
             cs_data = out_data[offset + cs_indptr[0]:offset + matrix_indptr_len]
             offset += matrix_indptr_len
             # same shape as input csr or csc matrix except extra column for expected value
-            cs_shape = [cs.shape[0], cs.shape[1] + 1]
+            cs_shape = [nrow, ncol + 1]
             # note: make sure we copy data as it will be deallocated next
             if is_csr:
                 cs_output_matrices.append(scipy.sparse.csr_matrix((cs_data, cs_indices, cs_indptr), cs_shape))
@@ -911,7 +930,7 @@ class _InnerPredictor:
                 out_ptr_data = ctypes.POINTER(ctypes.c_float)()
             else:
                 out_ptr_data = ctypes.POINTER(ctypes.c_double)()
-            out_shape = np.zeros(2, dtype=np.int64)
+            out_shape = np.zeros(4, dtype=np.int64)
             _safe_call(_LIB.LGBM_BoosterPredictSparseOutput(
                 self.handle,
                 ptr_indptr,
@@ -969,7 +988,7 @@ class _InnerPredictor:
                 out_ptr_data = ctypes.POINTER(ctypes.c_float)()
             else:
                 out_ptr_data = ctypes.POINTER(ctypes.c_double)()
-            out_shape = np.zeros(2, dtype=np.int64)
+            out_shape = np.zeros(4, dtype=np.int64)
             _safe_call(_LIB.LGBM_BoosterPredictSparseOutput(
                 self.handle,
                 ptr_indptr,
@@ -1050,7 +1069,7 @@ class Dataset:
     def __init__(self, data, label=None, reference=None,
                  weight=None, group=None, init_score=None, silent=False,
                  feature_name='auto', categorical_feature='auto', params=None,
-                 free_raw_data=True):
+                 free_raw_data=True, category_encoders=None):
         """Initialize Dataset.
 
         Parameters
@@ -1090,6 +1109,22 @@ class Dataset:
             Other parameters for Dataset.
         free_raw_data : bool, optional (default=True)
             If True, raw data is freed after constructing inner Dataset.
+        category_encoders : string, optional (default='raw')
+            ways to encode categorical features into numerical values, separated by comma, currently supports:
+            1. target[:prior], where `prior` is a real number used to smooth the calculation of encoded values
+            target[:prior] is calculated as: (sum_label + prior * prior_weight) / (count + prior_weight)
+            if the prior value is missing, use the label mean of training data as default prior
+            2. count, the count of the categorical feature value in the dataset
+            3. raw, the dynamic encoding method which encodes categorical values with sum_gradients / sum_hessians per leaf per iteration
+            for example "target:0.5,target:0.0:count will convert each categorical feature into 3 numerical features, with the 3 different ways separated by ','.
+            when category_encoders is empty, we use `raw` by default
+            the numbers and names of features will be changed when category_encoders is not `raw`
+            suppose the original name of a feature is `NAME`, the naming rules of its target and count encoding features are:
+            1. for the encoder `target` (without user specified prior), it will be named as `NAME_label_mean_prior_target_encoding_<label_mean>`
+            2. for the encoder `target:<prior>` (with user specified prior), it will be named as `NAME_target_encoding_<prior>`
+            3. for the encoder `count`, it will be named as `NAME_count_encoding`
+            Use get_feature_name() of python Booster or feature_name() of python Dataset after training to get the actual feature names used when category_encoders is set.
+            When category_encoders==None, it is equivalent to 'raw'.
         """
         self.handle = None
         self.data = data
@@ -1100,8 +1135,13 @@ class Dataset:
         self.init_score = init_score
         self.silent = silent
         self.feature_name = feature_name
+
         self.categorical_feature = categorical_feature
-        self.params = deepcopy(params)
+        self.category_encoders = category_encoders
+        self._extract_categorical_info_from_params(params)
+
+        self.params = {} if params is None else deepcopy(params)
+
         self.free_raw_data = free_raw_data
         self.used_indices = None
         self.need_slice = True
@@ -1118,6 +1158,31 @@ class Dataset:
         except AttributeError:
             pass
 
+    def _extract_categorical_info_from_params(self, params):
+        if params is not None:
+            categorical_feature_from_params = None
+            category_encoders_from_params = None
+            if isinstance(params, dict):
+                for cat_alias in _ConfigAliases.get("categorical_feature"):
+                    if cat_alias in params:
+                        categorical_feature_from_params = params.pop(cat_alias)
+                if "category_encoders" in params:
+                    category_encoders_from_params = params.pop("category_encoders")
+            if categorical_feature_from_params is not None:
+                if self.categorical_feature == 'auto' or self.categorical_feature is None:
+                    if isinstance(categorical_feature_from_params, int):
+                        categorical_feature_from_params = [categorical_feature_from_params]
+                    self.categorical_feature = categorical_feature_from_params
+                elif self.categorical_feature != categorical_feature_from_params:
+                    warnings.warn("categorical_feature {0} in params will be ignored, using {1}".format(
+                        categorical_feature_from_params, self.categorical_feature))
+            if category_encoders_from_params is not None:
+                if self.category_encoders is None:
+                    self.category_encoders = category_encoders_from_params
+                elif self.category_encoders != category_encoders_from_params:
+                    warnings.warn("category_encoders {0} in params will be ignored, using {1}".format(
+                        category_encoders_from_params, self.category_encoders))
+
     def get_params(self):
         """Get the used parameters in the Dataset.
 
@@ -1130,6 +1195,7 @@ class Dataset:
             # no min_data, nthreads and verbose in this function
             dataset_params = _ConfigAliases.get("bin_construct_sample_cnt",
                                                 "categorical_feature",
+                                                "category_encoders",
                                                 "data_random_seed",
                                                 "enable_bundle",
                                                 "feature_pre_filter",
@@ -1201,6 +1267,13 @@ class Dataset:
             return self
         if reference is not None:
             self.pandas_categorical = reference.pandas_categorical
+            if self.category_encoders is not None and self.category_encoders != reference.category_encoders:
+                warnings.warn("'category_encoders' set in validation data is overridden by that of training data.")
+            self.category_encoders = reference.category_encoders
+            if self.categorical_feature != 'auto' and self.categorical_feature is not None and\
+                    self.categorical_feature != reference.categorical_feature:
+                warnings.warn("'categorical_feature' set in validation data is overridden by that of training data.")
+            self.categorical_feature = reference.categorical_feature
             categorical_feature = reference.categorical_feature
         data, feature_name, categorical_feature, self.pandas_categorical = _data_from_pandas(data,
                                                                                              feature_name,
@@ -1239,7 +1312,11 @@ class Dataset:
                         _log_warning(f'{cat_alias} in param dict is overridden.')
                         params.pop(cat_alias, None)
                 params['categorical_column'] = sorted(categorical_indices)
-
+        if self.category_encoders is not None:
+            if "category_encoders" in params:
+                warnings.warn("category_encoders in param dict is overridden.")
+                params.pop("category_encoders", None)
+            params["category_encoders"] = self.category_encoders
         params_str = param_dict_to_str(params)
         self.params = params
         # process for reference dataset
@@ -1257,19 +1334,19 @@ class Dataset:
                 ref_dataset,
                 ctypes.byref(self.handle)))
         elif isinstance(data, scipy.sparse.csr_matrix):
-            self.__init_from_csr(data, params_str, ref_dataset)
+            self.__init_from_csr(data, label, params_str, ref_dataset)
         elif isinstance(data, scipy.sparse.csc_matrix):
-            self.__init_from_csc(data, params_str, ref_dataset)
+            self.__init_from_csc(data, label, params_str, ref_dataset)
         elif isinstance(data, np.ndarray):
-            self.__init_from_np2d(data, params_str, ref_dataset)
+            self.__init_from_np2d(data, label, params_str, ref_dataset)
         elif isinstance(data, list) and len(data) > 0 and all(isinstance(x, np.ndarray) for x in data):
-            self.__init_from_list_np2d(data, params_str, ref_dataset)
+            self.__init_from_list_np2d(data, label, params_str, ref_dataset)
         elif isinstance(data, dt_DataTable):
-            self.__init_from_np2d(data.to_numpy(), params_str, ref_dataset)
+            self.__init_from_np2d(data.to_numpy(), label, params_str, ref_dataset)
         else:
             try:
                 csr = scipy.sparse.csr_matrix(data)
-                self.__init_from_csr(csr, params_str, ref_dataset)
+                self.__init_from_csr(csr, label, params_str, ref_dataset)
             except BaseException:
                 raise TypeError(f'Cannot initialize Dataset from {type(data).__name__}')
         if label is not None:
@@ -1291,7 +1368,7 @@ class Dataset:
         # set feature names
         return self.set_feature_name(feature_name)
 
-    def __init_from_np2d(self, mat, params_str, ref_dataset):
+    def __init_from_np2d(self, mat, label, params_str, ref_dataset):
         """Initialize data from a 2-D numpy matrix."""
         if len(mat.shape) != 2:
             raise ValueError('Input numpy.ndarray must be 2 dimensional')
@@ -1303,8 +1380,10 @@ class Dataset:
             data = np.array(mat.reshape(mat.size), dtype=np.float32)
 
         ptr_data, type_ptr_data, _ = c_float_array(data)
+        ptr_label, _ = c_float_label(label)
         _safe_call(_LIB.LGBM_DatasetCreateFromMat(
             ptr_data,
+            ptr_label,
             ctypes.c_int(type_ptr_data),
             ctypes.c_int32(mat.shape[0]),
             ctypes.c_int32(mat.shape[1]),
@@ -1314,7 +1393,7 @@ class Dataset:
             ctypes.byref(self.handle)))
         return self
 
-    def __init_from_list_np2d(self, mats, params_str, ref_dataset):
+    def __init_from_list_np2d(self, mats, label, params_str, ref_dataset):
         """Initialize data from a list of 2-D numpy matrices."""
         ncol = mats[0].shape[1]
         nrow = np.zeros((len(mats),), np.int32)
@@ -1347,10 +1426,13 @@ class Dataset:
             type_ptr_data = chunk_type_ptr_data
             holders.append(holder)
 
+        ptr_label, _ = c_float_label(label)
+
         self.handle = ctypes.c_void_p()
         _safe_call(_LIB.LGBM_DatasetCreateFromMats(
             ctypes.c_int32(len(mats)),
             ctypes.cast(ptr_data, ctypes.POINTER(ctypes.POINTER(ctypes.c_double))),
+            ptr_label,
             ctypes.c_int(type_ptr_data),
             nrow.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
             ctypes.c_int32(ncol),
@@ -1360,7 +1442,7 @@ class Dataset:
             ctypes.byref(self.handle)))
         return self
 
-    def __init_from_csr(self, csr, params_str, ref_dataset):
+    def __init_from_csr(self, csr, label, params_str, ref_dataset):
         """Initialize data from a CSR matrix."""
         if len(csr.indices) != len(csr.data):
             raise ValueError(f'Length mismatch: {len(csr.indices)} vs {len(csr.data)}')
@@ -1368,6 +1450,7 @@ class Dataset:
 
         ptr_indptr, type_ptr_indptr, __ = c_int_array(csr.indptr)
         ptr_data, type_ptr_data, _ = c_float_array(csr.data)
+        ptr_label, _ = c_float_label(label)
 
         assert csr.shape[1] <= MAX_INT32
         csr_indices = csr.indices.astype(np.int32, copy=False)
@@ -1377,6 +1460,7 @@ class Dataset:
             ctypes.c_int(type_ptr_indptr),
             csr_indices.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
             ptr_data,
+            ptr_label,
             ctypes.c_int(type_ptr_data),
             ctypes.c_int64(len(csr.indptr)),
             ctypes.c_int64(len(csr.data)),
@@ -1386,7 +1470,7 @@ class Dataset:
             ctypes.byref(self.handle)))
         return self
 
-    def __init_from_csc(self, csc, params_str, ref_dataset):
+    def __init_from_csc(self, csc, label, params_str, ref_dataset):
         """Initialize data from a CSC matrix."""
         if len(csc.indices) != len(csc.data):
             raise ValueError(f'Length mismatch: {len(csc.indices)} vs {len(csc.data)}')
@@ -1394,6 +1478,8 @@ class Dataset:
 
         ptr_indptr, type_ptr_indptr, __ = c_int_array(csc.indptr)
         ptr_data, type_ptr_data, _ = c_float_array(csc.data)
+
+        ptr_label, _ = c_float_label(label)
 
         assert csc.shape[0] <= MAX_INT32
         csc_indices = csc.indices.astype(np.int32, copy=False)
@@ -1403,6 +1489,7 @@ class Dataset:
             ctypes.c_int(type_ptr_indptr),
             csc_indices.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
             ptr_data,
+            ptr_label,
             ctypes.c_int(type_ptr_data),
             ctypes.c_int64(len(csc.indptr)),
             ctypes.c_int64(len(csc.data)),
@@ -1423,6 +1510,10 @@ class Dataset:
         if self.handle is None:
             if self.reference is not None:
                 reference_params = self.reference.get_params()
+                reference_params.pop("category_encoders", None)
+                for cat_alias in _ConfigAliases.get("categorical_feature"):
+                    reference_params.pop(cat_alias, None)
+                self._extract_categorical_info_from_params(self.params)
                 if self.get_params() != reference_params:
                     _log_warning('Overriding the parameters from Reference Dataset.')
                     self._update_params(reference_params)
@@ -1459,11 +1550,13 @@ class Dataset:
                         self._set_init_score_by_predictor(self._predictor, self.data, used_indices)
             else:
                 # create train
+                self._extract_categorical_info_from_params(self.params)
                 self._lazy_init(self.data, label=self.label,
                                 weight=self.weight, group=self.group,
                                 init_score=self.init_score, predictor=self._predictor,
                                 silent=self.silent, feature_name=self.feature_name,
-                                categorical_feature=self.categorical_feature, params=self.params)
+                                categorical_feature=self.categorical_feature,
+                                params=self.params)
             if self.free_raw_data:
                 self.data = None
         return self
@@ -1688,6 +1781,10 @@ class Dataset:
         """
         if self.categorical_feature == categorical_feature:
             return self
+        if categorical_feature is None:
+            return self
+        if categorical_feature == 'auto' and self.categorical_feature is not None:
+            return self
         if self.data is not None:
             if self.categorical_feature is None:
                 self.categorical_feature = categorical_feature
@@ -1702,6 +1799,50 @@ class Dataset:
                 return self._free_handle()
         else:
             raise LightGBMError("Cannot set categorical feature after freed raw data, "
+                                "set free_raw_data=False when construct Dataset to avoid this.")
+
+    def set_category_encoders(self, category_encoders):
+        """Set categorical feature converters.
+
+        Parameters
+        ----------
+        category_encoders : string, optional (default='raw')
+            ways to encode categorical features into numerical values, separated by comma, currently supports:
+            1. target[:prior], where `prior` is a real number used to smooth the calculation of encoded values
+            target[:prior] is calculated as: (sum_label + prior * prior_weight) / (count + prior_weight)
+            if the prior value is missing, use the label mean of training data as default prior
+            2. count, the count of the categorical feature value in the dataset
+            3. raw, the dynamic encoding method which encodes categorical values with sum_gradients / sum_hessians per leaf per iteration
+            for example "target:0.5,target:0.0:count will convert each categorical feature into 3 numerical features, with the 3 different ways separated by ','.
+            when category_encoders is empty, we use `raw` by default
+            the numbers and names of features will be changed when category_encoders is not `raw`
+            suppose the original name of a feature is `NAME`, the naming rules of its target and count encoding features are:
+            1. for the encoder `target` (without user specified prior), it will be named as `NAME_label_mean_prior_target_encoding_<label_mean>`
+            2. for the encoder `target:<prior>` (with user specified prior), it will be named as `NAME_target_encoding_<prior>`
+            3. for the encoder `count`, it will be named as `NAME_count_encoding`
+            Use get_feature_name() of python Booster or feature_name() of python Dataset after training to get the actual feature names used when category_encoders is set.
+            When category_encoders==None, it is equivalent to 'raw'.
+
+        Returns
+        -------
+        self : Dataset
+            Dataset with set categorical converters
+        """
+        if category_encoders is None:
+            return self
+        if self.category_encoders == category_encoders:
+            return self
+        if self.data is not None:
+            if self.category_encoders is None:
+                self.category_encoders = category_encoders
+                return self._free_handle()
+            else:
+                warnings.warn('category_encoders in Dataset constructor is overridden.\n'
+                              'New category_encoders is {}'.format(category_encoders))
+                self.category_encoders = category_encoders
+                return self._free_handle()
+        else:
+            raise LightGBMError("Cannot set categorical feature converters after freed raw data, "
                                 "set free_raw_data=False when construct Dataset to avoid this.")
 
     def _set_predictor(self, predictor):
@@ -1738,8 +1879,14 @@ class Dataset:
         self : Dataset
             Dataset with set reference.
         """
-        self.set_categorical_feature(reference.categorical_feature) \
-            .set_feature_name(reference.feature_name) \
+        if self.categorical_feature is not None and self.categorical_feature != 'auto' and \
+                self.categorical_feature != reference.categorical_feature:
+            warnings.warn("'categorical_feature' set in validation data is overridden by that of training data.")
+        self.categorical_feature = reference.categorical_feature
+        if self.category_encoders is not None and self.category_encoders != reference.category_encoders:
+            warnings.warn("'category_encoders' set in validation data is overridden by that of training data.")
+        self.category_encoders = reference.category_encoders
+        self.set_feature_name(reference.feature_name) \
             ._set_predictor(reference._predictor)
         # we're done if self and reference share a common upstrem reference
         if self.get_ref_chain().intersection(reference.get_ref_chain()):
@@ -1767,8 +1914,8 @@ class Dataset:
         if feature_name != 'auto':
             self.feature_name = feature_name
         if self.handle is not None and feature_name is not None and feature_name != 'auto':
-            if len(feature_name) != self.num_feature():
-                raise ValueError(f"Length of feature_name({len(feature_name)}) and num_feature({self.num_feature()}) don't match")
+            if len(feature_name) != self.num_original_feature():
+                raise ValueError(f"Length of feature_name({len(feature_name)}) and num_feature({self.num_original_feature()}) don't match")
             c_feature_name = [c_str(name) for name in feature_name]
             _safe_call(_LIB.LGBM_DatasetSetFeatureNames(
                 self.handle,
@@ -2011,6 +2158,22 @@ class Dataset:
             ret = ctypes.c_int(0)
             _safe_call(_LIB.LGBM_DatasetGetNumFeature(self.handle,
                                                       ctypes.byref(ret)))
+            return ret.value
+        else:
+            raise LightGBMError("Cannot get num_feature before construct dataset")
+
+    def num_original_feature(self):
+        """Get the number of original columns (features) in the Dataset.
+
+        Returns
+        -------
+        number_of_columns : int
+            The number of columns (features) in the Dataset.
+        """
+        if self.handle is not None:
+            ret = ctypes.c_int()
+            _safe_call(_LIB.LGBM_DatasetGetNumOriginalFeature(self.handle,
+                                                              ctypes.byref(ret)))
             return ret.value
         else:
             raise LightGBMError("Cannot get num_feature before construct dataset")

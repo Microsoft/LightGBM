@@ -17,7 +17,8 @@ def train(params, train_set, num_boost_round=100,
           feature_name='auto', categorical_feature='auto',
           early_stopping_rounds=None, evals_result=None,
           verbose_eval=True, learning_rates=None,
-          keep_training_booster=False, callbacks=None):
+          keep_training_booster=False, callbacks=None,
+          category_encoders=None):
     """Perform the training with given parameters.
 
     Parameters
@@ -135,6 +136,22 @@ def train(params, train_set, num_boost_round=100,
     callbacks : list of callables or None, optional (default=None)
         List of callback functions that are applied at each iteration.
         See Callbacks in Python API for more information.
+    category_encoders : string, optional (default=None)
+        ways to encode categorical features into numerical values, separated by comma, currently supports:
+        1. target[:prior], where `prior` is a real number used to smooth the calculation of encoded values
+        target[:prior] is calculated as: (sum_label + prior * prior_weight) / (count + prior_weight)
+        if the prior value is missing, use the label mean of training data as default prior
+        2. count, the count of the categorical feature value in the dataset
+        3. raw, the dynamic encoding method which encodes categorical values with sum_gradients / sum_hessians per leaf per iteration
+        for example "target:0.5,target:0.0:count will convert each categorical feature into 3 numerical features, with the 3 different ways separated by ','.
+        when category_encoders is empty, we use `raw` by default
+        the numbers and names of features will be changed when category_encoders is not `raw`
+        suppose the original name of a feature is `NAME`, the naming rules of its target and count encoding features are:
+        1. for the encoder `target` (without user specified prior), it will be named as `NAME_label_mean_prior_target_encoding_<label_mean>`
+        2. for the encoder `target:<prior>` (with user specified prior), it will be named as `NAME_target_encoding_<prior>`
+        3. for the encoder `count`, it will be named as `NAME_count_encoding`
+        Use get_feature_name() of python Booster or feature_name() of python Dataset after training to get the actual feature names used when category_encoders is set.
+        When category_encoders==None, it is equivalent to 'raw'.
 
     Returns
     -------
@@ -175,7 +192,8 @@ def train(params, train_set, num_boost_round=100,
     train_set._update_params(params) \
              ._set_predictor(predictor) \
              .set_feature_name(feature_name) \
-             .set_categorical_feature(categorical_feature)
+             .set_categorical_feature(categorical_feature) \
+             .set_category_encoders(category_encoders)
 
     is_valid_contain_train = False
     train_data_name = "training"
@@ -400,7 +418,7 @@ def cv(params, train_set, num_boost_round=100,
        early_stopping_rounds=None, fpreproc=None,
        verbose_eval=None, show_stdv=True, seed=0,
        callbacks=None, eval_train_metric=False,
-       return_cvbooster=False):
+       return_cvbooster=False, category_encoders=None):
     """Perform the cross-validation with given parameters.
 
     Parameters
@@ -512,6 +530,22 @@ def cv(params, train_set, num_boost_round=100,
         The score of the metric is calculated again after each training step, so there is some impact on performance.
     return_cvbooster : bool, optional (default=False)
         Whether to return Booster models trained on each fold through ``CVBooster``.
+    category_encoders : string, optional (default=None)
+        ways to encode categorical features into numerical values, separated by comma, currently supports:
+        1. target[:prior], where `prior` is a real number used to smooth the calculation of encoded values
+        target[:prior] is calculated as: (sum_label + prior * prior_weight) / (count + prior_weight)
+        if the prior value is missing, use the label mean of training data as default prior
+        2. count, the count of the categorical feature value in the dataset
+        3. raw, the dynamic encoding method which encodes categorical values with sum_gradients / sum_hessians per leaf per iteration
+        for example "target:0.5,target:0.0:count will convert each categorical feature into 3 numerical features, with the 3 different ways separated by ','.
+        when category_encoders is empty, we use `raw` by default
+        the numbers and names of features will be changed when category_encoders is not `raw`
+        suppose the original name of a feature is `NAME`, the naming rules of its target and count encoding features are:
+        1. for the encoder `target` (without user specified prior), it will be named as `NAME_label_mean_prior_target_encoding_<label_mean>`
+        2. for the encoder `target:<prior>` (with user specified prior), it will be named as `NAME_target_encoding_<prior>`
+        3. for the encoder `count`, it will be named as `NAME_count_encoding`
+        Use get_feature_name() of python Booster or feature_name() of python Dataset after training to get the actual feature names used when category_encoders is set.
+        When category_encoders==None, it is equivalent to 'raw'.
 
     Returns
     -------
@@ -560,7 +594,8 @@ def cv(params, train_set, num_boost_round=100,
     train_set._update_params(params) \
              ._set_predictor(predictor) \
              .set_feature_name(feature_name) \
-             .set_categorical_feature(categorical_feature)
+             .set_categorical_feature(categorical_feature) \
+             .set_category_encoders(category_encoders)
 
     results = collections.defaultdict(list)
     cvfolds = _make_n_folds(train_set, folds=folds, nfold=nfold,

@@ -19,9 +19,6 @@
 
 namespace LightGBM {
 
-const char* Dataset::binary_file_token =
-    "______LightGBM_Binary_File_Token______\n";
-
 Dataset::Dataset() {
   data_filename_ = "noname";
   num_data_ = 0;
@@ -734,23 +731,20 @@ void Dataset::CreateValid(const Dataset* dataset) {
   zero_as_missing_ = dataset->zero_as_missing_;
   feature2group_.clear();
   feature2subfeature_.clear();
+  feature_need_push_zeros_ = dataset->feature_need_push_zeros_;
   has_raw_ = dataset->has_raw();
   numeric_feature_map_ = dataset->numeric_feature_map_;
   num_numeric_features_ = dataset->num_numeric_features_;
   // copy feature bin mapper data
-  feature_need_push_zeros_.clear();
   group_bin_boundaries_.clear();
   uint64_t num_total_bin = 0;
   group_bin_boundaries_.push_back(num_total_bin);
   group_feature_start_.resize(num_groups_);
   group_feature_cnt_.resize(num_groups_);
+  // copy feature bin mapper data
   for (int i = 0; i < num_features_; ++i) {
     std::vector<std::unique_ptr<BinMapper>> bin_mappers;
     bin_mappers.emplace_back(new BinMapper(*(dataset->FeatureBinMapper(i))));
-    if (bin_mappers.back()->GetDefaultBin() !=
-        bin_mappers.back()->GetMostFreqBin()) {
-      feature_need_push_zeros_.push_back(i);
-    }
     feature_groups_.emplace_back(new FeatureGroup(&bin_mappers, num_data_));
     feature2group_.push_back(i);
     feature2subfeature_.push_back(0);
@@ -767,6 +761,10 @@ void Dataset::CreateValid(const Dataset* dataset) {
   label_idx_ = dataset->label_idx_;
   real_feature_idx_ = dataset->real_feature_idx_;
   forced_bin_bounds_ = dataset->forced_bin_bounds_;
+  if (dataset->category_encoding_provider() != nullptr) {
+    category_encoding_provider_.reset(CategoryEncodingProvider::RecoverFromModelString(
+      dataset->category_encoding_provider()->DumpToString()));
+  }
 }
 
 void Dataset::ReSize(data_size_t num_data) {
@@ -954,8 +952,8 @@ void Dataset::SaveBinaryFile(const char* bin_filename) {
       Log::Fatal("Cannot write binary data to %s ", bin_filename);
     }
     Log::Info("Saving data to binary file %s", bin_filename);
-    size_t size_of_token = std::strlen(binary_file_token);
-    writer->AlignedWrite(binary_file_token, size_of_token);
+    size_t size_of_token = std::strlen(Parser::binary_file_token);
+    writer->AlignedWrite(Parser::binary_file_token, size_of_token);
     // get size of header
     size_t size_of_header =
         VirtualFileWriter::AlignedSize(sizeof(num_data_)) +
@@ -1045,7 +1043,15 @@ void Dataset::SaveBinaryFile(const char* bin_filename) {
       // write feature
       feature_groups_[i]->SaveBinaryToFile(writer.get());
     }
-
+    if (category_encoding_provider_ != nullptr) {
+      const std::string category_encoding_provider_str = category_encoding_provider_->DumpToString();
+      const size_t category_encoding_provider_str_size_in_bytes = category_encoding_provider_str.size() * sizeof(char);
+      writer->Write(&category_encoding_provider_str_size_in_bytes, sizeof(category_encoding_provider_str_size_in_bytes));
+      writer->Write(category_encoding_provider_str.c_str(), category_encoding_provider_str_size_in_bytes);
+    } else {
+      const size_t category_encoding_provider_str_size_in_bytes = 0;
+      writer->Write(&category_encoding_provider_str_size_in_bytes, sizeof(category_encoding_provider_str_size_in_bytes));
+    }
     // write raw data; use row-major order so we can read row-by-row
     if (has_raw_) {
       for (int i = 0; i < num_data_; ++i) {

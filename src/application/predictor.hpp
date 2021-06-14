@@ -172,6 +172,11 @@ class Predictor {
     if (parser == nullptr) {
       Log::Fatal("Could not recognize the data format of data file %s", data_filename);
     }
+    if (boosting_->category_encoding_provider() != nullptr) {
+      std::unique_ptr<Parser> inner_parser(nullptr);
+      inner_parser.reset(parser.release());
+      parser.reset(new CategoryEncodingParser(inner_parser.release(), boosting_->category_encoding_provider(), true));
+    }
     if (!header && !disable_shape_check && parser->NumFeatures() != boosting_->MaxFeatureIdx() + 1) {
       Log::Fatal("The number of features in data (%d) is not the same as it was in training data (%d).\n" \
                  "You can set ``predict_disable_shape_check=true`` to discard this error, but please be aware what you are doing.", parser->NumFeatures(), boosting_->MaxFeatureIdx() + 1);

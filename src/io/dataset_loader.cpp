@@ -6,6 +6,7 @@
 
 #include <LightGBM/network.h>
 #include <LightGBM/utils/array_args.h>
+#include <LightGBM/utils/common.h>
 #include <LightGBM/utils/json11.h>
 #include <LightGBM/utils/log.h>
 #include <LightGBM/utils/openmp_wrapper.h>
@@ -17,14 +18,14 @@ namespace LightGBM {
 
 using json11::Json;
 
-DatasetLoader::DatasetLoader(const Config& io_config, const PredictFunction& predict_fun, int num_class, const char* filename)
-  :config_(io_config), random_(config_.data_random_seed), predict_fun_(predict_fun), num_class_(num_class) {
+DatasetLoader::DatasetLoader(Config* io_config, const PredictFunction& predict_fun, int num_class, const char* filename)
+  :config_(*io_config), random_(config_.data_random_seed), predict_fun_(predict_fun), num_class_(num_class) {
   label_idx_ = 0;
   weight_idx_ = NO_SPECIFIC;
   group_idx_ = NO_SPECIFIC;
   SetHeader(filename);
   store_raw_ = false;
-  if (io_config.linear_tree) {
+  if (io_config->linear_tree) {
     store_raw_ = true;
   }
 }
@@ -179,7 +180,8 @@ void CheckSampleSize(size_t sample_cnt, size_t num_data) {
   }
 }
 
-Dataset* DatasetLoader::LoadFromFile(const char* filename, int rank, int num_machines) {
+Dataset* DatasetLoader::LoadFromFile(const char* filename, int rank, int num_machines,
+  CategoryEncodingProvider* category_encoding_provider) {
   // don't support query id in data file when using distributed training
   if (num_machines > 1 && !config_.pre_partition) {
     if (group_idx_ > 0) {
@@ -193,8 +195,10 @@ Dataset* DatasetLoader::LoadFromFile(const char* filename, int rank, int num_mac
   }
   data_size_t num_global_data = 0;
   std::vector<data_size_t> used_data_indices;
-  auto bin_filename = CheckCanLoadFromBin(filename);
+
+  auto bin_filename = Parser::CheckCanLoadFromBin(filename);
   bool is_load_from_binary = false;
+
   if (bin_filename.size() == 0) {
     auto parser = std::unique_ptr<Parser>(Parser::CreateParser(filename, config_.header, 0, label_idx_,
                                                                config_.precise_float_parser));
@@ -206,14 +210,36 @@ Dataset* DatasetLoader::LoadFromFile(const char* filename, int rank, int num_mac
     dataset->metadata_.Init(filename);
     if (!config_.two_round) {
       // read data to memory
-      auto text_data = LoadTextDataToMemory(filename, dataset->metadata_, rank, num_machines, &num_global_data, &used_data_indices);
+      if (category_encoding_provider != nullptr) {
+        category_encoding_provider->InitFromParser(&config_, parser.release(), num_machines, &categorical_features_);
+      }
+      auto text_data = LoadTextDataToMemory(filename, dataset->metadata_, rank, num_machines,
+        &num_global_data, &used_data_indices, category_encoding_provider);
+      if (category_encoding_provider != nullptr) {
+        Parser* parser_ptr = category_encoding_provider->FinishProcess(num_machines, &config_);
+        if (category_encoding_provider->GetNumCatConverters() == 0) {
+          category_encoding_provider = nullptr;
+          parser.reset(parser_ptr);
+        } else {
+          parser.reset(new CategoryEncodingParser(parser_ptr, category_encoding_provider, false));
+        }
+      }
       dataset->num_data_ = static_cast<data_size_t>(text_data.size());
       // sample data
-      auto sample_data = SampleTextDataFromMemory(text_data);
+      std::vector<std::string> sample_data;
+      std::vector<data_size_t> sampled_indices;
+      if (category_encoding_provider == nullptr) {
+        sample_data = SampleTextDataFromMemory<false>(text_data, &sampled_indices);
+      } else {
+        sample_data = SampleTextDataFromMemory<true>(text_data, &sampled_indices);
+        if (category_encoding_provider != nullptr) {
+          category_encoding_provider->ExtendFeatureNames(&feature_names_);
+        }
+      }
       CheckSampleSize(sample_data.size(),
                       static_cast<size_t>(dataset->num_data_));
       // construct feature bin mappers
-      ConstructBinMappersFromTextData(rank, num_machines, sample_data, parser.get(), dataset.get());
+      ConstructBinMappersFromTextData(rank, num_machines, sample_data, parser.get(), dataset.get(), sampled_indices);
       if (dataset->has_raw()) {
         dataset->ResizeRaw(dataset->num_data_);
       }
@@ -224,7 +250,22 @@ Dataset* DatasetLoader::LoadFromFile(const char* filename, int rank, int num_mac
       text_data.clear();
     } else {
       // sample data from file
-      auto sample_data = SampleTextDataFromFile(filename, dataset->metadata_, rank, num_machines, &num_global_data, &used_data_indices);
+      std::vector<std::string> sample_data;
+      std::vector<data_size_t> sampled_indices;
+      if (category_encoding_provider != nullptr) {
+        category_encoding_provider->InitFromParser(&config_, parser.release(), num_machines, &categorical_features_);
+      }
+      sample_data = SampleTextDataFromFile(filename, dataset->metadata_, rank, num_machines,
+        &num_global_data, &used_data_indices, &sampled_indices, category_encoding_provider);
+      if (category_encoding_provider != nullptr) {
+        Parser* parser_ptr = category_encoding_provider->FinishProcess(num_machines, &config_);
+        if (category_encoding_provider->GetNumCatConverters() == 0) {
+          category_encoding_provider = nullptr;
+          parser.reset(parser_ptr);
+        } else {
+          parser.reset(new CategoryEncodingParser(parser_ptr, category_encoding_provider, false));
+        }
+      }
       if (used_data_indices.size() > 0) {
         dataset->num_data_ = static_cast<data_size_t>(used_data_indices.size());
       } else {
@@ -233,7 +274,7 @@ Dataset* DatasetLoader::LoadFromFile(const char* filename, int rank, int num_mac
       CheckSampleSize(sample_data.size(),
                       static_cast<size_t>(dataset->num_data_));
       // construct feature bin mappers
-      ConstructBinMappersFromTextData(rank, num_machines, sample_data, parser.get(), dataset.get());
+      ConstructBinMappersFromTextData(rank, num_machines, sample_data, parser.get(), dataset.get(), sampled_indices);
       if (dataset->has_raw()) {
         dataset->ResizeRaw(dataset->num_data_);
       }
@@ -242,6 +283,9 @@ Dataset* DatasetLoader::LoadFromFile(const char* filename, int rank, int num_mac
       Log::Info("Making second pass...");
       // extract features
       ExtractFeaturesFromFile(filename, parser.get(), used_data_indices, dataset.get());
+    }
+    if (category_encoding_provider != nullptr) {
+      dataset->SetCategoryEncodingProvider(CategoryEncodingProvider::RecoverFromModelString(category_encoding_provider->DumpToString()));
     }
   } else {
     // load data from binary file
@@ -252,7 +296,9 @@ Dataset* DatasetLoader::LoadFromFile(const char* filename, int rank, int num_mac
   // check meta data
   dataset->metadata_.CheckOrPartition(num_global_data, used_data_indices);
   // need to check training data
+
   CheckDataset(dataset.get(), is_load_from_binary);
+
 
   return dataset.release();
 }
@@ -263,22 +309,28 @@ Dataset* DatasetLoader::LoadFromFileAlignWithOtherDataset(const char* filename, 
   data_size_t num_global_data = 0;
   std::vector<data_size_t> used_data_indices;
   auto dataset = std::unique_ptr<Dataset>(new Dataset());
+  auto bin_filename = Parser::CheckCanLoadFromBin(filename);
+  const CategoryEncodingProvider* category_encoding_provider = train_data->category_encoding_provider();
   if (store_raw_) {
     dataset->SetHasRaw(true);
   }
-  auto bin_filename = CheckCanLoadFromBin(filename);
   if (bin_filename.size() == 0) {
     auto parser = std::unique_ptr<Parser>(Parser::CreateParser(filename, config_.header, 0, label_idx_,
                                                                config_.precise_float_parser));
     if (parser == nullptr) {
       Log::Fatal("Could not recognize data format of %s", filename);
     }
+    if (category_encoding_provider != nullptr) {
+      std::unique_ptr<Parser> inner_parser(nullptr);
+      inner_parser.reset(parser.release());
+      parser.reset(new CategoryEncodingParser(inner_parser.release(), category_encoding_provider, true));
+    }
     dataset->data_filename_ = filename;
     dataset->label_idx_ = label_idx_;
     dataset->metadata_.Init(filename);
     if (!config_.two_round) {
       // read data in memory
-      auto text_data = LoadTextDataToMemory(filename, dataset->metadata_, 0, 1, &num_global_data, &used_data_indices);
+      auto text_data = LoadTextDataToMemory(filename, dataset->metadata_, 0, 1, &num_global_data, &used_data_indices, nullptr);
       dataset->num_data_ = static_cast<data_size_t>(text_data.size());
       // initialize label
       dataset->metadata_.Init(dataset->num_data_, weight_idx_, group_idx_);
@@ -328,14 +380,14 @@ Dataset* DatasetLoader::LoadFromBinFile(const char* data_filename, const char* b
   auto buffer = std::vector<char>(buffer_size);
 
   // check token
-  size_t size_of_token = std::strlen(Dataset::binary_file_token);
+  size_t size_of_token = std::strlen(Parser::binary_file_token);
   size_t read_cnt = reader->Read(
       buffer.data(),
       VirtualFileWriter::AlignedSize(sizeof(char) * size_of_token));
   if (read_cnt < sizeof(char) * size_of_token) {
     Log::Fatal("Binary file error: token has the wrong size");
   }
-  if (std::string(buffer.data()) != std::string(Dataset::binary_file_token)) {
+  if (std::string(buffer.data()) != std::string(Parser::binary_file_token)) {
     Log::Fatal("Input file is not LightGBM binary file");
   }
 
@@ -578,6 +630,33 @@ Dataset* DatasetLoader::LoadFromBinFile(const char* data_filename, const char* b
   }
   dataset->feature_groups_.shrink_to_fit();
 
+  // read size of category encoding provider
+  read_cnt = reader->Read(buffer.data(), sizeof(size_t));
+
+  if (read_cnt != sizeof(size_t)) {
+    Log::Fatal("Binary file error: category encoding provider data has the wrong size");
+  }
+
+  size_t size_of_category_encoding_provider = *(reinterpret_cast<size_t*>(buffer.data()));
+  // re-allocate space if not enough
+  if (size_of_category_encoding_provider > buffer_size) {
+    buffer_size = size_of_category_encoding_provider;
+    buffer.resize(buffer_size);
+  }
+  //  read category encoding provider
+  read_cnt = reader->Read(buffer.data(), size_of_category_encoding_provider);
+
+  if (read_cnt != size_of_category_encoding_provider) {
+    Log::Fatal("Binary file error: category_encoding_provider is incorrect");
+  }
+  // load category encoding provider
+  if (size_of_category_encoding_provider > 0) {
+    dataset->category_encoding_provider_.reset(CategoryEncodingProvider::RecoverFromModelString(
+      std::string(buffer.data(), size_of_category_encoding_provider / sizeof(char))));
+  } else {
+    dataset->category_encoding_provider_ = nullptr;
+  }
+
   // raw data
   dataset->numeric_feature_map_ = std::vector<int>(dataset->num_features_, false);
   dataset->num_numeric_features_ = 0;
@@ -617,24 +696,27 @@ Dataset* DatasetLoader::LoadFromBinFile(const char* data_filename, const char* b
   return dataset.release();
 }
 
-
 Dataset* DatasetLoader::ConstructFromSampleData(double** sample_values,
                                                 int** sample_indices, int num_col, const int* num_per_col,
-                                                size_t total_sample_size, data_size_t num_data) {
+                                                size_t total_sample_size, data_size_t num_data,
+                                                const CategoryEncodingProvider* category_encoding_provider) {
   CheckSampleSize(total_sample_size, static_cast<size_t>(num_data));
   int num_total_features = num_col;
   if (Network::num_machines() > 1) {
     num_total_features = Network::GlobalSyncUpByMax(num_total_features);
   }
-  std::vector<std::unique_ptr<BinMapper>> bin_mappers(num_total_features);
   // fill feature_names_ if not header
+  if (category_encoding_provider != nullptr) {
+    category_encoding_provider->ExtendFeatureNames(&feature_names_);
+  }
   if (feature_names_.empty()) {
-    for (int i = 0; i < num_col; ++i) {
+    for (int i = 0; i < num_total_features; ++i) {
       std::stringstream str_buf;
       str_buf << "Column_" << i;
       feature_names_.push_back(str_buf.str());
     }
   }
+  std::vector<std::unique_ptr<BinMapper>> bin_mappers(num_total_features);
   if (!config_.max_bin_by_feature.empty()) {
     CHECK_EQ(static_cast<size_t>(num_col), config_.max_bin_by_feature.size());
     CHECK_GT(*(std::min_element(config_.max_bin_by_feature.begin(), config_.max_bin_by_feature.end())), 1);
@@ -643,7 +725,6 @@ Dataset* DatasetLoader::ConstructFromSampleData(double** sample_values,
   // get forced split
   std::string forced_bins_path = config_.forcedbins_filename;
   std::vector<std::vector<double>> forced_bin_bounds = DatasetLoader::GetForcedBins(forced_bins_path, num_col, categorical_features_);
-
   const data_size_t filter_cnt = static_cast<data_size_t>(
     static_cast<double>(config_.min_data_in_leaf * total_sample_size) / num_data);
   if (Network::num_machines() == 1) {
@@ -842,61 +923,114 @@ void DatasetLoader::CheckDataset(const Dataset* dataset, bool is_load_from_binar
 
 std::vector<std::string> DatasetLoader::LoadTextDataToMemory(const char* filename, const Metadata& metadata,
                                                              int rank, int num_machines, int* num_global_data,
-                                                             std::vector<data_size_t>* used_data_indices) {
+                                                             std::vector<data_size_t>* used_data_indices,
+                                                             CategoryEncodingProvider* category_encoding_provider) {
   TextReader<data_size_t> text_reader(filename, config_.header, config_.file_load_progress_interval_bytes);
   used_data_indices->clear();
   if (num_machines == 1 || config_.pre_partition) {
     // read all lines
-    *num_global_data = text_reader.ReadAllLines();
+    if (category_encoding_provider == nullptr) {
+      *num_global_data = text_reader.ReadAllLines();
+    } else {
+      *num_global_data = text_reader.ReadAllLines(
+        [category_encoding_provider] (const char* buffer, size_t size, data_size_t row_idx) {
+          category_encoding_provider->AccumulateOneLineStat(buffer, size, row_idx);
+        });
+    }
   } else {  // need partition data
             // get query data
     const data_size_t* query_boundaries = metadata.query_boundaries();
 
     if (query_boundaries == nullptr) {
       // if not contain query data, minimal sample unit is one record
-      *num_global_data = text_reader.ReadAndFilterLines([this, rank, num_machines](data_size_t) {
-        if (random_.NextShort(0, num_machines) == rank) {
-          return true;
-        } else {
-          return false;
-        }
-      }, used_data_indices);
+      std::function<bool(data_size_t, const char*, size_t)> filter_func = nullptr;
+      if (category_encoding_provider == nullptr) {
+        filter_func = [this, rank, num_machines](data_size_t, const char*, size_t) {
+          if (random_.NextShort(0, num_machines) == rank) {
+            return true;
+          } else {
+            return false;
+          }
+        };
+      } else {
+        filter_func = [this, rank, num_machines, category_encoding_provider](data_size_t row_idx, const char* buffer, size_t size) {
+          category_encoding_provider->AccumulateOneLineStat(buffer, size, row_idx);
+          if (random_.NextShort(0, num_machines) == rank) {
+            return true;
+          } else {
+            return false;
+          }
+        };
+      }
+      *num_global_data = text_reader.ReadAndFilterLines(filter_func, used_data_indices);
     } else {
       // if contain query data, minimal sample unit is one query
       data_size_t num_queries = metadata.num_queries();
       data_size_t qid = -1;
       bool is_query_used = false;
-      *num_global_data = text_reader.ReadAndFilterLines(
-        [this, rank, num_machines, &qid, &query_boundaries, &is_query_used, num_queries]
-      (data_size_t line_idx) {
-        if (qid >= num_queries) {
-          Log::Fatal("Current query exceeds the range of the query file,\n"
-                     "please ensure the query file is correct");
-        }
-        if (line_idx >= query_boundaries[qid + 1]) {
-          // if is new query
-          is_query_used = false;
-          if (random_.NextShort(0, num_machines) == rank) {
-            is_query_used = true;
+      std::function<bool(data_size_t, const char*, size_t)> filter_func = nullptr;
+      if (category_encoding_provider == nullptr) {
+        filter_func = [this, rank, num_machines, &qid, &query_boundaries, &is_query_used, num_queries]
+        (data_size_t line_idx, const char*, size_t) {
+          if (qid >= num_queries) {
+            Log::Fatal("Current query exceeds the range of the query file,\n"
+                      "please ensure the query file is correct");
           }
-          ++qid;
-        }
-        return is_query_used;
-      }, used_data_indices);
+          if (line_idx >= query_boundaries[qid + 1]) {
+            // if is new query
+            is_query_used = false;
+            if (random_.NextShort(0, num_machines) == rank) {
+              is_query_used = true;
+            }
+            ++qid;
+          }
+          return is_query_used;
+        };
+      } else {
+        filter_func = [this, rank, num_machines, &qid, &query_boundaries,
+          &is_query_used, num_queries, category_encoding_provider]
+        (data_size_t line_idx, const char* buffer, size_t size) {
+          if (qid >= num_queries) {
+            Log::Fatal("Current query exceeds the range of the query file,\n"
+                      "please ensure the query file is correct");
+          }
+          category_encoding_provider->AccumulateOneLineStat(buffer, size, line_idx);
+          if (line_idx >= query_boundaries[qid + 1]) {
+            // if is new query
+            is_query_used = false;
+            if (random_.NextShort(0, num_machines) == rank) {
+              is_query_used = true;
+            }
+            ++qid;
+          }
+          return is_query_used;
+        };
+      }
+      *num_global_data = text_reader.ReadAndFilterLines(filter_func, used_data_indices);
     }
   }
   return std::move(text_reader.Lines());
 }
 
-std::vector<std::string> DatasetLoader::SampleTextDataFromMemory(const std::vector<std::string>& data) {
+template <bool GET_SAMPLED_INDICES>
+std::vector<std::string> DatasetLoader::SampleTextDataFromMemory(const std::vector<std::string>& data,
+    std::vector<data_size_t>* sampled_indices) {
   int sample_cnt = config_.bin_construct_sample_cnt;
   if (static_cast<size_t>(sample_cnt) > data.size()) {
     sample_cnt = static_cast<int>(data.size());
   }
-  auto sample_indices = random_.Sample(static_cast<int>(data.size()), sample_cnt);
-  std::vector<std::string> out(sample_indices.size());
-  for (size_t i = 0; i < sample_indices.size(); ++i) {
-    const size_t idx = sample_indices[i];
+  std::vector<data_size_t>* sampled_indices_ptr;
+  std::vector<data_size_t> local_sampled_indices;
+  if (GET_SAMPLED_INDICES) {
+    sampled_indices_ptr = sampled_indices;
+  } else {
+    sampled_indices_ptr = &local_sampled_indices;
+  }
+  *sampled_indices_ptr = random_.Sample(static_cast<int>(data.size()), sample_cnt);
+  const std::vector<data_size_t>& sampled_indices_ref = *sampled_indices_ptr;
+  std::vector<std::string> out(sampled_indices_ref.size());
+  for (size_t i = 0; i < sampled_indices_ref.size(); ++i) {
+    const size_t idx = sampled_indices_ref[i];
     out[i] = data[idx];
   }
   return out;
@@ -904,47 +1038,92 @@ std::vector<std::string> DatasetLoader::SampleTextDataFromMemory(const std::vect
 
 std::vector<std::string> DatasetLoader::SampleTextDataFromFile(const char* filename, const Metadata& metadata,
                                                                int rank, int num_machines, int* num_global_data,
-                                                               std::vector<data_size_t>* used_data_indices) {
+                                                               std::vector<data_size_t>* used_data_indices,
+                                                               std::vector<data_size_t>* sampled_indices,
+                                                               CategoryEncodingProvider* category_encoding_provider) {
   const data_size_t sample_cnt = static_cast<data_size_t>(config_.bin_construct_sample_cnt);
   TextReader<data_size_t> text_reader(filename, config_.header, config_.file_load_progress_interval_bytes);
   std::vector<std::string> out_data;
   if (num_machines == 1 || config_.pre_partition) {
-    *num_global_data = static_cast<data_size_t>(text_reader.SampleFromFile(&random_, sample_cnt, &out_data));
+    if (category_encoding_provider == nullptr) {
+      *num_global_data = static_cast<data_size_t>(text_reader.SampleFromFile<false>
+        (&random_, sample_cnt, &out_data, sampled_indices, nullptr));
+    } else {
+      *num_global_data = static_cast<data_size_t>(text_reader.SampleFromFile<true>
+        (&random_, sample_cnt, &out_data, sampled_indices,
+        [category_encoding_provider] (const char* buffer, size_t size, data_size_t row_idx) {
+          category_encoding_provider->AccumulateOneLineStat(buffer, size, row_idx);
+        }));
+    }
   } else {  // need partition data
             // get query data
     const data_size_t* query_boundaries = metadata.query_boundaries();
     if (query_boundaries == nullptr) {
       // if not contain query file, minimal sample unit is one record
-      *num_global_data = text_reader.SampleAndFilterFromFile([this, rank, num_machines]
-      (data_size_t) {
+      auto filter_return_func = [this, rank, num_machines] (data_size_t) {
         if (random_.NextShort(0, num_machines) == rank) {
           return true;
         } else {
           return false;
         }
-      }, used_data_indices, &random_, sample_cnt, &out_data);
+      };
+      std::function<bool(data_size_t, const char*, size_t)> filter_func = nullptr;
+      if (category_encoding_provider == nullptr) {
+        filter_func = [filter_return_func] (data_size_t row_idx, const char*, size_t) {
+          return filter_return_func(row_idx);
+        };
+
+        *num_global_data = text_reader.SampleAndFilterFromFile<false>(
+          filter_func, used_data_indices, &random_, sample_cnt, &out_data, sampled_indices);
+      } else {
+        filter_func = [filter_return_func, category_encoding_provider]
+        (data_size_t row_idx, const char* buffer, size_t size) {
+          category_encoding_provider->AccumulateOneLineStat(buffer, size, row_idx);
+          return filter_return_func(row_idx);
+        };
+
+        *num_global_data = text_reader.SampleAndFilterFromFile<true>(
+          filter_func, used_data_indices, &random_, sample_cnt, &out_data, sampled_indices);
+      }
     } else {
       // if contain query file, minimal sample unit is one query
       data_size_t num_queries = metadata.num_queries();
       data_size_t qid = -1;
       bool is_query_used = false;
-      *num_global_data = text_reader.SampleAndFilterFromFile(
+
+      auto filter_return_func =
         [this, rank, num_machines, &qid, &query_boundaries, &is_query_used, num_queries]
-      (data_size_t line_idx) {
-        if (qid >= num_queries) {
-          Log::Fatal("Query id exceeds the range of the query file, "
-                     "please ensure the query file is correct");
-        }
-        if (line_idx >= query_boundaries[qid + 1]) {
-          // if is new query
-          is_query_used = false;
-          if (random_.NextShort(0, num_machines) == rank) {
-            is_query_used = true;
+        (data_size_t line_idx) {
+          if (qid >= num_queries) {
+            Log::Fatal("Query id exceeds the range of the query file, "
+                      "please ensure the query file is correct");
           }
-          ++qid;
-        }
-        return is_query_used;
-      }, used_data_indices, &random_, sample_cnt, &out_data);
+          if (line_idx >= query_boundaries[qid + 1]) {
+            // if is new query
+            is_query_used = false;
+            if (random_.NextShort(0, num_machines) == rank) {
+              is_query_used = true;
+            }
+            ++qid;
+          }
+          return is_query_used;
+        };
+
+      std::function<bool(data_size_t, const char*, size_t)> filter_func = nullptr;
+      if (category_encoding_provider == nullptr) {
+        filter_func = [filter_return_func] (data_size_t row_idx, const char*, size_t) {
+          return filter_return_func(row_idx);
+        };
+        *num_global_data = text_reader.SampleAndFilterFromFile<false>
+          (filter_func, used_data_indices, &random_, sample_cnt, &out_data, sampled_indices);
+      } else {
+        filter_func = [filter_return_func, category_encoding_provider] (data_size_t row_idx, const char* buffer, size_t size) {
+          category_encoding_provider->AccumulateOneLineStat(buffer, size, row_idx);
+          return filter_return_func(row_idx);
+        };
+        *num_global_data = text_reader.SampleAndFilterFromFile<true>
+          (filter_func, used_data_indices, &random_, sample_cnt, &out_data, sampled_indices);
+      }
     }
   }
   return out_data;
@@ -952,16 +1131,28 @@ std::vector<std::string> DatasetLoader::SampleTextDataFromFile(const char* filen
 
 void DatasetLoader::ConstructBinMappersFromTextData(int rank, int num_machines,
                                                     const std::vector<std::string>& sample_data,
-                                                    const Parser* parser, Dataset* dataset) {
+                                                    const Parser* parser, Dataset* dataset,
+                                                    const std::vector<data_size_t>& sampled_indices) {
   auto t1 = std::chrono::high_resolution_clock::now();
   std::vector<std::vector<double>> sample_values;
   std::vector<std::vector<int>> sample_indices;
   std::vector<std::pair<int, double>> oneline_features;
   double label;
+
+  std::function<void(int)> parse_func = nullptr;
+  if (sampled_indices.empty()) {
+    parse_func = [&sample_data, &oneline_features, &label, parser] (int line_idx) {
+      parser->ParseOneLine(sample_data[line_idx].c_str(), &oneline_features, &label);
+    };
+  } else {
+    parse_func = [&sample_data, &oneline_features, &label, &sampled_indices, parser] (int line_idx) {
+      parser->ParseOneLine(sample_data[line_idx].c_str(), &oneline_features, &label, sampled_indices[line_idx]);
+    };
+  }
   for (int i = 0; i < static_cast<int>(sample_data.size()); ++i) {
     oneline_features.clear();
     // parse features
-    parser->ParseOneLine(sample_data[i].c_str(), &oneline_features, &label);
+    parse_func(i);
     for (std::pair<int, double>& inner_data : oneline_features) {
       if (static_cast<size_t>(inner_data.first) >= sample_values.size()) {
         sample_values.resize(inner_data.first + 1);
@@ -973,7 +1164,6 @@ void DatasetLoader::ConstructBinMappersFromTextData(int rank, int num_machines,
       }
     }
   }
-
   dataset->feature_groups_.clear();
   dataset->num_total_features_ = std::max(static_cast<int>(sample_values.size()), parser->NumFeatures());
   if (num_machines > 1) {
@@ -982,7 +1172,15 @@ void DatasetLoader::ConstructBinMappersFromTextData(int rank, int num_machines,
   if (!feature_names_.empty()) {
     CHECK_EQ(dataset->num_total_features_, static_cast<int>(feature_names_.size()));
   }
-
+  // fill feature_names_ if not header, after dataset is constructed
+  if (feature_names_.empty()) {
+    for (int i = 0; i < dataset->num_total_features_; ++i) {
+      std::stringstream str_buf;
+      str_buf << "Column_" << i;
+      feature_names_.push_back(str_buf.str());
+    }
+  }
+  dataset->set_feature_names(feature_names_);
   if (!config_.max_bin_by_feature.empty()) {
     CHECK_EQ(static_cast<size_t>(dataset->num_total_features_), config_.max_bin_by_feature.size());
     CHECK_GT(*(std::min_element(config_.max_bin_by_feature.begin(), config_.max_bin_by_feature.end())), 1);
@@ -999,15 +1197,6 @@ void DatasetLoader::ConstructBinMappersFromTextData(int rank, int num_machines,
   CHECK(weight_idx_ < 0 || weight_idx_ < dataset->num_total_features_);
   CHECK(group_idx_ < 0 || group_idx_ < dataset->num_total_features_);
 
-  // fill feature_names_ if not header
-  if (feature_names_.empty()) {
-    for (int i = 0; i < dataset->num_total_features_; ++i) {
-      std::stringstream str_buf;
-      str_buf << "Column_" << i;
-      feature_names_.push_back(str_buf.str());
-    }
-  }
-  dataset->set_feature_names(feature_names_);
   std::vector<std::unique_ptr<BinMapper>> bin_mappers(dataset->num_total_features_);
   const data_size_t filter_cnt = static_cast<data_size_t>(
     static_cast<double>(config_.min_data_in_leaf* sample_data.size()) / dataset->num_data_);
@@ -1152,7 +1341,7 @@ void DatasetLoader::ExtractFeaturesFromMemory(std::vector<std::string>* text_dat
       const int tid = omp_get_thread_num();
       oneline_features.clear();
       // parser
-      parser->ParseOneLine(ref_text_data[i].c_str(), &oneline_features, &tmp_label);
+      parser->ParseOneLine(ref_text_data[i].c_str(), &oneline_features, &tmp_label, i);
       // set label
       dataset->metadata_.SetLabelAt(i, static_cast<label_t>(tmp_label));
       // free processed line:
@@ -1203,7 +1392,7 @@ void DatasetLoader::ExtractFeaturesFromMemory(std::vector<std::string>* text_dat
       const int tid = omp_get_thread_num();
       oneline_features.clear();
       // parser
-      parser->ParseOneLine(ref_text_data[i].c_str(), &oneline_features, &tmp_label);
+      parser->ParseOneLine(ref_text_data[i].c_str(), &oneline_features, &tmp_label, i);
       // set initial score
       std::vector<double> oneline_init_score(num_class_);
       predict_fun_(oneline_features, oneline_init_score.data());
@@ -1278,7 +1467,7 @@ void DatasetLoader::ExtractFeaturesFromFile(const char* filename, const Parser* 
       const int tid = omp_get_thread_num();
       oneline_features.clear();
       // parser
-      parser->ParseOneLine(lines[i].c_str(), &oneline_features, &tmp_label);
+      parser->ParseOneLine(lines[i].c_str(), &oneline_features, &tmp_label, start_idx + i);
       // set initial score
       if (!init_score.empty()) {
         std::vector<double> oneline_init_score(num_class_);
@@ -1315,11 +1504,11 @@ void DatasetLoader::ExtractFeaturesFromFile(const char* filename, const Parser* 
         for (size_t j = 0; j < feature_row.size(); ++j) {
           int feat_ind = dataset->numeric_feature_map_[j];
           if (feat_ind >= 0) {
-            dataset->raw_data_[feat_ind][i] = feature_row[j];
+            dataset->raw_data_[feat_ind][start_idx + i] = feature_row[j];
           }
         }
       }
-      dataset->FinishOneRow(tid, i, is_feature_added);
+      dataset->FinishOneRow(tid, start_idx + i, is_feature_added);
       OMP_LOOP_EX_END();
     }
     OMP_THROW_EX();
@@ -1339,35 +1528,6 @@ void DatasetLoader::ExtractFeaturesFromFile(const char* filename, const Parser* 
   }
   dataset->FinishLoad();
 }
-
-/*! \brief Check can load from binary file */
-std::string DatasetLoader::CheckCanLoadFromBin(const char* filename) {
-  std::string bin_filename(filename);
-  bin_filename.append(".bin");
-
-  auto reader = VirtualFileReader::Make(bin_filename.c_str());
-
-  if (!reader->Init()) {
-    bin_filename = std::string(filename);
-    reader = VirtualFileReader::Make(bin_filename.c_str());
-    if (!reader->Init()) {
-      Log::Fatal("Cannot open data file %s", bin_filename.c_str());
-    }
-  }
-
-  size_t buffer_size = 256;
-  auto buffer = std::vector<char>(buffer_size);
-  // read size of token
-  size_t size_of_token = std::strlen(Dataset::binary_file_token);
-  size_t read_cnt = reader->Read(buffer.data(), size_of_token);
-  if (read_cnt == size_of_token
-      && std::string(buffer.data()) == std::string(Dataset::binary_file_token)) {
-    return bin_filename;
-  } else {
-    return std::string();
-  }
-}
-
 
 
 std::vector<std::vector<double>> DatasetLoader::GetForcedBins(std::string forced_bins_path, int num_total_features,

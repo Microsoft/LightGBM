@@ -315,6 +315,7 @@
     <ClCompile Include="..\src\io\bin.cpp" />
     <ClCompile Include="..\src\io\config.cpp" />
     <ClCompile Include="..\src\io\config_auto.cpp" />
+    <ClCompile Include="..\src\io\category_encoding_provider.cpp" />
     <ClCompile Include="..\src\io\dataset.cpp" />
     <ClCompile Include="..\src\io\dataset_loader.cpp" />
     <ClCompile Include="..\src\io\file_io.cpp" />

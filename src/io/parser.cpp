@@ -4,11 +4,44 @@
  */
 #include "parser.hpp"
 
+#include <LightGBM/c_api.h>
+#include <LightGBM/parser_base.h>
+
 #include <string>
 #include <algorithm>
 #include <memory>
-
 namespace LightGBM {
+
+const char* Parser::binary_file_token =
+  "______LightGBM_Binary_File_Token______\n";
+
+/*! \brief Check can load from binary file */
+std::string Parser::CheckCanLoadFromBin(const char* filename) {
+  std::string bin_filename(filename);
+  bin_filename.append(".bin");
+
+  auto reader = VirtualFileReader::Make(bin_filename.c_str());
+
+  if (!reader->Init()) {
+    bin_filename = std::string(filename);
+    reader = VirtualFileReader::Make(bin_filename.c_str());
+    if (!reader->Init()) {
+      Log::Fatal("Cannot open data file %s", bin_filename.c_str());
+    }
+  }
+
+  size_t buffer_size = 256;
+  auto buffer = std::vector<char>(buffer_size);
+  // read size of token
+  size_t size_of_token = std::strlen(Parser::binary_file_token);
+  size_t read_cnt = reader->Read(buffer.data(), size_of_token);
+  if (read_cnt == size_of_token
+      && std::string(buffer.data()) == std::string(Parser::binary_file_token)) {
+    return bin_filename;
+  } else {
+    return std::string();
+  }
+}
 
 void GetStatistic(const char* str, int* comma_cnt, int* tab_cnt, int* colon_cnt) {
   *comma_cnt = 0;
@@ -255,6 +288,79 @@ Parser* Parser::CreateParser(const char* filename, bool header, int num_features
     Log::Info("Data file %s doesn't contain a label column.", filename);
   }
   return ret.release();
+}
+
+template <typename T1, typename T2>
+std::function<std::pair<int, double>(int idx)> IterateFunctionFromCSC_helper(const void* col_ptr, const int32_t* indices, const void* data, int col_idx) {
+  const T1* data_ptr = reinterpret_cast<const T1*>(data);
+  const T2* ptr_col_ptr = reinterpret_cast<const T2*>(col_ptr);
+  int64_t start = ptr_col_ptr[col_idx];
+  int64_t end = ptr_col_ptr[col_idx + 1];
+  return [=] (int offset) {
+    int64_t i = static_cast<int64_t>(start + offset);
+    if (i >= end) {
+      return std::make_pair(-1, 0.0);
+    }
+    int idx = static_cast<int>(indices[i]);
+    double val = static_cast<double>(data_ptr[i]);
+    return std::make_pair(idx, val);
+  };
+}
+
+std::function<std::pair<int, double>(int idx)>
+IterateFunctionFromCSC(const void* col_ptr, int col_ptr_type, const int32_t* indices, const void* data, int data_type, int64_t ncol_ptr, int64_t , int col_idx) {
+  CHECK(col_idx < ncol_ptr && col_idx >= 0);
+  if (data_type == C_API_DTYPE_FLOAT32) {
+    if (col_ptr_type == C_API_DTYPE_INT32) {
+      return IterateFunctionFromCSC_helper<float, int32_t>(col_ptr, indices, data, col_idx);
+    } else if (col_ptr_type == C_API_DTYPE_INT64) {
+      return IterateFunctionFromCSC_helper<float, int64_t>(col_ptr, indices, data, col_idx);
+    }
+  } else if (data_type == C_API_DTYPE_FLOAT64) {
+    if (col_ptr_type == C_API_DTYPE_INT32) {
+      return IterateFunctionFromCSC_helper<double, int32_t>(col_ptr, indices, data, col_idx);
+    } else if (col_ptr_type == C_API_DTYPE_INT64) {
+      return IterateFunctionFromCSC_helper<double, int64_t>(col_ptr, indices, data, col_idx);
+    }
+  }
+  Log::Fatal("Unknown data type in CSC matrix");
+  return nullptr;
+}
+
+CSC_RowIterator::CSC_RowIterator(const void* col_ptr, int col_ptr_type, const int32_t* indices,
+                                 const void* data, int data_type, int64_t ncol_ptr, int64_t nelem, int col_idx) {
+  iter_fun_ = IterateFunctionFromCSC(col_ptr, col_ptr_type, indices, data, data_type, ncol_ptr, nelem, col_idx);
+}
+
+double CSC_RowIterator::Get(int idx) {
+  while (idx > cur_idx_ && !is_end_) {
+    auto ret = iter_fun_(nonzero_idx_);
+    if (ret.first < 0) {
+      is_end_ = true;
+      break;
+    }
+    cur_idx_ = ret.first;
+    cur_val_ = ret.second;
+    ++nonzero_idx_;
+  }
+  if (idx == cur_idx_) {
+    return cur_val_;
+  } else {
+    return 0.0f;
+  }
+}
+
+std::pair<int, double> CSC_RowIterator::NextNonZero() {
+  if (!is_end_) {
+    auto ret = iter_fun_(nonzero_idx_);
+    ++nonzero_idx_;
+    if (ret.first < 0) {
+      is_end_ = true;
+    }
+    return ret;
+  } else {
+    return std::make_pair(-1, 0.0);
+  }
 }
 
 }  // namespace LightGBM

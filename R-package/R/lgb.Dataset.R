@@ -143,9 +143,8 @@ Dataset <- R6::R6Class(
             }
 
           } else {
-
-            # Check if more categorical features were output over the feature space
-            if (max(private$categorical_feature) > length(private$colnames)) {
+            # by pass this test when colnames is not set
+            if (!is.null(private$colnames) && max(private$categorical_feature) > length(private$colnames)) {
               stop(
                 "lgb.self.get.handle: supplied a too large value in categorical_feature: "
                 , max(private$categorical_feature)
@@ -198,11 +197,16 @@ Dataset <- R6::R6Class(
           )
 
         } else if (is.matrix(private$raw_data)) {
-
+          if (is.null(private$info[["label"]])) {
+            label <- NULL
+          } else {
+            label <- as.numeric(private$info[["label"]])
+          }
           # Are we using a matrix?
           handle <- .Call(
             LGBM_DatasetCreateFromMat_R
             , private$raw_data
+            , label
             , nrow(private$raw_data)
             , ncol(private$raw_data)
             , params_str
@@ -210,6 +214,11 @@ Dataset <- R6::R6Class(
           )
 
         } else if (methods::is(private$raw_data, "dgCMatrix")) {
+          if (is.null(private$info[["label"]])) {
+            label <- NULL
+          } else {
+            label <- as.numeric(private$info[["label"]])
+          }
           if (length(private$raw_data@p) > 2147483647L) {
             stop("Cannot support large CSC matrix")
           }
@@ -219,6 +228,7 @@ Dataset <- R6::R6Class(
             , private$raw_data@p
             , private$raw_data@i
             , private$raw_data@x
+            , label
             , length(private$raw_data@p)
             , length(private$raw_data@x)
             , nrow(private$raw_data)
@@ -534,6 +544,15 @@ Dataset <- R6::R6Class(
     update_params = function(params) {
       if (length(params) == 0L) {
         return(invisible(self))
+      }
+      if (!is.null(params$categorical_feature)) {
+        # when categorical feature is passed in the constructor of lgb.Dataset
+        # all indices are subtracted by 1 in construct().
+        # however, when it is passed directly to the C API, it used the original indices.
+        # this causes unexpected inconsistent results, so we remove
+        # categorical features from the parameters and directly set it in R.
+        self$set_categorical_feature(params$categorical_feature)
+        params$categorical_feature <- NULL
       }
       if (lgb.is.null.handle(x = private$handle)) {
         private$params <- modifyList(private$params, params)

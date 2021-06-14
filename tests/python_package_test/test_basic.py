@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 import lightgbm as lgb
 from lightgbm.compat import PANDAS_INSTALLED, pd_Series
 
-from .utils import load_breast_cancer
+from .utils import load_breast_cancer, load_iris
 
 
 def test_basic(tmp_path):
@@ -335,6 +335,152 @@ def test_consistent_state_for_dataset_fields():
     lgb_data.set_init_score(sequence)
     lgb_data.set_feature_name(feature_names)
     check_asserts(lgb_data)
+
+
+def test_category_encoding(tmp_path):
+
+    def test_category_encoding_inner(tmp_path, X_train, X_test, y_train, y_test, params, model_prefix):
+        # checks that category_encoders works for Dataset constructor
+        category_encoders_str = "target,count,target:0.5,raw"
+        train_data_1 = lgb.Dataset(X_train, label=y_train, category_encoders=category_encoders_str)
+        valid_data_1 = train_data_1.create_valid(X_test, label=y_test)
+
+        categorical_feature = [fidx for fidx in range(X_train.shape[1] // 2)]
+        expected_num_features = X_train.shape[1] + 3 * len(categorical_feature)
+
+        params.update({"categorical_feature": categorical_feature})
+        booster_1 = lgb.train(params, train_data_1, valid_sets=[valid_data_1], valid_names=["valid_data"], keep_training_booster=True)
+        booster_non_keep_training = lgb.train(params, train_data_1, valid_sets=[valid_data_1], valid_names=["valid_data"])
+        np.testing.assert_equal(train_data_1.num_feature(), expected_num_features)
+        np.testing.assert_equal(valid_data_1.num_feature(), expected_num_features)
+        np.testing.assert_equal(len(train_data_1.get_feature_name()), expected_num_features)
+        np.testing.assert_equal(booster_1.num_feature(), expected_num_features)
+        pred_1 = booster_1.predict(X_test)
+        pred_non_keep_training = booster_non_keep_training.predict(X_test)
+        np.testing.assert_allclose(pred_1, pred_non_keep_training)
+        eval_1 = booster_1.eval(valid_data_1, "valid_data")
+        pred_contrib_1 = booster_1.predict(X_test, pred_contrib=True)
+
+        # checks that Dataset with category_encoders can be saved to and load from file
+        tmp_dataset = str(tmp_path / 'category_encoding_{}_temp_dataset.bin'.format(model_prefix))
+        train_data_1.save_binary(tmp_dataset)
+
+        train_data_2 = lgb.Dataset(tmp_dataset)
+        valid_data_2 = lgb.Dataset(X_test, label=y_test, reference=train_data_2)
+        booster_2 = lgb.train(params, train_data_2, valid_sets=[valid_data_2], valid_names=["valid_data"], keep_training_booster=True)
+        np.testing.assert_equal(train_data_2.num_feature(), expected_num_features)
+        np.testing.assert_equal(valid_data_2.num_feature(), expected_num_features)
+        np.testing.assert_equal(len(train_data_2.get_feature_name()), expected_num_features)
+        np.testing.assert_equal(booster_2.num_feature(), expected_num_features)
+        pred_2 = booster_2.predict(X_test)
+        eval_2 = booster_2.eval(valid_data_2, "valid_data")
+        pred_contrib_2 = booster_2.predict(X_test, pred_contrib=True)
+        np.testing.assert_allclose(pred_1, pred_2)
+        np.testing.assert_equal(eval_1, eval_2)
+        np.testing.assert_allclose(pred_contrib_1, pred_contrib_2)
+
+        # checks that Booster with category_encoders can be saved to and load from file
+        model_file = str(tmp_path / "category_encoding_{}_model.txt".format(model_prefix))
+        booster_2.save_model(model_file)
+        booster_3 = lgb.Booster(params=params, model_file=model_file)
+        np.testing.assert_equal(booster_3.num_feature(), expected_num_features)
+        pred_3 = booster_3.predict(X_test)
+        pred_contrib_3 = booster_3.predict(X_test, pred_contrib=True)
+        np.testing.assert_allclose(pred_1, pred_3)
+        np.testing.assert_allclose(pred_contrib_1, pred_contrib_3)
+
+        # checks that category_encoders works in params
+        train_data_4 = lgb.Dataset(X_train, label=y_train)
+        valid_data_4 = lgb.Dataset(X_test, label=y_test).set_reference(train_data_4)
+        params.update({"category_encoders": category_encoders_str})
+        booster_4 = lgb.train(params, train_data_4, valid_sets=[valid_data_4], valid_names=["valid_data"], keep_training_booster=True)
+        valid_data_to_add = lgb.Dataset(X_test, label=y_test, reference=train_data_4)
+        booster_4.add_valid(valid_data_to_add, "valid_data_added")
+        np.testing.assert_equal(train_data_4.num_feature(), expected_num_features)
+        np.testing.assert_equal(valid_data_4.num_feature(), expected_num_features)
+        np.testing.assert_equal(len(train_data_4.get_feature_name()), expected_num_features)
+        np.testing.assert_equal(booster_4.num_feature(), expected_num_features)
+        pred_4 = booster_4.predict(X_test)
+        eval_4 = booster_4.eval(valid_data_4, "valid_data")
+        eval_valid = booster_4.eval_valid()
+        pred_contrib_4 = booster_4.predict(X_test, pred_contrib=True)
+        np.testing.assert_allclose(pred_1, pred_4)
+        np.testing.assert_equal(eval_1, eval_4)
+        # expected eval_1 = [('valid_data', 'auc', 0.9686609686609686, True)]
+        # expected eval_valid = [('valid_data', 'auc', 0.9686609686609686, True), ('valid_data_added', 'auc', 0.9686609686609686, True)]
+        np.testing.assert_equal(eval_1[0][2], eval_valid[1][2])
+        np.testing.assert_allclose(pred_contrib_1, pred_contrib_4)
+
+        # test that target encoding with csr format works
+        train_data_csr = lgb.Dataset(sparse.csr_matrix(X_train), label=y_train,
+                                     category_encoders=category_encoders_str)
+        valid_data_csr = lgb.Dataset(sparse.csr_matrix(X_test), label=y_test,
+                                     category_encoders=category_encoders_str, reference=train_data_csr)
+        booster_csr = lgb.train(params, train_data_csr, valid_sets=[valid_data_csr], valid_names=["valid_data"], keep_training_booster=True)
+        np.testing.assert_equal(train_data_csr.num_feature(), expected_num_features)
+        np.testing.assert_equal(valid_data_csr.num_feature(), expected_num_features)
+        np.testing.assert_equal(len(train_data_csr.get_feature_name()), expected_num_features)
+        np.testing.assert_equal(booster_csr.num_feature(), expected_num_features)
+        pred_csr = booster_csr.predict(sparse.csr_matrix(X_test))
+        eval_csr = booster_csr.eval(valid_data_csr, "valid_data")
+        pred_contrib_csr = booster_csr.predict(sparse.csr_matrix(X_test), pred_contrib=True)
+        if model_prefix == "multiclass":
+            pred_contrib_csr = np.hstack([csr.toarray() for csr in pred_contrib_csr])
+        else:
+            pred_contrib_csr = pred_contrib_csr.toarray()
+        np.testing.assert_allclose(pred_csr, pred_1)
+        np.testing.assert_equal(eval_1, eval_csr)
+        np.testing.assert_allclose(pred_contrib_1, pred_contrib_csr)
+
+        # test that target encoding with csc format works
+        train_data_csc = lgb.Dataset(sparse.csc_matrix(X_train), label=y_train,
+                                     category_encoders=category_encoders_str)
+        valid_data_csc = lgb.Dataset(sparse.csc_matrix(X_test), label=y_test,
+                                     category_encoders=category_encoders_str, reference=train_data_csc)
+        booster_csc = lgb.train(params, train_data_csc, valid_sets=[valid_data_csc], valid_names=["valid_data"])
+        np.testing.assert_equal(train_data_csc.num_feature(), expected_num_features)
+        np.testing.assert_equal(valid_data_csc.num_feature(), expected_num_features)
+        np.testing.assert_equal(len(train_data_csc.get_feature_name()), expected_num_features)
+        np.testing.assert_equal(booster_csc.num_feature(), expected_num_features)
+        pred_csc = booster_csc.predict(sparse.csc_matrix(X_test))
+        eval_csc = booster_csr.eval(valid_data_csc, "valid_data")
+        pred_contrib_csc = booster_csc.predict(sparse.csc_matrix(X_test), pred_contrib=True)
+        if model_prefix == "multiclass":
+            pred_contrib_csc = np.hstack([csc.toarray() for csc in pred_contrib_csc])
+        else:
+            pred_contrib_csc = pred_contrib_csc.toarray()
+        np.testing.assert_allclose(pred_csc, pred_1)
+        np.testing.assert_equal(eval_1, eval_csc)
+        np.testing.assert_allclose(pred_contrib_1, pred_contrib_csc)
+
+    X_train, X_test, y_train, y_test = train_test_split(*load_breast_cancer(return_X_y=True),
+                                                        test_size=0.1, random_state=2)
+
+    params = {
+        "objective": "binary",
+        "metric": "auc",
+        "min_data": 10,
+        "num_leaves": 15,
+        "verbose": 1,
+        "max_bin": 255,
+        "max_cat_to_onehot": 1
+    }
+
+    test_category_encoding_inner(tmp_path, X_train, X_test, y_train, y_test, params, "binary")
+
+    # test target encoding under multi-class case
+    X, y = load_iris(return_X_y=True)
+    # convert float to int, so that we can treat them as categorical features
+    X = np.array(np.array(X, dtype=np.int), dtype=np.float)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+    params = {
+        'objective': 'multiclass',
+        'metric': 'multi_logloss',
+        'num_class': 3,
+        'verbose': 1
+    }
+
+    test_category_encoding_inner(tmp_path, X_train, X_test, y_train, y_test, params, "multiclass")
 
 
 def test_choose_param_value():

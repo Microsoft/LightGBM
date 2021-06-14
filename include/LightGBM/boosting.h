@@ -13,6 +13,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <LightGBM/category_encoding_provider.hpp>
+
 namespace LightGBM {
 
 /*! \brief forward declaration */
@@ -312,6 +314,8 @@ class LIGHTGBM_EXPORT Boosting {
   * \return The boosting object
   */
   static Boosting* CreateBoosting(const std::string& type, const char* filename);
+
+  virtual const CategoryEncodingProvider* category_encoding_provider() const { return nullptr; }
 
   virtual bool IsLinear() const { return false; }
 };

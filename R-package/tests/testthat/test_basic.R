@@ -1948,7 +1948,8 @@ test_that("lgb.train() works with linear learners when Dataset has categorical f
     , metric = "mse"
     , seed = 0L
     , num_leaves = 2L
-    , categorical_feature = 1L
+    # indices in categorical feature start from 1L, so here should be 2L
+    , categorical_feature = 2L
   )
 
   dtrain <- .new_dataset()
@@ -2074,4 +2075,93 @@ test_that(paste0("lgb.train() gives same results when using interaction_constrai
 
   expect_equal(pred1, pred2)
 
+})
+
+test_that(paste0("Category encoding for R package works"), {
+  # test category_encoders
+  set.seed(1L)
+  dtrain <- lgb.Dataset(train$data, label = train$label)
+  dtest <- lgb.Dataset(test$data, label = test$label, reference = dtrain)
+  cat_fid <- c(1L, 2L, 3L, 4L)
+  # ``` category_encoders = "" ```   is equal to   ``` category_encoders = "raw" ```
+  params <- list(objective = "binary", categorical_feature = cat_fid, category_encoders = "")
+  bst <- lightgbm(
+    data = dtrain
+    , params = params
+    , nrounds = 10L
+    , verbose = 2L
+    , valids = list("valid1" = dtest)
+  )
+  pred1 <- bst$predict(test$data)
+
+  # treat the first 4 features as categorical features
+  dtrain <- lgb.Dataset(train$data, label = train$label,
+    categorical_feature = cat_fid, category_encoders = "raw")
+  dtest <- lgb.Dataset(test$data, label = test$label,
+    categorical_feature = cat_fid, reference = dtrain)
+  params <- list(objective = "binary")
+  bst <- lightgbm(
+    data = dtrain
+    , params = params
+    , nrounds = 10L
+    , verbose = 2L
+    , valids = list("valid1" = dtest)
+  )
+  pred2 <- bst$predict(test$data)
+  expect_equal(pred1, pred2)
+
+  dtrain <- lgb.Dataset(train$data, label = train$label,
+    categorical_feature = cat_fid)
+  dtest <- lgb.Dataset(test$data, label = test$label,
+    categorical_feature = cat_fid, reference = dtrain)
+  params <- list(objective = "binary", category_encoders = "target,count,raw")
+  bst <- lightgbm(
+    data = dtrain
+    , params = params
+    , nrounds = 10L
+    , verbose = 2L
+    , valids = list("valid1" = dtest)
+  )
+  pred3 <- bst$predict(test$data)
+  expect_equal(dim(dtrain), c(6513L, 134L))
+
+  # test gbdt model with category_encoders
+  model_file <- tempfile(fileext = ".model")
+  lgb.save(bst, model_file)
+  # finalize the booster and destroy it so you know we aren't cheating
+  bst$finalize()
+  expect_null(bst$.__enclos_env__$private$handle)
+  rm(bst)
+
+  bst2 <- lgb.load(
+      filename = model_file
+  )
+  pred4 <- predict(bst2, test$data)
+  expect_equal(pred3, pred4)
+
+
+  # test Dataset binary store with category_encoders
+  tmp_file <- tempfile(pattern = "lgb.Dataset_Category_Encoding_")
+  lgb.Dataset.save(
+    dataset = dtrain
+    , fname = tmp_file
+  )
+  dtrain_read_in <- lgb.Dataset(data = tmp_file)
+
+  tmp_file <- tempfile(pattern = "lgb.Dataset_Category_Encoding_2_")
+  lgb.Dataset.save(
+    dataset = dtest
+    , fname = tmp_file
+  )
+  dtest_read_in <- lgb.Dataset(data = tmp_file)
+
+  bst <- lightgbm(
+    data = dtrain_read_in
+    , params = params
+    , nrounds = 10L
+    , verbose = 2L
+    , valids = list("valid1" = dtest_read_in)
+  )
+  pred5 <- bst$predict(test$data)
+  expect_equal(pred3, pred5)
 })

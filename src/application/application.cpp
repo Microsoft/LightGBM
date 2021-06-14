@@ -101,16 +101,20 @@ void Application::LoadData() {
   }
 
   Log::Debug("Loading train file...");
-  DatasetLoader dataset_loader(config_, predict_fun,
+  std::unique_ptr<CategoryEncodingProvider> category_encoding_provider(nullptr);
+  if (!config_.category_encoders.empty()) {
+    category_encoding_provider.reset(CategoryEncodingProvider::CreateCategoryEncodingProvider(&config_));
+  }
+  DatasetLoader dataset_loader(&config_, predict_fun,
                                config_.num_class, config_.data.c_str());
   // load Training data
   if (config_.is_data_based_parallel) {
     // load data for distributed training
     train_data_.reset(dataset_loader.LoadFromFile(config_.data.c_str(),
-                                                  Network::rank(), Network::num_machines()));
+                                                  Network::rank(), Network::num_machines(), category_encoding_provider.get()));
   } else {
     // load data for single machine
-    train_data_.reset(dataset_loader.LoadFromFile(config_.data.c_str(), 0, 1));
+    train_data_.reset(dataset_loader.LoadFromFile(config_.data.c_str(), 0, 1, category_encoding_provider.get()));
   }
   // need save binary file
   if (config_.save_binary) {
@@ -232,9 +236,13 @@ void Application::Predict() {
       // Free memory
       result_reader.Lines()[i].clear();
     }
-    DatasetLoader dataset_loader(config_, nullptr,
+    DatasetLoader dataset_loader(&config_, nullptr,
                                  config_.num_class, config_.data.c_str());
-    train_data_.reset(dataset_loader.LoadFromFile(config_.data.c_str(), 0, 1));
+    std::unique_ptr<CategoryEncodingProvider> category_encoding_provider(nullptr);
+    if (!config_.category_encoders.empty()) {
+      category_encoding_provider.reset(CategoryEncodingProvider::CreateCategoryEncodingProvider(&config_));
+    }
+    train_data_.reset(dataset_loader.LoadFromFile(config_.data.c_str(), 0, 1, category_encoding_provider.get()));
     train_metric_.clear();
     objective_fun_.reset(ObjectiveFunction::CreateObjectiveFunction(config_.objective,
                                                                     config_));

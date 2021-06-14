@@ -323,6 +323,8 @@
     <ClCompile Include="..\src\io\train_share_states.cpp">
       <Filter>src\io</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\io\category_encoding_provider.cpp">
+      <Filter>src\io</Filter>
     <ClCompile Include="..\src\treelearner\linear_tree_learner.cpp">
       <Filter>src\treelearner</Filter>
     </ClCompile>

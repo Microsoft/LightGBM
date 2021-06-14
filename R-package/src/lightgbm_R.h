@@ -40,6 +40,7 @@ LIGHTGBM_C_EXPORT SEXP LGBM_DatasetCreateFromFile_R(
 * \param indptr pointer to row headers
 * \param indices findex
 * \param data fvalue
+* \param label label
 * \param num_indptr number of cols in the matrix + 1
 * \param nelem number of nonzero elements in the matrix
 * \param num_row number of rows
@@ -51,6 +52,7 @@ LIGHTGBM_C_EXPORT SEXP LGBM_DatasetCreateFromCSC_R(
   SEXP indptr,
   SEXP indices,
   SEXP data,
+  SEXP label,
   SEXP num_indptr,
   SEXP nelem,
   SEXP num_row,
@@ -61,6 +63,7 @@ LIGHTGBM_C_EXPORT SEXP LGBM_DatasetCreateFromCSC_R(
 /*!
 * \brief create Dataset from dense matrix
 * \param data matrix data
+* \param label label
 * \param num_row number of rows
 * \param num_col number columns
 * \param parameters additional parameters
@@ -69,6 +72,7 @@ LIGHTGBM_C_EXPORT SEXP LGBM_DatasetCreateFromCSC_R(
 */
 LIGHTGBM_C_EXPORT SEXP LGBM_DatasetCreateFromMat_R(
   SEXP data,
+  SEXP label,
   SEXP num_row,
   SEXP num_col,
   SEXP parameters,

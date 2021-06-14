@@ -74,6 +74,7 @@ test_that("lgb.Dataset: Dataset should be able to construct from matrix and retu
   handle <- .Call(
     LGBM_DatasetCreateFromMat_R
     , rawData
+    , NULL
     , nrow(rawData)
     , ncol(rawData)
     , lightgbm:::lgb.params2str(params = list())

@@ -12,6 +12,7 @@
 #include <LightGBM/utils/openmp_wrapper.h>
 #include <LightGBM/utils/random.h>
 #include <LightGBM/utils/text_reader.h>
+#include <LightGBM/parser_base.h>
 
 #include <string>
 #include <functional>
@@ -20,6 +21,8 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+#include <LightGBM/category_encoding_provider.hpp>
 
 namespace LightGBM {
 
@@ -246,37 +249,6 @@ class Metadata {
   bool weight_load_from_file_;
   bool query_load_from_file_;
   bool init_score_load_from_file_;
-};
-
-
-/*! \brief Interface for Parser */
-class Parser {
- public:
-  typedef const char* (*AtofFunc)(const char* p, double* out);
-
-  /*! \brief virtual destructor */
-  virtual ~Parser() {}
-
-  /*!
-  * \brief Parse one line with label
-  * \param str One line record, string format, should end with '\0'
-  * \param out_features Output columns, store in (column_idx, values)
-  * \param out_label Label will store to this if exists
-  */
-  virtual void ParseOneLine(const char* str,
-                            std::vector<std::pair<int, double>>* out_features, double* out_label) const = 0;
-
-  virtual int NumFeatures() const = 0;
-
-  /*!
-  * \brief Create an object of parser, will auto choose the format depend on file
-  * \param filename One Filename of data
-  * \param num_features Pass num_features of this data file if you know, <=0 means don't know
-  * \param label_idx index of label column
-  * \param precise_float_parser using precise floating point number parsing if true
-  * \return Object of parser
-  */
-  static Parser* CreateParser(const char* filename, bool header, int num_features, int label_idx, bool precise_float_parser);
 };
 
 /*! \brief The main class of data set,
@@ -606,7 +578,9 @@ class Dataset {
   inline const std::vector<std::string>& feature_names() const { return feature_names_; }
 
   inline void set_feature_names(const std::vector<std::string>& feature_names) {
-    if (feature_names.size() != static_cast<size_t>(num_total_features_)) {
+    if (feature_names.size() != static_cast<size_t>(num_total_features_) && !(
+      category_encoding_provider_.get() != nullptr &&
+      static_cast<int>(feature_names.size()) == category_encoding_provider_->GetNumOriginalFeatures())) {
       Log::Fatal("Size of feature_names error, should equal with total number of features");
     }
     feature_names_ = std::vector<std::string>(feature_names);
@@ -629,6 +603,9 @@ class Dataset {
     }
     if (spaceInFeatureName) {
       Log::Warning("Found whitespace in feature_names, replace with underlines");
+    }
+    if (category_encoding_provider_.get() != nullptr && category_encoding_provider_->GetNumCatConverters() > 0) {
+      category_encoding_provider_->ExtendFeatureNames(&feature_names_);
     }
   }
 
@@ -655,6 +632,14 @@ class Dataset {
   Dataset(const Dataset&) = delete;
 
   void AddFeaturesFrom(Dataset* other);
+
+  void SetCategoryEncodingProvider(const CategoryEncodingProvider* category_encoding_provider) {
+    category_encoding_provider_.reset(category_encoding_provider);
+  }
+
+  inline const CategoryEncodingProvider* category_encoding_provider() const {
+    return category_encoding_provider_.get();
+  }
 
   /*! \brief Get has_raw_ */
   inline bool has_raw() const { return has_raw_; }
@@ -699,8 +684,6 @@ class Dataset {
   int label_idx_ = 0;
   /*! \brief store feature names */
   std::vector<std::string> feature_names_;
-  /*! \brief store feature names */
-  static const char* binary_file_token;
   int num_groups_;
   std::vector<int> real_feature_idx_;
   std::vector<int> feature2group_;
@@ -717,6 +700,8 @@ class Dataset {
   bool use_missing_;
   bool zero_as_missing_;
   std::vector<int> feature_need_push_zeros_;
+  /*! \brief category encoding provider, converts categorical feature values into category encoding values */
+  std::unique_ptr<const CategoryEncodingProvider> category_encoding_provider_ = std::unique_ptr<CategoryEncodingProvider>(nullptr);
   std::vector<std::vector<float>> raw_data_;
   bool has_raw_;
   /*! map feature (inner index) to its index in the list of numeric (non-categorical) features */

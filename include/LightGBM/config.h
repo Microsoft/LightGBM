@@ -1019,6 +1019,34 @@ struct Config {
 
   #pragma endregion
 
+  #pragma region Category Encoder Parameters
+
+  // desc = ways to encode categorical features into numerical values, separated by comma, currently supports:
+  // desc = target[:prior], where `prior` is a real number used to smooth the calculation of encoded values
+  // desc = target[:prior] is calculated as: (sum_label + prior * prior_weight) / (count + prior_weight)
+  // desc = if the prior value is missing, use the label mean of training data as default prior
+  // desc = count, the count of the categorical feature value in the dataset
+  // desc = raw, the dynamic encoding method which encodes categorical values with sum_gradients / sum_hessians per leaf per iteration
+  // desc = for example "target:0.5,target:0.0:count will convert each categorical feature into 3 numerical features, with the 3 different ways separated by ','.
+  // desc = when category_encoders is empty, we use `raw` by default
+  // desc = the numbers and names of features will be changed when category_encoders is not `raw`
+  // desc = suppose the original name of a feature is `NAME`, the naming rules of its target and count encoding features are:
+  // desc = 1. for the encoder `target` (without user specified prior), it will be named as `NAME_label_mean_prior_target_encoding_<label_mean>`
+  // desc = 2. for the encoder `target:<prior>` (with user specified prior), it will be named as `NAME_target_encoding_<prior>`
+  // desc = 3. for the encoder `count`, it will be named as `NAME_count_encoding`
+  // desc = Use get_feature_name() of python Booster or feature_name() of python Dataset after training to get the actual feature names used when category_encoders is set.
+  std::string category_encoders = std::string("raw");
+
+  // desc = number of folds that training data is divided into, to calculate target encoding values
+  int num_target_encoding_folds = 4;
+
+  // desc = weight of prior in target encoding calculation
+  // desc = if target encoding is used, prior_weight is used to calculate target encoding values by
+  // desc = (sum_label + prior * prior_weight) / (count + prior_weight)
+  double prior_weight = 1.0f;
+
+  #pragma endregion
+
   #pragma endregion
 
   size_t file_load_progress_interval_bytes = size_t(10) * 1024 * 1024 * 1024;

@@ -72,6 +72,7 @@ SEXP LGBM_DatasetCreateFromFile_R(SEXP filename,
 SEXP LGBM_DatasetCreateFromCSC_R(SEXP indptr,
   SEXP indices,
   SEXP data,
+  SEXP label,
   SEXP num_indptr,
   SEXP nelem,
   SEXP num_row,
@@ -82,17 +83,28 @@ SEXP LGBM_DatasetCreateFromCSC_R(SEXP indptr,
   const int* p_indptr = INTEGER(indptr);
   const int* p_indices = INTEGER(indices);
   const double* p_data = REAL(data);
+  const double* p_label = Rf_isNull(label) ? nullptr : REAL(label);
 
   int64_t nindptr = static_cast<int64_t>(Rf_asInteger(num_indptr));
   int64_t ndata = static_cast<int64_t>(Rf_asInteger(nelem));
   int64_t nrow = static_cast<int64_t>(Rf_asInteger(num_row));
+  const float* float_p_label = nullptr;
+  std::vector<float> float_label_vec;
+  if (p_label != nullptr) {
+    float_label_vec.resize(nrow);
+    #pragma omp parallel for schedule(static) if (nrow >= 1024)
+    for (int i = 0; i < nrow; ++i) {
+      float_label_vec[i] = static_cast<float>(p_label[i]);
+    }
+    float_p_label = float_label_vec.data();
+  }
   DatasetHandle handle = nullptr;
   DatasetHandle ref = nullptr;
   if (!Rf_isNull(reference)) {
     ref = R_ExternalPtrAddr(reference);
   }
   CHECK_CALL(LGBM_DatasetCreateFromCSC(p_indptr, C_API_DTYPE_INT32, p_indices,
-    p_data, C_API_DTYPE_FLOAT64, nindptr, ndata,
+    p_data, float_p_label, C_API_DTYPE_FLOAT64, nindptr, ndata,
     nrow, CHAR(Rf_asChar(parameters)), ref, &handle));
   ret = PROTECT(R_MakeExternalPtr(handle, R_NilValue, R_NilValue));
   R_RegisterCFinalizerEx(ret, _DatasetFinalizer, TRUE);
@@ -102,6 +114,7 @@ SEXP LGBM_DatasetCreateFromCSC_R(SEXP indptr,
 }
 
 SEXP LGBM_DatasetCreateFromMat_R(SEXP data,
+  SEXP label,
   SEXP num_row,
   SEXP num_col,
   SEXP parameters,
@@ -111,12 +124,23 @@ SEXP LGBM_DatasetCreateFromMat_R(SEXP data,
   int32_t nrow = static_cast<int32_t>(Rf_asInteger(num_row));
   int32_t ncol = static_cast<int32_t>(Rf_asInteger(num_col));
   double* p_mat = REAL(data);
+  double* p_label = Rf_isNull(label) ? nullptr : REAL(label);
+  const float* float_p_label = nullptr;
+  std::vector<float> float_label_vec;
+  if (p_label != nullptr) {
+    float_label_vec.resize(nrow);
+    #pragma omp parallel for schedule(static) if (nrow >= 1024)
+    for (int i = 0; i < nrow; ++i) {
+      float_label_vec[i] = static_cast<float>(p_label[i]);
+    }
+    float_p_label = float_label_vec.data();
+  }
   DatasetHandle handle = nullptr;
   DatasetHandle ref = nullptr;
   if (!Rf_isNull(reference)) {
     ref = R_ExternalPtrAddr(reference);
   }
-  CHECK_CALL(LGBM_DatasetCreateFromMat(p_mat, C_API_DTYPE_FLOAT64, nrow, ncol, COL_MAJOR,
+  CHECK_CALL(LGBM_DatasetCreateFromMat(p_mat, float_p_label, C_API_DTYPE_FLOAT64, nrow, ncol, COL_MAJOR,
     CHAR(Rf_asChar(parameters)), ref, &handle));
   ret = PROTECT(R_MakeExternalPtr(handle, R_NilValue, R_NilValue));
   R_RegisterCFinalizerEx(ret, _DatasetFinalizer, TRUE);
@@ -721,8 +745,8 @@ SEXP LGBM_BoosterDumpModel_R(SEXP handle,
 static const R_CallMethodDef CallEntries[] = {
   {"LGBM_HandleIsNull_R"              , (DL_FUNC) &LGBM_HandleIsNull_R              , 1},
   {"LGBM_DatasetCreateFromFile_R"     , (DL_FUNC) &LGBM_DatasetCreateFromFile_R     , 3},
-  {"LGBM_DatasetCreateFromCSC_R"      , (DL_FUNC) &LGBM_DatasetCreateFromCSC_R      , 8},
-  {"LGBM_DatasetCreateFromMat_R"      , (DL_FUNC) &LGBM_DatasetCreateFromMat_R      , 5},
+  {"LGBM_DatasetCreateFromCSC_R"      , (DL_FUNC) &LGBM_DatasetCreateFromCSC_R      , 9},
+  {"LGBM_DatasetCreateFromMat_R"      , (DL_FUNC) &LGBM_DatasetCreateFromMat_R      , 6},
   {"LGBM_DatasetGetSubset_R"          , (DL_FUNC) &LGBM_DatasetGetSubset_R          , 4},
   {"LGBM_DatasetSetFeatureNames_R"    , (DL_FUNC) &LGBM_DatasetSetFeatureNames_R    , 2},
   {"LGBM_DatasetGetFeatureNames_R"    , (DL_FUNC) &LGBM_DatasetGetFeatureNames_R    , 1},

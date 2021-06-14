@@ -381,13 +381,13 @@ class FeatureHistogram {
 
       l2 += meta_->config->cat_l2;
 
-      auto ctr_fun = [this](double sum_grad, double sum_hess) {
+      auto category_encoding_fun = [this](double sum_grad, double sum_hess) {
         return (sum_grad) / (sum_hess + meta_->config->cat_smooth);
       };
       std::stable_sort(
-          sorted_idx.begin(), sorted_idx.end(), [this, &ctr_fun](int i, int j) {
-            return ctr_fun(GET_GRAD(data_, i), GET_HESS(data_, i)) <
-                   ctr_fun(GET_GRAD(data_, j), GET_HESS(data_, j));
+          sorted_idx.begin(), sorted_idx.end(), [this, &category_encoding_fun](int i, int j) {
+            return category_encoding_fun(GET_GRAD(data_, i), GET_HESS(data_, i)) <
+                   category_encoding_fun(GET_GRAD(data_, j), GET_HESS(data_, j));
           });
 
       std::vector<int> find_direction(1, 1);

@@ -100,6 +100,7 @@ def load_from_csr(filename, reference):
         ctypes.c_int(dtype_int32),
         csr.indices.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
         csr.data.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        label.ctypes.data_as(ctypes.POINTER(ctypes.c_void_p)),
         ctypes.c_int(dtype_float64),
         ctypes.c_int64(len(csr.indptr)),
         ctypes.c_int64(len(csr.data)),
@@ -142,6 +143,7 @@ def load_from_csc(filename, reference):
         ctypes.c_int(dtype_int32),
         csc.indices.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
         csc.data.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        label.ctypes.data_as(ctypes.POINTER(ctypes.c_void_p)),
         ctypes.c_int(dtype_float64),
         ctypes.c_int64(len(csc.indptr)),
         ctypes.c_int64(len(csc.data)),
@@ -181,6 +183,7 @@ def load_from_mat(filename, reference):
 
     LIB.LGBM_DatasetCreateFromMat(
         data.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        label.ctypes.data_as(ctypes.POINTER(ctypes.c_void_p)),
         ctypes.c_int(dtype_float64),
         ctypes.c_int32(mat.shape[0]),
         ctypes.c_int32(mat.shape[1]),

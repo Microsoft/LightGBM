@@ -1210,7 +1210,7 @@ struct __TToStringHelper<T, true, true> {
 };
 
 /*!
-* Converts an array to a string with with values separated by the space character.
+* Converts an array to a string with values separated by the space character.
 * This method replaces Common's ``ArrayToString`` and ``ArrayToStringFast`` functionality
 * and is locale-independent.
 * 
@@ -1235,6 +1235,49 @@ inline static std::string ArrayToString(const std::vector<T>& arr, size_t n) {
   }
   return str_buf.str();
 }
+
+/*!
+* Converts an unordered_map to a string with key-value pairs separated by the specified delimiter.
+* Each key-value pair is represented by <key>:<value> with a colon in between.
+* This method is locale-independent.
+*
+* \note If ``high_precision_output`` is set to true,
+*       floating point values are output with more digits of precision.
+*/
+template<bool key_high_precision_output = false, bool value_high_precision_output = false,
+  typename KEY_T, typename VALUE_T>
+inline static std::string UnorderedMapToString(const std::unordered_map<KEY_T, VALUE_T>& map,
+  const char pair_sep, const char delimiter) {
+  if (map.empty()) {
+    return std::string("");
+  }
+  __TToStringHelper<KEY_T, std::is_floating_point<KEY_T>::value, key_high_precision_output> key_helper;
+  __TToStringHelper<VALUE_T, std::is_floating_point<VALUE_T>::value, value_high_precision_output> value_helper;
+  const size_t key_buf_len = key_high_precision_output ? 32 : 16;
+  const size_t value_buf_len = value_high_precision_output ? 32 : 16;
+  std::vector<char> key_buffer(key_buf_len);
+  std::vector<char> value_buffer(value_buf_len);
+  std::stringstream str_buf;
+  Common::C_stringstream(str_buf);
+  auto iter = map.begin();
+  key_helper(iter->first, key_buffer.data(), key_buf_len);
+  str_buf << key_buffer.data();
+  str_buf << pair_sep;
+  value_helper(iter->second, value_buffer.data(), value_buf_len);
+  str_buf << value_buffer.data();
+
+  ++iter;
+  for (; iter != map.end(); ++iter) {
+    str_buf << delimiter;
+    key_helper(iter->first, key_buffer.data(), key_buf_len);
+    str_buf << key_buffer.data();
+    str_buf << pair_sep;
+    value_helper(iter->second, value_buffer.data(), value_buf_len);
+    str_buf << value_buffer.data();
+  }
+  return str_buf.str();
+}
+
 #endif  // (!((defined(sun) || defined(__sun)) && (defined(__SVR4) || defined(__svr4__))))
 
 

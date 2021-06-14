@@ -21,7 +21,8 @@ class CSVParser: public Parser {
     :label_idx_(label_idx), total_columns_(total_columns), atof_(atof) {
   }
   inline void ParseOneLine(const char* str,
-    std::vector<std::pair<int, double>>* out_features, double* out_label) const override {
+    std::vector<std::pair<int, double>>* out_features,
+    double* out_label, const int /*line_idx*/ = -1) const override {
     int idx = 0;
     double val = 0.0f;
     int offset = 0;
@@ -59,7 +60,8 @@ class TSVParser: public Parser {
     :label_idx_(label_idx), total_columns_(total_columns), atof_(atof) {
   }
   inline void ParseOneLine(const char* str,
-    std::vector<std::pair<int, double>>* out_features, double* out_label) const override {
+    std::vector<std::pair<int, double>>* out_features,
+    double* out_label, const int /*line_idx*/ = -1) const override {
     int idx = 0;
     double val = 0.0f;
     int offset = 0;
@@ -99,7 +101,8 @@ class LibSVMParser: public Parser {
     }
   }
   inline void ParseOneLine(const char* str,
-    std::vector<std::pair<int, double>>* out_features, double* out_label) const override {
+    std::vector<std::pair<int, double>>* out_features,
+    double* out_label, const int /*line_idx*/ = -1) const override {
     int idx = 0;
     double val = 0.0f;
     if (label_idx_ == 0) {

@@ -9,6 +9,7 @@
 #include <LightGBM/dataset.h>
 #include <LightGBM/dataset_loader.h>
 #include <LightGBM/metric.h>
+#include <LightGBM/meta.h>
 #include <LightGBM/network.h>
 #include <LightGBM/objective_function.h>
 #include <LightGBM/prediction_early_stop.h>
@@ -27,6 +28,7 @@
 #include <vector>
 
 #include "application/predictor.hpp"
+#include <LightGBM/category_encoding_provider.hpp>
 #include <LightGBM/utils/yamc/alternate_shared_mutex.hpp>
 #include <LightGBM/utils/yamc/yamc_shared_lock.hpp>
 
@@ -276,6 +278,10 @@ class Booster {
     if (new_param.count("forcedbins_filename")) {
       Log::Fatal("Cannot change forced bins after constructed Dataset handle.");
     }
+    if (new_param.count("category_encoders") &&
+        new_config.category_encoders != old_config.category_encoders) {
+      Log::Fatal("Cannot change category_encoders after constructed Dataset handle.");
+    }
     if (new_param.count("min_data_in_leaf") &&
         new_config.min_data_in_leaf < old_config.min_data_in_leaf &&
         old_config.feature_pre_filter) {
@@ -384,7 +390,7 @@ class Booster {
   void PredictSingleRow(int predict_type, int ncol,
                std::function<std::vector<std::pair<int, double>>(int row_idx)> get_row_fun,
                const Config& config,
-               double* out_result, int64_t* out_len) const {
+               double* out_result, int64_t* out_len) {
     if (!config.predict_disable_shape_check && ncol != boosting_->MaxFeatureIdx() + 1) {
       Log::Fatal("The number of features in data (%d) is not the same as it was in training data (%d).\n"\
                  "You can set ``predict_disable_shape_check=true`` to discard this error, but please be aware what you are doing.", ncol, boosting_->MaxFeatureIdx() + 1);
@@ -579,6 +585,8 @@ class Booster {
     }
     out_len[0] = elements_size;
     out_len[1] = indptr_size;
+    out_len[2] = nrow;
+    out_len[3] = ncol;
   }
 
   void PredictSparseCSC(int start_iteration, int num_iteration, int predict_type, int64_t nrow, int ncol,
@@ -688,6 +696,8 @@ class Booster {
     OMP_THROW_EX();
     out_len[0] = elements_size;
     out_len[1] = col_ptr_size;
+    out_len[2] = nrow;
+    out_len[3] = ncol;
   }
 
   void Predict(int start_iteration, int num_iteration, int predict_type, const char* data_filename,
@@ -837,6 +847,7 @@ using LightGBM::Common::RemoveQuotationSymbol;
 using LightGBM::Common::Vector2Ptr;
 using LightGBM::Common::VectorSize;
 using LightGBM::Config;
+using LightGBM::CategoryEncodingProvider;
 using LightGBM::data_size_t;
 using LightGBM::Dataset;
 using LightGBM::DatasetLoader;
@@ -846,6 +857,7 @@ using LightGBM::Log;
 using LightGBM::Network;
 using LightGBM::Random;
 using LightGBM::ReduceScatterFunction;
+using LightGBM::label_t;
 
 // some help functions used to convert data
 
@@ -863,24 +875,8 @@ std::function<std::vector<std::pair<int, double>>(T idx)>
 RowFunctionFromCSR(const void* indptr, int indptr_type, const int32_t* indices,
                    const void* data, int data_type, int64_t nindptr, int64_t nelem);
 
-// Row iterator of on column for CSC matrix
-class CSC_RowIterator {
- public:
-  CSC_RowIterator(const void* col_ptr, int col_ptr_type, const int32_t* indices,
-                  const void* data, int data_type, int64_t ncol_ptr, int64_t nelem, int col_idx);
-  ~CSC_RowIterator() {}
-  // return value at idx, only can access by ascent order
-  double Get(int idx);
-  // return next non-zero pair, if index < 0, means no more data
-  std::pair<int, double> NextNonZero();
-
- private:
-  int nonzero_idx_ = 0;
-  int cur_idx_ = -1;
-  double cur_val_ = 0.0f;
-  bool is_end_ = false;
-  std::function<std::pair<int, double>(int idx)> iter_fun_;
-};
+std::function<label_t(int row_idx)>
+LabelFunctionFromArray(const void* label);
 
 // start of c_api functions
 
@@ -905,12 +901,19 @@ int LGBM_DatasetCreateFromFile(const char* filename,
   if (config.num_threads > 0) {
     omp_set_num_threads(config.num_threads);
   }
-  DatasetLoader loader(config, nullptr, 1, filename);
+
+  std::unique_ptr<CategoryEncodingProvider> category_encoding_provider(nullptr);
+  if (!config.category_encoders.empty()) {
+    category_encoding_provider.reset(CategoryEncodingProvider::CreateCategoryEncodingProvider(&config));
+  }
+
+  DatasetLoader loader(&config, nullptr, 1, filename);
+
   if (reference == nullptr) {
     if (Network::num_machines() == 1) {
-      *out = loader.LoadFromFile(filename);
+      *out = loader.LoadFromFile(filename, category_encoding_provider.get());
     } else {
-      *out = loader.LoadFromFile(filename, Network::rank(), Network::num_machines());
+      *out = loader.LoadFromFile(filename, Network::rank(), Network::num_machines(), category_encoding_provider.get());
     }
   } else {
     *out = loader.LoadFromFileAlignWithOtherDataset(filename,
@@ -935,10 +938,11 @@ int LGBM_DatasetCreateFromSampledColumn(double** sample_data,
   if (config.num_threads > 0) {
     omp_set_num_threads(config.num_threads);
   }
-  DatasetLoader loader(config, nullptr, 1, nullptr);
+  DatasetLoader loader(&config, nullptr, 1, nullptr);
+  // TODO(shiyu1994): in this case do we need category encoding provider ? it seems that therea are no labels available.
   *out = loader.ConstructFromSampleData(sample_data, sample_indices, ncol, num_per_col,
                                         num_sample_row,
-                                        static_cast<data_size_t>(num_total_row));
+                                        static_cast<data_size_t>(num_total_row), nullptr);
   API_END();
 }
 
@@ -1016,6 +1020,7 @@ int LGBM_DatasetPushRowsByCSR(DatasetHandle dataset,
 }
 
 int LGBM_DatasetCreateFromMat(const void* data,
+                              const void* label,
                               int data_type,
                               int32_t nrow,
                               int32_t ncol,
@@ -1025,6 +1030,7 @@ int LGBM_DatasetCreateFromMat(const void* data,
                               DatasetHandle* out) {
   return LGBM_DatasetCreateFromMats(1,
                                     &data,
+                                    label,
                                     data_type,
                                     &nrow,
                                     ncol,
@@ -1037,6 +1043,7 @@ int LGBM_DatasetCreateFromMat(const void* data,
 
 int LGBM_DatasetCreateFromMats(int32_t nmat,
                                const void** data,
+                               const void* label,
                                int data_type,
                                int32_t* nrow,
                                int32_t ncol,
@@ -1062,7 +1069,22 @@ int LGBM_DatasetCreateFromMats(int32_t nmat,
     get_row_fun.push_back(RowFunctionFromDenseMatric(data[j], nrow[j], ncol, data_type, is_row_major));
   }
 
-  if (reference == nullptr) {
+  std::unique_ptr<const CategoryEncodingProvider> category_encoding_provider;
+  const bool is_valid = (reference != nullptr);
+  if (is_valid) {
+    const CategoryEncodingProvider* category_encoding_provider_ptr = (reinterpret_cast<const Dataset*>(reference))->category_encoding_provider();
+    if (category_encoding_provider_ptr != nullptr) {
+      category_encoding_provider.reset(CategoryEncodingProvider::RecoverFromModelString((category_encoding_provider_ptr->DumpToString())));
+    }
+  } else {
+    std::function<label_t(int row_idx)> get_label_fun = LabelFunctionFromArray(label);
+    category_encoding_provider.reset(CategoryEncodingProvider::CreateCategoryEncodingProvider(
+      &config, get_row_fun, get_label_fun, nmat, nrow, ncol));
+  }
+  if (category_encoding_provider != nullptr) {
+    category_encoding_provider->WrapRowFunctions(&get_row_fun, &ncol, is_valid);
+  }
+  if (!is_valid) {
     // sample data first
     Random rand(config.data_random_seed);
     int sample_cnt = static_cast<int>(total_nrow < config.bin_construct_sample_cnt ? total_nrow : config.bin_construct_sample_cnt);
@@ -1070,7 +1092,7 @@ int LGBM_DatasetCreateFromMats(int32_t nmat,
     sample_cnt = static_cast<int>(sample_indices.size());
     std::vector<std::vector<double>> sample_values(ncol);
     std::vector<std::vector<int>> sample_idx(ncol);
-
+    DatasetLoader loader(&config, nullptr, 1, nullptr);
     int offset = 0;
     int j = 0;
     for (size_t i = 0; i < sample_indices.size(); ++i) {
@@ -1079,7 +1101,6 @@ int LGBM_DatasetCreateFromMats(int32_t nmat,
         offset += nrow[j];
         ++j;
       }
-
       auto row = get_row_fun[j](static_cast<int>(idx - offset));
       for (size_t k = 0; k < row.size(); ++k) {
         if (std::fabs(row[k]) > kZeroThreshold || std::isnan(row[k])) {
@@ -1088,12 +1109,14 @@ int LGBM_DatasetCreateFromMats(int32_t nmat,
         }
       }
     }
-    DatasetLoader loader(config, nullptr, 1, nullptr);
     ret.reset(loader.ConstructFromSampleData(Vector2Ptr<double>(&sample_values).data(),
                                              Vector2Ptr<int>(&sample_idx).data(),
                                              ncol,
                                              VectorSize<double>(sample_values).data(),
-                                             sample_cnt, total_nrow));
+                                             sample_cnt, total_nrow, category_encoding_provider.get()));
+    if (category_encoding_provider != nullptr) {
+      ret->SetCategoryEncodingProvider(CategoryEncodingProvider::RecoverFromModelString(category_encoding_provider->DumpToString()));
+    }
   } else {
     ret.reset(new Dataset(total_nrow));
     ret->CreateValid(
@@ -1126,6 +1149,7 @@ int LGBM_DatasetCreateFromCSR(const void* indptr,
                               int indptr_type,
                               const int32_t* indices,
                               const void* data,
+                              const void* label,
                               int data_type,
                               int64_t nindptr,
                               int64_t nelem,
@@ -1147,8 +1171,24 @@ int LGBM_DatasetCreateFromCSR(const void* indptr,
   }
   std::unique_ptr<Dataset> ret;
   auto get_row_fun = RowFunctionFromCSR<int>(indptr, indptr_type, indices, data, data_type, nindptr, nelem);
+  std::unique_ptr<const CategoryEncodingProvider> category_encoding_provider;
+  const bool is_valid = (reference != nullptr);
+  if (is_valid) {
+    const CategoryEncodingProvider* category_encoding_provider_ptr = (reinterpret_cast<const Dataset*>(reference))->category_encoding_provider();
+    if (category_encoding_provider_ptr != nullptr) {
+      category_encoding_provider.reset(CategoryEncodingProvider::RecoverFromModelString((category_encoding_provider_ptr->DumpToString())));
+    }
+  } else {
+    std::function<label_t(int row_idx)> get_label_fun = LabelFunctionFromArray(label);
+    category_encoding_provider.reset(CategoryEncodingProvider::CreateCategoryEncodingProvider(
+      &config, get_row_fun, get_label_fun, nindptr - 1, num_col));
+  }
+  if (category_encoding_provider != nullptr) {
+    category_encoding_provider->WrapRowFunction(&get_row_fun, &num_col, is_valid);
+  }
+
   int32_t nrow = static_cast<int32_t>(nindptr - 1);
-  if (reference == nullptr) {
+  if (!is_valid) {
     // sample data first
     Random rand(config.data_random_seed);
     int sample_cnt = static_cast<int>(nrow < config.bin_construct_sample_cnt ? nrow : config.bin_construct_sample_cnt);
@@ -1167,12 +1207,15 @@ int LGBM_DatasetCreateFromCSR(const void* indptr,
         }
       }
     }
-    DatasetLoader loader(config, nullptr, 1, nullptr);
+    DatasetLoader loader(&config, nullptr, 1, nullptr);
     ret.reset(loader.ConstructFromSampleData(Vector2Ptr<double>(&sample_values).data(),
                                              Vector2Ptr<int>(&sample_idx).data(),
                                              static_cast<int>(num_col),
                                              VectorSize<double>(sample_values).data(),
-                                             sample_cnt, nrow));
+                                             sample_cnt, nrow, category_encoding_provider.get()));
+    if (category_encoding_provider != nullptr) {
+      ret->SetCategoryEncodingProvider(CategoryEncodingProvider::RecoverFromModelString(category_encoding_provider->DumpToString()));
+    }
   } else {
     ret.reset(new Dataset(nrow));
     ret->CreateValid(
@@ -1196,6 +1239,7 @@ int LGBM_DatasetCreateFromCSR(const void* indptr,
   API_END();
 }
 
+// TODO(shiyu1994): This is called in mmlspark, supporting category encoding mode with this function requires modifying mmlspark.
 int LGBM_DatasetCreateFromCSRFunc(void* get_row_funptr,
                                   int num_rows,
                                   int64_t num_col,
@@ -1238,12 +1282,12 @@ int LGBM_DatasetCreateFromCSRFunc(void* get_row_funptr,
         }
       }
     }
-    DatasetLoader loader(config, nullptr, 1, nullptr);
+    DatasetLoader loader(&config, nullptr, 1, nullptr);
     ret.reset(loader.ConstructFromSampleData(Vector2Ptr<double>(&sample_values).data(),
                                              Vector2Ptr<int>(&sample_idx).data(),
                                              static_cast<int>(num_col),
                                              VectorSize<double>(sample_values).data(),
-                                             sample_cnt, nrow));
+                                             sample_cnt, nrow, nullptr));
   } else {
     ret.reset(new Dataset(nrow));
     ret->CreateValid(
@@ -1271,10 +1315,13 @@ int LGBM_DatasetCreateFromCSRFunc(void* get_row_funptr,
   API_END();
 }
 
+typedef LightGBM::CSC_RowIterator CSC_RowIterator;
+
 int LGBM_DatasetCreateFromCSC(const void* col_ptr,
                               int col_ptr_type,
                               const int32_t* indices,
                               const void* data,
+                              const void* label,
                               int data_type,
                               int64_t ncol_ptr,
                               int64_t nelem,
@@ -1291,6 +1338,39 @@ int LGBM_DatasetCreateFromCSC(const void* col_ptr,
   }
   std::unique_ptr<Dataset> ret;
   int32_t nrow = static_cast<int32_t>(num_row);
+
+  std::vector<std::unique_ptr<CSC_RowIterator>> csc_iterators(ncol_ptr - 1);
+
+  { // extra brackets to use OMP_INIT_EX() here without conflict with subsequent uses
+    OMP_INIT_EX();
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < static_cast<int>(csc_iterators.size()); ++i) {
+      OMP_LOOP_EX_BEGIN();
+      csc_iterators[i].reset(new CSC_RowIterator(col_ptr, col_ptr_type, indices, data, data_type, ncol_ptr, nelem, i));
+      OMP_LOOP_EX_END();
+    }
+    OMP_THROW_EX();
+  }
+
+  std::unique_ptr<const CategoryEncodingProvider> category_encoding_provider;
+  const bool is_valid = (reference != nullptr);
+  if (is_valid) {
+    const CategoryEncodingProvider* category_encoding_provider_ptr = (reinterpret_cast<const Dataset*>(reference))->category_encoding_provider();
+    if (category_encoding_provider_ptr != nullptr) {
+      category_encoding_provider.reset(CategoryEncodingProvider::RecoverFromModelString((category_encoding_provider_ptr->DumpToString())));
+    }
+  } else {
+    std::function<label_t(int row_idx)> get_label_fun = LabelFunctionFromArray(label);
+    category_encoding_provider.reset(CategoryEncodingProvider::CreateCategoryEncodingProvider(
+      &config, csc_iterators, get_label_fun, num_row, ncol_ptr - 1));
+  }
+  if (category_encoding_provider != nullptr) {
+    category_encoding_provider->WrapColIters(&csc_iterators, &ncol_ptr, is_valid, num_row);
+  }
+  for (const auto& csc_iter : csc_iterators) {
+    csc_iter->Reset();
+  }
+
   if (reference == nullptr) {
     // sample data first
     Random rand(config.data_random_seed);
@@ -1303,9 +1383,8 @@ int LGBM_DatasetCreateFromCSC(const void* col_ptr,
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < static_cast<int>(sample_values.size()); ++i) {
       OMP_LOOP_EX_BEGIN();
-      CSC_RowIterator col_it(col_ptr, col_ptr_type, indices, data, data_type, ncol_ptr, nelem, i);
       for (int j = 0; j < sample_cnt; j++) {
-        auto val = col_it.Get(sample_indices[j]);
+        auto val = csc_iterators[i]->Get(sample_indices[j]);
         if (std::fabs(val) > kZeroThreshold || std::isnan(val)) {
           sample_values[i].emplace_back(val);
           sample_idx[i].emplace_back(j);
@@ -1314,12 +1393,15 @@ int LGBM_DatasetCreateFromCSC(const void* col_ptr,
       OMP_LOOP_EX_END();
     }
     OMP_THROW_EX();
-    DatasetLoader loader(config, nullptr, 1, nullptr);
+    DatasetLoader loader(&config, nullptr, 1, nullptr);
     ret.reset(loader.ConstructFromSampleData(Vector2Ptr<double>(&sample_values).data(),
                                              Vector2Ptr<int>(&sample_idx).data(),
                                              static_cast<int>(sample_values.size()),
                                              VectorSize<double>(sample_values).data(),
-                                             sample_cnt, nrow));
+                                             sample_cnt, nrow, category_encoding_provider.get()));
+    if (category_encoding_provider != nullptr) {
+      ret->SetCategoryEncodingProvider(CategoryEncodingProvider::RecoverFromModelString(category_encoding_provider->DumpToString()));
+    }
   } else {
     ret.reset(new Dataset(nrow));
     ret->CreateValid(
@@ -1334,12 +1416,12 @@ int LGBM_DatasetCreateFromCSC(const void* col_ptr,
     if (feature_idx < 0) { continue; }
     int group = ret->Feature2Group(feature_idx);
     int sub_feature = ret->Feture2SubFeature(feature_idx);
-    CSC_RowIterator col_it(col_ptr, col_ptr_type, indices, data, data_type, ncol_ptr, nelem, i);
+    csc_iterators[i]->Reset();
     auto bin_mapper = ret->FeatureBinMapper(feature_idx);
     if (bin_mapper->GetDefaultBin() == bin_mapper->GetMostFreqBin()) {
       int row_idx = 0;
       while (row_idx < nrow) {
-        auto pair = col_it.NextNonZero();
+        auto pair = csc_iterators[i]->NextNonZero();
         row_idx = pair.first;
         // no more data
         if (row_idx < 0) { break; }
@@ -1347,7 +1429,7 @@ int LGBM_DatasetCreateFromCSC(const void* col_ptr,
       }
     } else {
       for (int row_idx = 0; row_idx < nrow; ++row_idx) {
-        auto val = col_it.Get(row_idx);
+        auto val = csc_iterators[i]->Get(row_idx);
         ret->PushOneData(tid, row_idx, group, feature_idx, sub_feature, val);
       }
     }
@@ -1513,6 +1595,18 @@ int LGBM_DatasetGetNumFeature(DatasetHandle handle,
   API_BEGIN();
   auto dataset = reinterpret_cast<Dataset*>(handle);
   *out = dataset->num_total_features();
+  API_END();
+}
+
+int LGBM_DatasetGetNumOriginalFeature(DatasetHandle handle,
+                              int* out) {
+  API_BEGIN();
+  auto dataset = reinterpret_cast<Dataset*>(handle);
+  if (dataset->category_encoding_provider() != nullptr) {
+    *out = dataset->category_encoding_provider()->GetNumOriginalFeatures();
+  } else {
+    *out = dataset->num_total_features();
+  }
   API_END();
 }
 
@@ -1859,6 +1953,9 @@ int LGBM_BoosterPredictForCSR(BoosterHandle handle,
   }
   Booster* ref_booster = reinterpret_cast<Booster*>(handle);
   auto get_row_fun = RowFunctionFromCSR<int>(indptr, indptr_type, indices, data, data_type, nindptr, nelem);
+  if (ref_booster->GetBoosting()->category_encoding_provider() != nullptr) {
+    ref_booster->GetBoosting()->category_encoding_provider()->WrapRowFunction(&get_row_fun, &num_col, true);
+  }
   int nrow = static_cast<int>(nindptr - 1);
   ref_booster->Predict(start_iteration, num_iteration, predict_type, nrow, static_cast<int>(num_col), get_row_fun,
                        config, out_result, out_len);
@@ -1898,6 +1995,9 @@ int LGBM_BoosterPredictSparseOutput(BoosterHandle handle,
       Log::Fatal("The number of columns should be smaller than INT32_MAX.");
     }
     auto get_row_fun = RowFunctionFromCSR<int64_t>(indptr, indptr_type, indices, data, data_type, nindptr, nelem);
+    if (ref_booster->GetBoosting()->category_encoding_provider() != nullptr) {
+      ref_booster->GetBoosting()->category_encoding_provider()->WrapRowFunction(&get_row_fun, &num_col_or_row, true);
+    }
     int64_t nrow = nindptr - 1;
     ref_booster->PredictSparseCSR(start_iteration, num_iteration, predict_type, nrow, static_cast<int>(num_col_or_row), get_row_fun,
                                   config, out_len, out_indptr, indptr_type, out_indices, out_data, data_type);
@@ -1923,6 +2023,11 @@ int LGBM_BoosterPredictSparseOutput(BoosterHandle handle,
       }
       return one_row;
     };
+    if (ref_booster->GetBoosting()->category_encoding_provider() != nullptr) {
+      int64_t num_col = static_cast<int64_t>(ncol);
+      ref_booster->GetBoosting()->category_encoding_provider()->WrapRowFunction(&get_row_fun, &num_col, true);
+      ncol = static_cast<int>(num_col);
+    }
     ref_booster->PredictSparseCSC(start_iteration, num_iteration, predict_type, num_col_or_row, ncol, get_row_fun, config,
                                   out_len, out_indptr, indptr_type, out_indices, out_data, data_type);
   } else {
@@ -1980,6 +2085,9 @@ int LGBM_BoosterPredictForCSRSingleRow(BoosterHandle handle,
   }
   Booster* ref_booster = reinterpret_cast<Booster*>(handle);
   auto get_row_fun = RowFunctionFromCSR<int>(indptr, indptr_type, indices, data, data_type, nindptr, nelem);
+  if (ref_booster->GetBoosting()->category_encoding_provider() != nullptr) {
+    ref_booster->GetBoosting()->category_encoding_provider()->WrapRowFunction(&get_row_fun, &num_col, true);
+  }
   ref_booster->SetSingleRowPredictor(start_iteration, num_iteration, predict_type, config);
   ref_booster->PredictSingleRow(predict_type, static_cast<int32_t>(num_col), get_row_fun, config, out_result, out_len);
   API_END();
@@ -2029,7 +2137,13 @@ int LGBM_BoosterPredictForCSRSingleRowFast(FastConfigHandle fastConfig_handle,
   API_BEGIN();
   FastConfig *fastConfig = reinterpret_cast<FastConfig*>(fastConfig_handle);
   auto get_row_fun = RowFunctionFromCSR<int>(indptr, indptr_type, indices, data, fastConfig->data_type, nindptr, nelem);
-  fastConfig->booster->PredictSingleRow(fastConfig->predict_type, fastConfig->ncol,
+  int32_t ncol = fastConfig->ncol;
+  if (fastConfig->booster->GetBoosting()->category_encoding_provider() != nullptr) {
+    int64_t num_col = static_cast<int64_t>(ncol);
+    fastConfig->booster->GetBoosting()->category_encoding_provider()->WrapRowFunction(&get_row_fun, &num_col, true);
+    ncol = static_cast<int32_t>(num_col);
+  }
+  fastConfig->booster->PredictSingleRow(fastConfig->predict_type, ncol,
                                         get_row_fun, fastConfig->config, out_result, out_len);
   API_END();
 }
@@ -2079,6 +2193,11 @@ int LGBM_BoosterPredictForCSC(BoosterHandle handle,
         }
         return one_row;
       };
+  if (ref_booster->GetBoosting()->category_encoding_provider() != nullptr) {
+    int64_t num_col = static_cast<int64_t>(ncol);
+    ref_booster->GetBoosting()->category_encoding_provider()->WrapRowFunction(&get_row_fun, &num_col, true);
+    ncol = static_cast<int>(num_col);
+  }
   ref_booster->Predict(start_iteration, num_iteration, predict_type, static_cast<int>(num_row), ncol, get_row_fun, config,
                        out_result, out_len);
   API_END();
@@ -2105,6 +2224,11 @@ int LGBM_BoosterPredictForMat(BoosterHandle handle,
   }
   Booster* ref_booster = reinterpret_cast<Booster*>(handle);
   auto get_row_fun = RowPairFunctionFromDenseMatric(data, nrow, ncol, data_type, is_row_major);
+  if (ref_booster->GetBoosting()->category_encoding_provider() != nullptr) {
+    int64_t num_col = static_cast<int64_t>(ncol);
+    ref_booster->GetBoosting()->category_encoding_provider()->WrapRowFunction(&get_row_fun, &num_col, true);
+    ncol = static_cast<int32_t>(num_col);
+  }
   ref_booster->Predict(start_iteration, num_iteration, predict_type, nrow, ncol, get_row_fun,
                        config, out_result, out_len);
   API_END();
@@ -2130,6 +2254,11 @@ int LGBM_BoosterPredictForMatSingleRow(BoosterHandle handle,
   }
   Booster* ref_booster = reinterpret_cast<Booster*>(handle);
   auto get_row_fun = RowPairFunctionFromDenseMatric(data, 1, ncol, data_type, is_row_major);
+  if (ref_booster->GetBoosting()->category_encoding_provider() != nullptr) {
+    int64_t num_col = static_cast<int64_t>(ncol);
+    ref_booster->GetBoosting()->category_encoding_provider()->WrapRowFunction(&get_row_fun, &num_col, true);
+    ncol = static_cast<int32_t>(num_col);
+  }
   ref_booster->SetSingleRowPredictor(start_iteration, num_iteration, predict_type, config);
   ref_booster->PredictSingleRow(predict_type, ncol, get_row_fun, config, out_result, out_len);
   API_END();
@@ -2169,7 +2298,13 @@ int LGBM_BoosterPredictForMatSingleRowFast(FastConfigHandle fastConfig_handle,
   FastConfig *fastConfig = reinterpret_cast<FastConfig*>(fastConfig_handle);
   // Single row in row-major format:
   auto get_row_fun = RowPairFunctionFromDenseMatric(data, 1, fastConfig->ncol, fastConfig->data_type, 1);
-  fastConfig->booster->PredictSingleRow(fastConfig->predict_type, fastConfig->ncol,
+  int32_t ncol = fastConfig->ncol;
+  if (fastConfig->booster->GetBoosting()->category_encoding_provider() != nullptr) {
+    int64_t num_col = static_cast<int64_t>(fastConfig->ncol);
+    fastConfig->booster->GetBoosting()->category_encoding_provider()->WrapRowFunction(&get_row_fun, &num_col, true);
+    ncol = static_cast<int32_t>(num_col);
+  }
+  fastConfig->booster->PredictSingleRow(fastConfig->predict_type, ncol,
                                         get_row_fun, fastConfig->config,
                                         out_result, out_len);
   API_END();
@@ -2196,6 +2331,11 @@ int LGBM_BoosterPredictForMats(BoosterHandle handle,
   }
   Booster* ref_booster = reinterpret_cast<Booster*>(handle);
   auto get_row_fun = RowPairFunctionFromDenseRows(data, ncol, data_type);
+  if (ref_booster->GetBoosting()->category_encoding_provider() != nullptr) {
+    int64_t num_col = static_cast<int64_t>(ncol);
+    ref_booster->GetBoosting()->category_encoding_provider()->WrapRowFunction(&get_row_fun, &num_col, true);
+    ncol = static_cast<int32_t>(num_col);
+  }
   ref_booster->Predict(start_iteration, num_iteration, predict_type, nrow, ncol, get_row_fun, config, out_result, out_len);
   API_END();
 }
@@ -2388,6 +2528,19 @@ RowPairFunctionFromDenseMatric(const void* data, int num_row, int num_col, int d
   return nullptr;
 }
 
+// label is array of pointer to individual labels
+std::function<label_t(int row_idx)>
+LabelFunctionFromArray(const void* label) {
+  if (label != nullptr) {
+    const float* label_ptr = reinterpret_cast<const float*>(label);
+    return [=](int row_idx) {
+      return label_ptr[row_idx];
+    };
+  } else {
+    return nullptr;
+  }
+}
+
 // data is array of pointers to individual rows
 std::function<std::vector<std::pair<int, double>>(int row_idx)>
 RowPairFunctionFromDenseRows(const void** data, int num_col, int data_type) {
@@ -2442,79 +2595,4 @@ RowFunctionFromCSR(const void* indptr, int indptr_type, const int32_t* indices, 
   }
   Log::Fatal("Unknown data type in RowFunctionFromCSR");
   return nullptr;
-}
-
-
-
-template <typename T1, typename T2>
-std::function<std::pair<int, double>(int idx)> IterateFunctionFromCSC_helper(const void* col_ptr, const int32_t* indices, const void* data, int col_idx) {
-  const T1* data_ptr = reinterpret_cast<const T1*>(data);
-  const T2* ptr_col_ptr = reinterpret_cast<const T2*>(col_ptr);
-  int64_t start = ptr_col_ptr[col_idx];
-  int64_t end = ptr_col_ptr[col_idx + 1];
-  return [=] (int offset) {
-    int64_t i = static_cast<int64_t>(start + offset);
-    if (i >= end) {
-      return std::make_pair(-1, 0.0);
-    }
-    int idx = static_cast<int>(indices[i]);
-    double val = static_cast<double>(data_ptr[i]);
-    return std::make_pair(idx, val);
-  };
-}
-
-std::function<std::pair<int, double>(int idx)>
-IterateFunctionFromCSC(const void* col_ptr, int col_ptr_type, const int32_t* indices, const void* data, int data_type, int64_t ncol_ptr, int64_t , int col_idx) {
-  CHECK(col_idx < ncol_ptr && col_idx >= 0);
-  if (data_type == C_API_DTYPE_FLOAT32) {
-    if (col_ptr_type == C_API_DTYPE_INT32) {
-      return IterateFunctionFromCSC_helper<float, int32_t>(col_ptr, indices, data, col_idx);
-    } else if (col_ptr_type == C_API_DTYPE_INT64) {
-      return IterateFunctionFromCSC_helper<float, int64_t>(col_ptr, indices, data, col_idx);
-    }
-  } else if (data_type == C_API_DTYPE_FLOAT64) {
-    if (col_ptr_type == C_API_DTYPE_INT32) {
-      return IterateFunctionFromCSC_helper<double, int32_t>(col_ptr, indices, data, col_idx);
-    } else if (col_ptr_type == C_API_DTYPE_INT64) {
-      return IterateFunctionFromCSC_helper<double, int64_t>(col_ptr, indices, data, col_idx);
-    }
-  }
-  Log::Fatal("Unknown data type in CSC matrix");
-  return nullptr;
-}
-
-CSC_RowIterator::CSC_RowIterator(const void* col_ptr, int col_ptr_type, const int32_t* indices,
-                                 const void* data, int data_type, int64_t ncol_ptr, int64_t nelem, int col_idx) {
-  iter_fun_ = IterateFunctionFromCSC(col_ptr, col_ptr_type, indices, data, data_type, ncol_ptr, nelem, col_idx);
-}
-
-double CSC_RowIterator::Get(int idx) {
-  while (idx > cur_idx_ && !is_end_) {
-    auto ret = iter_fun_(nonzero_idx_);
-    if (ret.first < 0) {
-      is_end_ = true;
-      break;
-    }
-    cur_idx_ = ret.first;
-    cur_val_ = ret.second;
-    ++nonzero_idx_;
-  }
-  if (idx == cur_idx_) {
-    return cur_val_;
-  } else {
-    return 0.0f;
-  }
-}
-
-std::pair<int, double> CSC_RowIterator::NextNonZero() {
-  if (!is_end_) {
-    auto ret = iter_fun_(nonzero_idx_);
-    ++nonzero_idx_;
-    if (ret.first < 0) {
-      is_end_ = true;
-    }
-    return ret;
-  } else {
-    return std::make_pair(-1, 0.0);
-  }
 }

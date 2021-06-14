@@ -16,7 +16,7 @@
 
 namespace LightGBM {
 
-const char* kModelVersion = "v3";
+const char* kModelVersion = "v4";
 
 std::string GBDT::DumpModel(int start_iteration, int num_iteration, int feature_importance_type) const {
   std::stringstream str_buf;
@@ -40,6 +40,13 @@ std::string GBDT::DumpModel(int start_iteration, int num_iteration, int feature_
 
   str_buf << "\"monotone_constraints\":["
           << CommonC::Join(monotone_constraints_, ",") << "]," << '\n';
+
+  if (category_encoding_provider_ != nullptr) {
+    str_buf << "\"category_encoding_provider\":"
+            << category_encoding_provider_->DumpToJSON() << "," << '\n';
+  } else {
+    str_buf << "\"category_encoding_provider\":null,\n";
+  }
 
   str_buf << "\"feature_infos\":" << "{";
   bool first_obj = true;
@@ -339,6 +346,14 @@ std::string GBDT::SaveModelToString(int start_iteration, int num_iteration, int 
   }
 
   ss << "feature_infos=" << CommonC::Join(feature_infos_, " ") << '\n';
+  // dump target encoding information
+  ss << "\n";
+  if (category_encoding_provider_ != nullptr) {
+    ss << "has_category_encoding_provider=1\n" << category_encoding_provider_->DumpToString();
+  } else {
+    ss << "has_category_encoding_provider=0\n";
+  }
+  ss << "\n";
 
   int num_used_model = static_cast<int>(models_.size());
   int total_iteration = num_used_model / num_tree_per_iteration_;
@@ -420,11 +435,23 @@ bool GBDT::LoadModelFromString(const char* buffer, size_t len) {
   auto p = c_str;
   auto end = p + len;
   std::unordered_map<std::string, std::string> key_vals;
+  int has_category_encoding_provider = 0;
   while (p < end) {
+    size_t used_len = 0;
     auto line_len = Common::GetLine(p);
     if (line_len > 0) {
       std::string cur_line(p, line_len);
-      if (!Common::StartsWith(cur_line, "Tree=")) {
+      if (Common::StartsWith(cur_line, "has_category_encoding_provider")) {
+        Common::Atoi(Common::Split(cur_line.c_str(), "=")[1].c_str(), &has_category_encoding_provider);
+        if (has_category_encoding_provider == 0) {
+          category_encoding_provider_.reset(nullptr);
+          used_len = line_len;
+        } else {
+          p += line_len;
+          p = Common::SkipNewLine(p);
+          category_encoding_provider_.reset(CategoryEncodingProvider::RecoverFromCharPointer(p, &used_len));
+        }
+      } else if (!Common::StartsWith(cur_line, "Tree=")) {
         auto strs = Common::Split(cur_line.c_str(), '=');
         if (strs.size() == 1) {
           key_vals[strs[0]] = "";
@@ -440,12 +467,18 @@ bool GBDT::LoadModelFromString(const char* buffer, size_t len) {
             Log::Fatal("Wrong line at model file: %s", cur_line.substr(0, std::min<size_t>(128, cur_line.size())).c_str());
           }
         }
+        used_len = line_len;
       } else {
         break;
       }
     }
-    p += line_len;
+    p += used_len;
     p = Common::SkipNewLine(p);
+  }
+
+  // for backward compatibility, since old version model files has no `has_category_encoding_provider=` entry.
+  if (has_category_encoding_provider == 0) {
+    category_encoding_provider_.reset(nullptr);
   }
 
   // get number of classes

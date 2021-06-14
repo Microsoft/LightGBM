@@ -148,6 +148,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetPushRowsByCSR(DatasetHandle dataset,
  * \param indptr_type Type of ``indptr``, can be ``C_API_DTYPE_INT32`` or ``C_API_DTYPE_INT64``
  * \param indices Pointer to column indices
  * \param data Pointer to the data space
+ * \param label Pointer to the label space
  * \param data_type Type of ``data`` pointer, can be ``C_API_DTYPE_FLOAT32`` or ``C_API_DTYPE_FLOAT64``
  * \param nindptr Number of rows in the matrix + 1
  * \param nelem Number of nonzero elements in the matrix
@@ -161,6 +162,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetCreateFromCSR(const void* indptr,
                                                 int indptr_type,
                                                 const int32_t* indices,
                                                 const void* data,
+                                                const void* label,
                                                 int data_type,
                                                 int64_t nindptr,
                                                 int64_t nelem,
@@ -193,6 +195,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetCreateFromCSRFunc(void* get_row_funptr,
  * \param col_ptr_type Type of ``col_ptr``, can be ``C_API_DTYPE_INT32`` or ``C_API_DTYPE_INT64``
  * \param indices Pointer to row indices
  * \param data Pointer to the data space
+ * \param label Pointer to the label space
  * \param data_type Type of ``data`` pointer, can be ``C_API_DTYPE_FLOAT32`` or ``C_API_DTYPE_FLOAT64``
  * \param ncol_ptr Number of columns in the matrix + 1
  * \param nelem Number of nonzero elements in the matrix
@@ -206,6 +209,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetCreateFromCSC(const void* col_ptr,
                                                 int col_ptr_type,
                                                 const int32_t* indices,
                                                 const void* data,
+                                                const void* label,
                                                 int data_type,
                                                 int64_t ncol_ptr,
                                                 int64_t nelem,
@@ -217,6 +221,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetCreateFromCSC(const void* col_ptr,
 /*!
  * \brief Create dataset from dense matrix.
  * \param data Pointer to the data space
+ * \param label Pointer to the label space
  * \param data_type Type of ``data`` pointer, can be ``C_API_DTYPE_FLOAT32`` or ``C_API_DTYPE_FLOAT64``
  * \param nrow Number of rows
  * \param ncol Number of columns
@@ -227,6 +232,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetCreateFromCSC(const void* col_ptr,
  * \return 0 when succeed, -1 when failure happens
  */
 LIGHTGBM_C_EXPORT int LGBM_DatasetCreateFromMat(const void* data,
+                                                const void* label,
                                                 int data_type,
                                                 int32_t nrow,
                                                 int32_t ncol,
@@ -239,6 +245,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetCreateFromMat(const void* data,
  * \brief Create dataset from array of dense matrices.
  * \param nmat Number of dense matrices
  * \param data Pointer to the data space
+ * \param label Pointer to the label space
  * \param data_type Type of ``data`` pointer, can be ``C_API_DTYPE_FLOAT32`` or ``C_API_DTYPE_FLOAT64``
  * \param nrow Number of rows
  * \param ncol Number of columns
@@ -250,6 +257,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetCreateFromMat(const void* data,
  */
 LIGHTGBM_C_EXPORT int LGBM_DatasetCreateFromMats(int32_t nmat,
                                                  const void** data,
+                                                 const void* label,
                                                  int data_type,
                                                  int32_t* nrow,
                                                  int32_t ncol,
@@ -387,6 +395,15 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetGetNumData(DatasetHandle handle,
  * \return 0 when succeed, -1 when failure happens
  */
 LIGHTGBM_C_EXPORT int LGBM_DatasetGetNumFeature(DatasetHandle handle,
+                                                int* out);
+
+/*!
+ * \brief Get number of original features (before converting categorical features).
+ * \param handle Handle of dataset
+ * \param[out] out The address to hold number of features
+ * \return 0 when succeed, -1 when failure happens
+ */
+LIGHTGBM_C_EXPORT int LGBM_DatasetGetNumOriginalFeature(DatasetHandle handle,
                                                 int* out);
 
 /*!
