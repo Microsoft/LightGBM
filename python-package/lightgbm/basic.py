@@ -1801,7 +1801,7 @@ class Dataset:
         ret.pandas_categorical = self.pandas_categorical
         return ret
 
-    def subset(self, used_indices, params=None):
+    def subset(self, used_indices, params=None, reference=None):
         """Get subset of current Dataset.
 
         Parameters
@@ -1810,6 +1810,8 @@ class Dataset:
             Indices used to create the subset.
         params : dict or None, optional (default=None)
             These parameters will be passed to Dataset constructor.
+        reference : Dataset or None, optional (default=None)
+            If this is Dataset for validation, training data should be used as reference.
 
         Returns
         -------
@@ -1818,12 +1820,34 @@ class Dataset:
         """
         if params is None:
             params = self.params
-        ret = Dataset(None, reference=self, feature_name=self.feature_name,
-                      categorical_feature=self.categorical_feature, params=params,
-                      free_raw_data=self.free_raw_data)
-        ret._predictor = self._predictor
+
+        if self.free_raw_data:
+            ret = Dataset(None, reference=self, feature_name=self.feature_name,
+                          categorical_feature=self.categorical_feature, params=params,
+                          free_raw_data=self.free_raw_data)
+            ret.used_indices = sorted(used_indices)
+        else:
+            used_indices_sorted = sorted(used_indices)
+            if isinstance(self.data, pd_DataFrame) or isinstance(self.data, pd_Series):
+                data_subset = self.data.iloc[used_indices_sorted]
+            else:
+                data_subset = self.data[used_indices_sorted]
+            label_subset = self.label[used_indices_sorted]
+            weight_subset = None
+            if self.weight is not None:
+                weight_subset = self.weight[used_indices_sorted]
+            group_subset = None
+            if self.group is not None:
+                group_subset = self.group[used_indices_sorted]
+            init_score_subset = None
+            if self.init_score is not None:
+                init_score_subset = self.init_score[used_indices_sorted]
+            ret = Dataset(data_subset, label=label_subset, reference=reference,
+                          weight=group_subset, group=weight_subset, init_score=init_score_subset,
+                          silent=self.silent, params=params, free_raw_data=self.free_raw_data,
+                          feature_name=self.feature_name, categorical_feature=self.categorical_feature)
         ret.pandas_categorical = self.pandas_categorical
-        ret.used_indices = sorted(used_indices)
+        ret._predictor = self._predictor
         return ret
 
     def save_binary(self, filename):

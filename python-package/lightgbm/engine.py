@@ -364,7 +364,10 @@ def _make_n_folds(full_data, folds, nfold, params, seed, fpreproc=None, stratifi
     ret = CVBooster()
     for train_idx, test_idx in folds:
         train_set = full_data.subset(sorted(train_idx))
-        valid_set = full_data.subset(sorted(test_idx))
+        if full_data.free_raw_data:
+            valid_set = full_data.subset(sorted(test_idx))
+        else:
+            valid_set = full_data.subset(sorted(test_idx), reference=train_set)
         # run preprocessing on the data set if needed
         if fpreproc is not None:
             train_set, valid_set, tparam = fpreproc(train_set, valid_set, params.copy())
@@ -526,6 +529,9 @@ def cv(params, train_set, num_boost_round=100,
     """
     if not isinstance(train_set, Dataset):
         raise TypeError("Training only accepts Dataset object")
+    if train_set.free_raw_data:
+        _log_warning('For true out-of-sample (cross-) validation, it is recommended to set free_raw_data = False '
+                     'when constructing the Dataset')
 
     params = copy.deepcopy(params)
     if fobj is not None:

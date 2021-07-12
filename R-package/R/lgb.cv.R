@@ -106,6 +106,10 @@ lgb.cv <- function(params = list()
     }
     data <- lgb.Dataset(data = data, label = label)
   }
+  
+  if (data$.__enclos_env__$private$free_raw_data) {
+    warning("For true out-of-sample (cross-) validation, it is recommended to set free_raw_data = False when constructing the Dataset")
+  }
 
   # Setup temporary variables
   params <- append(params, list(...))
@@ -304,34 +308,87 @@ lgb.cv <- function(params = list()
       if (folds_have_group) {
         test_indices <- folds[[k]]$fold
         test_group_indices <- folds[[k]]$group
-        test_groups <- getinfo(dataset = data, name = "group")[test_group_indices]
-        train_groups <- getinfo(dataset = data, name = "group")[-test_group_indices]
+        if (data$.__enclos_env__$private$free_raw_data){
+          test_groups <- getinfo(dataset = data, name = "group")[test_group_indices]
+          train_groups <- getinfo(dataset = data, name = "group")[-test_group_indices]
+        }else{
+          test_groups <- data$.__enclos_env__$private$info$group[test_group_indices]
+          train_groups <- data$.__enclos_env__$private$info$group[-test_group_indices]
+        }
       } else {
         test_indices <- folds[[k]]
       }
       train_indices <- seq_len(nrow(data))[-test_indices]
-
-      # set up test set
-      indexDT <- data.table::data.table(
-        indices = test_indices
-        , weight = getinfo(dataset = data, name = "weight")[test_indices]
-        , init_score = getinfo(dataset = data, name = "init_score")[test_indices]
-      )
-      data.table::setorderv(x = indexDT, cols = "indices", order = 1L)
-      dtest <- slice(data, indexDT$indices)
-      setinfo(dataset = dtest, name = "weight", info = indexDT$weight)
-      setinfo(dataset = dtest, name = "init_score", info = indexDT$init_score)
-
-      # set up training set
-      indexDT <- data.table::data.table(
-        indices = train_indices
-        , weight = getinfo(dataset = data, name = "weight")[train_indices]
-        , init_score = getinfo(dataset = data, name = "init_score")[train_indices]
-      )
-      data.table::setorderv(x = indexDT, cols = "indices", order = 1L)
-      dtrain <- slice(data, indexDT$indices)
-      setinfo(dataset = dtrain, name = "weight", info = indexDT$weight)
-      setinfo(dataset = dtrain, name = "init_score", info = indexDT$init_score)
+      
+      if (data$.__enclos_env__$private$free_raw_data){# free_raw_data
+        
+        # set up test set
+        indexDT <- data.table::data.table(
+          indices = test_indices
+          , weight = getinfo(dataset = data, name = "weight")[test_indices]
+          , init_score = getinfo(dataset = data, name = "init_score")[test_indices]
+        )
+        data.table::setorderv(x = indexDT, cols = "indices", order = 1L)
+        dtest <- slice(data, indexDT$indices)
+        setinfo(dataset = dtest, name = "weight", info = indexDT$weight)
+        setinfo(dataset = dtest, name = "init_score", info = indexDT$init_score)
+        
+        # set up training set
+        indexDT <- data.table::data.table(
+          indices = train_indices
+          , weight = getinfo(dataset = data, name = "weight")[train_indices]
+          , init_score = getinfo(dataset = data, name = "init_score")[train_indices]
+        )
+        data.table::setorderv(x = indexDT, cols = "indices", order = 1L)
+        dtrain <- slice(data, indexDT$indices)
+        setinfo(dataset = dtrain, name = "weight", info = indexDT$weight)
+        setinfo(dataset = dtrain, name = "init_score", info = indexDT$init_score)
+        
+      }
+      else {# not free_raw_data
+        
+        # set up indices for train and test data
+        test_indexDT <- data.table::data.table(indices = test_indices)
+        data.table::setorderv(x = test_indexDT, cols = "indices", order = 1L)
+        train_indexDT <- data.table::data.table(indices = train_indices)
+        data.table::setorderv(x = train_indexDT, cols = "indices", order = 1L)
+        
+        weight_train = NULL
+        if (!is.null(data$.__enclos_env__$private$info$weight)) {
+          weight_train = data$.__enclos_env__$private$info$weight[train_indexDT$indices]
+        }
+        init_score_train = NULL
+        if (!is.null(data$.__enclos_env__$private$info$init_score)) {
+          init_score_train = data$.__enclos_env__$private$info$init_score[train_indexDT$indices]
+        }
+        dtrain <- lgb.Dataset(data = as.matrix(data$.__enclos_env__$private$raw_data[train_indexDT$indices,]),
+                              label = data$.__enclos_env__$private$info$label[train_indexDT$indices],
+                              weight = weight_train,
+                              init_score = init_score_train,
+                              colnames = data$.__enclos_env__$private$colnames,
+                              categorical_feature = data$.__enclos_env__$private$categorical_feature,
+                              params = data$.__enclos_env__$private$params,
+                              free_raw_data = data$.__enclos_env__$private$free_raw_data)
+        
+        weight_test = NULL
+        if (!is.null(data$.__enclos_env__$private$info$weight)) {
+          weight_test = data$.__enclos_env__$private$info$weight[test_indexDT$indices]
+        }
+        init_score_test = NULL
+        if (!is.null(data$.__enclos_env__$private$info$init_score)) {
+          init_score_test = data$.__enclos_env__$private$info$init_score[test_indexDT$indices]
+        }
+        dtest <- lgb.Dataset(data = as.matrix(data$.__enclos_env__$private$raw_data[test_indexDT$indices,]), 
+                             label = data$.__enclos_env__$private$info$label[test_indexDT$indices],
+                             weight = weight_test,
+                             init_score = init_score_test,
+                             reference = dtrain,
+                             colnames = data$.__enclos_env__$private$colnames,
+                             categorical_feature = data$.__enclos_env__$private$categorical_feature,
+                             params = data$.__enclos_env__$private$params,
+                             free_raw_data = data$.__enclos_env__$private$free_raw_data)
+        
+      }
 
       if (folds_have_group) {
         setinfo(dataset = dtest, name = "group", info = test_groups)
