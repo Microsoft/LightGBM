@@ -10,7 +10,7 @@ from sklearn.datasets import dump_svmlight_file, load_svmlight_file
 from sklearn.model_selection import train_test_split
 
 import lightgbm as lgb
-from lightgbm.compat import PANDAS_INSTALLED, pd_Series
+from lightgbm.compat import PANDAS_INSTALLED, pd_DataFrame, pd_Series
 
 from .utils import load_breast_cancer
 
@@ -515,3 +515,19 @@ def test_list_to_1d_numpy(y, dtype):
     result = lgb.basic.list_to_1d_numpy(y, dtype=dtype)
     assert result.size == 10
     assert result.dtype == dtype
+
+
+@pytest.mark.parametrize('init_score_type', ['array', 'dataframe', 'list'])
+def test_init_score_for_multiclass_classification(init_score_type):
+    init_score = [[0, 1, 2] for _ in range(10)]
+    if init_score_type == 'array':
+        init_score = np.array(init_score)
+    elif init_score_type == 'dataframe':
+        if not PANDAS_INSTALLED:
+            pytest.skip('Pandas is not installed.')
+        init_score = pd_DataFrame(init_score)
+    data = np.random.rand(10, 2)
+    ds = lgb.basic.Dataset(data, init_score=init_score)
+    ds.construct()
+    np.testing.assert_equal(ds.init_score, init_score)
+    np.testing.assert_equal(ds.get_field('init_score'), init_score)

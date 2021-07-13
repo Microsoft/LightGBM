@@ -149,8 +149,8 @@ def is_numpy_column_array(data):
     return len(shape) == 2 and shape[1] == 1
 
 
-def cast_numpy_1d_array_to_dtype(array, dtype):
-    """Cast numpy 1d array to given dtype."""
+def cast_numpy_array_to_dtype(array, dtype):
+    """Cast numpy array to given dtype."""
     if array.dtype == dtype:
         return array
     return array.astype(dtype=dtype, copy=False)
@@ -161,14 +161,24 @@ def is_1d_list(data):
     return isinstance(data, list) and (not data or is_numeric(data[0]))
 
 
+def is_1d_collection(data):
+    """Check whether data is a 1-D collection."""
+    return (
+        is_numpy_1d_array(data)
+        or is_numpy_column_array(data)
+        or is_1d_list(data)
+        or isinstance(data, pd_Series)
+    )
+
+
 def list_to_1d_numpy(data, dtype=np.float32, name='list'):
     """Convert data to numpy 1-D array."""
     if is_numpy_1d_array(data):
-        return cast_numpy_1d_array_to_dtype(data, dtype)
+        return cast_numpy_array_to_dtype(data, dtype)
     elif is_numpy_column_array(data):
         _log_warning('Converting column-vector to 1d array')
         array = data.ravel()
-        return cast_numpy_1d_array_to_dtype(array, dtype)
+        return cast_numpy_array_to_dtype(array, dtype)
     elif is_1d_list(data):
         return np.array(data, dtype=dtype, copy=False)
     elif isinstance(data, pd_Series):
@@ -178,6 +188,39 @@ def list_to_1d_numpy(data, dtype=np.float32, name='list'):
     else:
         raise TypeError(f"Wrong type({type(data).__name__}) for {name}.\n"
                         "It should be list, numpy 1-D array or pandas Series")
+
+
+def is_numpy_2d_array(data):
+    """Check whether data is a numpy 2-D array."""
+    return isinstance(data, np.ndarray) and len(data.shape) == 2 and data.shape[1] > 1
+
+
+def is_2d_list(data):
+    """Check whether data is a 2-D list."""
+    return isinstance(data, list) and len(data) > 0 and is_1d_list(data[0])
+
+
+def is_2d_collection(data):
+    """Check whether data is a 2-D collection."""
+    return (
+        is_numpy_2d_array(data)
+        or is_2d_list(data)
+        or isinstance(data, pd_DataFrame)
+    )
+
+
+def data_to_2d_numpy(data, dtype=np.float32, name='list'):
+    """Convert data to numpy 2-D array."""
+    if is_numpy_2d_array(data):
+        return cast_numpy_array_to_dtype(data, dtype)
+    if is_2d_list(data):
+        return np.array(data, dtype=dtype)
+    if isinstance(data, pd_DataFrame):
+        if _get_bad_pandas_dtypes(data.dtypes):
+            raise ValueError('DataFrame.dtypes must be int, float or bool')
+        return cast_numpy_array_to_dtype(data.values, dtype)
+    raise TypeError(f"Wrong type({type(data).__name__}) for {name}.\n"
+                    "It should be list of lists, numpy 2-D array or pandas DataFrame")
 
 
 def cfloat32_array_to_numpy(cptr, length):
@@ -1142,7 +1185,7 @@ class Dataset:
             sum(group) = n_samples.
             For example, if you have a 100-document dataset with ``group = [10, 20, 40, 10, 10, 10]``, that means that you have 6 groups,
             where the first 10 records are in the first group, records 11-30 are in the second group, records 31-70 are in the third group, etc.
-        init_score : list, numpy 1-D array, pandas Series or None, optional (default=None)
+        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task) or None, optional (default=None)
             Init score for Dataset.
         silent : bool, optional (default=False)
             Whether to print messages during construction.
@@ -1782,7 +1825,7 @@ class Dataset:
             sum(group) = n_samples.
             For example, if you have a 100-document dataset with ``group = [10, 20, 40, 10, 10, 10]``, that means that you have 6 groups,
             where the first 10 records are in the first group, records 11-30 are in the second group, records 31-70 are in the third group, etc.
-        init_score : list, numpy 1-D array, pandas Series or None, optional (default=None)
+        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task) or None, optional (default=None)
             Init score for Dataset.
         silent : bool, optional (default=False)
             Whether to print messages during construction.
@@ -1889,8 +1932,8 @@ class Dataset:
         ----------
         field_name : string
             The field name of the information.
-        data : list, numpy 1-D array, pandas Series or None
-            The array of data to be set.
+        data : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task) or None
+            The data to be set.
 
         Returns
         -------
@@ -1908,12 +1951,19 @@ class Dataset:
                 ctypes.c_int(0),
                 ctypes.c_int(FIELD_TYPE_MAPPER[field_name])))
             return self
-        dtype = np.float32
         if field_name == 'group':
-            dtype = np.int32
+            data = list_to_1d_numpy(data, np.int32, name='group')
         elif field_name == 'init_score':
-            dtype = np.float64
-        data = list_to_1d_numpy(data, dtype, name=field_name)
+            if is_1d_collection(data):
+                data = list_to_1d_numpy(data, np.float64, name='init_score')
+            elif is_2d_collection(data):
+                data = data_to_2d_numpy(data, np.float64, name='init_score')
+                data = data.ravel(order='F')
+            else:
+                raise TypeError(
+                    'init_score must be list, numpy 1-D array or pandas Series.\n'
+                    'In multiclass classification init_score can also be a list of lists, numpy 2-D array or pandas DataFrame.'
+                )
         if data.dtype == np.float32 or data.dtype == np.float64:
             ptr_data, type_data, _ = c_float_array(data)
         elif data.dtype == np.int32:
@@ -1960,13 +2010,26 @@ class Dataset:
         if tmp_out_len.value == 0:
             return None
         if out_type.value == C_API_DTYPE_INT32:
-            return cint32_array_to_numpy(ctypes.cast(ret, ctypes.POINTER(ctypes.c_int32)), tmp_out_len.value)
+            arr = cint32_array_to_numpy(ctypes.cast(ret, ctypes.POINTER(ctypes.c_int32)), tmp_out_len.value)
         elif out_type.value == C_API_DTYPE_FLOAT32:
-            return cfloat32_array_to_numpy(ctypes.cast(ret, ctypes.POINTER(ctypes.c_float)), tmp_out_len.value)
+            arr = cfloat32_array_to_numpy(ctypes.cast(ret, ctypes.POINTER(ctypes.c_float)), tmp_out_len.value)
         elif out_type.value == C_API_DTYPE_FLOAT64:
-            return cfloat64_array_to_numpy(ctypes.cast(ret, ctypes.POINTER(ctypes.c_double)), tmp_out_len.value)
+            arr = cfloat64_array_to_numpy(ctypes.cast(ret, ctypes.POINTER(ctypes.c_double)), tmp_out_len.value)
         else:
             raise TypeError("Unknown type")
+        if field_name == 'init_score':
+            ptr_num_data = ctypes.c_int(0)
+            _safe_call(
+                _LIB.LGBM_DatasetGetNumData(
+                    self.handle,
+                    ctypes.byref(ptr_num_data),
+                )
+            )
+            num_data = ptr_num_data.value
+            num_classes = arr.size // num_data
+            if num_classes > 1:
+                arr = arr.reshape((num_data, num_classes), order='F')
+        return arr
 
     def set_categorical_feature(self, categorical_feature):
         """Set categorical features.
@@ -2118,7 +2181,7 @@ class Dataset:
 
         Parameters
         ----------
-        init_score : list, numpy 1-D array, pandas Series or None
+        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task) or None
             Init score for Booster.
 
         Returns
@@ -2128,7 +2191,6 @@ class Dataset:
         """
         self.init_score = init_score
         if self.handle is not None and init_score is not None:
-            init_score = list_to_1d_numpy(init_score, np.float64, name='init_score')
             self.set_field('init_score', init_score)
             self.init_score = self.get_field('init_score')  # original values can be modified at cpp side
         return self

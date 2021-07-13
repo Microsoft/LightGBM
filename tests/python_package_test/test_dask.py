@@ -1583,17 +1583,14 @@ def test_init_score(task, output, cluster):
             'time_out': 5
         }
         init_score = random.random()
-        # init_scores must be a 1D array, even for multiclass classification
-        # where you need to provide 1 score per class for each row in X
-        # https://github.com/microsoft/LightGBM/issues/4046
         size_factor = 1
         if task == 'multiclass-classification':
             size_factor = 3  # number of classes
 
         if output.startswith('dataframe'):
-            init_scores = dy.map_partitions(lambda x: pd.Series([init_score] * x.size * size_factor))
+            init_scores = dy.map_partitions(lambda x: pd.DataFrame([[init_score] * size_factor] * x.size))
         else:
-            init_scores = dy.map_blocks(lambda x: np.repeat(init_score, x.size * size_factor))
+            init_scores = dy.map_blocks(lambda x: np.full((x.size, size_factor), init_score))
         model = model_factory(client=client, **params)
         model.fit(dX, dy, sample_weight=dw, init_score=init_scores, group=dg)
         # value of the root node is 0 when init_score is set
