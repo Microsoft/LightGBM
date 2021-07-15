@@ -64,7 +64,7 @@ int Tree::Split(int leaf, int feature, int real_feature, uint32_t threshold_bin,
   decision_type_[new_node_idx] = 0;
   SetDecisionType(&decision_type_[new_node_idx], false, kCategoricalMask);
   SetDecisionType(&decision_type_[new_node_idx], default_left, kDefaultLeftMask);
-  SetMissingType(&decision_type_[new_node_idx], static_cast<int8_t>(missing_type));
+  SetMissingType(&decision_type_[new_node_idx], static_cast<uint8_t>(missing_type));
   threshold_in_bin_[new_node_idx] = threshold_bin;
   threshold_[new_node_idx] = threshold_double;
   ++num_leaves_;
@@ -78,7 +78,7 @@ int Tree::SplitCategorical(int leaf, int feature, int real_feature, const uint32
   int new_node_idx = num_leaves_ - 1;
   decision_type_[new_node_idx] = 0;
   SetDecisionType(&decision_type_[new_node_idx], true, kCategoricalMask);
-  SetMissingType(&decision_type_[new_node_idx], static_cast<int8_t>(missing_type));
+  SetMissingType(&decision_type_[new_node_idx], static_cast<uint8_t>(missing_type));
   threshold_in_bin_[new_node_idx] = num_cat_;
   threshold_[new_node_idx] = num_cat_;
   ++num_cat_;
@@ -352,7 +352,7 @@ std::string Tree::ToString() const {
   str_buf << "threshold="
     << ArrayToString<true>(threshold_, num_leaves_ - 1) << '\n';
   str_buf << "decision_type="
-    << ArrayToString(Common::ArrayCast<int8_t, int>(decision_type_), num_leaves_ - 1) << '\n';
+    << ArrayToString(Common::ArrayCast<uint8_t, int>(decision_type_), num_leaves_ - 1) << '\n';
   str_buf << "left_child="
     << ArrayToString(left_child_, num_leaves_ - 1) << '\n';
   str_buf << "right_child="
@@ -799,9 +799,9 @@ Tree::Tree(const char* str, size_t* used_len) {
   }
 
   if (key_vals.count("decision_type")) {
-    decision_type_ = CommonC::StringToArrayFast<int8_t>(key_vals["decision_type"], num_leaves_ - 1);
+    decision_type_ = CommonC::StringToArrayFast<uint8_t>(key_vals["decision_type"], num_leaves_ - 1);
   } else {
-    decision_type_ = std::vector<int8_t>(num_leaves_ - 1, 0);
+    decision_type_ = std::vector<uint8_t>(num_leaves_ - 1, 0);
   }
 
   if (is_linear_) {

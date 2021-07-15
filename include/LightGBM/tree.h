@@ -257,23 +257,23 @@ class Tree {
     return IsZero(fval) ? 0 : fval;
   }
 
-  inline static bool GetDecisionType(int8_t decision_type, int8_t mask) {
+  inline static bool GetDecisionType(uint8_t decision_type, uint8_t mask) {
     return (decision_type & mask) > 0;
   }
 
-  inline static void SetDecisionType(int8_t* decision_type, bool input, int8_t mask) {
-    if (input) {
+  inline static void SetDecisionType(uint8_t *decision_type, bool set, uint8_t mask) {
+    if (set) {
       (*decision_type) |= mask;
-    } else {
+    } else {  // unset
       (*decision_type) &= (127 - mask);
     }
   }
 
-  inline static int8_t GetMissingType(int8_t decision_type) {
+  inline static uint8_t GetMissingType(uint8_t decision_type) {
     return (decision_type >> 2) & 3;
   }
 
-  inline static void SetMissingType(int8_t* decision_type, int8_t input) {
+  inline static void SetMissingType(uint8_t *decision_type, uint8_t input) {
     (*decision_type) &= 3;
     (*decision_type) |= (input << 2);
   }
@@ -494,7 +494,7 @@ class Tree {
   std::vector<int> cat_boundaries_;
   std::vector<uint32_t> cat_threshold_;
   /*! \brief Store the information for categorical feature handle and missing value handle. */
-  std::vector<int8_t> decision_type_;
+  std::vector<uint8_t> decision_type_;
   /*! \brief A non-leaf node's split gain */
   std::vector<float> split_gain_;
   // used for leaf node
