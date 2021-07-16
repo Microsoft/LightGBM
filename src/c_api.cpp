@@ -1112,10 +1112,8 @@ int LGBM_DatasetCreateFromMats(int32_t nmat,
 
   if (reference == nullptr) {
     // sample data first
-    Random rand(config.data_random_seed);
-    int sample_cnt = static_cast<int>(total_nrow < config.bin_construct_sample_cnt ? total_nrow : config.bin_construct_sample_cnt);
-    auto sample_indices = rand.Sample(total_nrow, sample_cnt);
-    sample_cnt = static_cast<int>(sample_indices.size());
+    auto sample_indices = CreateSampleIndices(total_nrow, config);
+    int sample_cnt = static_cast<int>(sample_indices.size());
     std::vector<std::vector<double>> sample_values(ncol);
     std::vector<std::vector<int>> sample_idx(ncol);
 
@@ -1198,10 +1196,8 @@ int LGBM_DatasetCreateFromCSR(const void* indptr,
   int32_t nrow = static_cast<int32_t>(nindptr - 1);
   if (reference == nullptr) {
     // sample data first
-    Random rand(config.data_random_seed);
-    int sample_cnt = static_cast<int>(nrow < config.bin_construct_sample_cnt ? nrow : config.bin_construct_sample_cnt);
-    auto sample_indices = rand.Sample(nrow, sample_cnt);
-    sample_cnt = static_cast<int>(sample_indices.size());
+    auto sample_indices = CreateSampleIndices(nrow, config);
+    int sample_cnt = static_cast<int>(sample_indices.size());
     std::vector<std::vector<double>> sample_values(num_col);
     std::vector<std::vector<int>> sample_idx(num_col);
     for (size_t i = 0; i < sample_indices.size(); ++i) {
@@ -1267,10 +1263,8 @@ int LGBM_DatasetCreateFromCSRFunc(void* get_row_funptr,
   int32_t nrow = num_rows;
   if (reference == nullptr) {
     // sample data first
-    Random rand(config.data_random_seed);
-    int sample_cnt = static_cast<int>(nrow < config.bin_construct_sample_cnt ? nrow : config.bin_construct_sample_cnt);
-    auto sample_indices = rand.Sample(nrow, sample_cnt);
-    sample_cnt = static_cast<int>(sample_indices.size());
+    auto sample_indices = CreateSampleIndices(nrow, config);
+    int sample_cnt = static_cast<int>(sample_indices.size());
     std::vector<std::vector<double>> sample_values(num_col);
     std::vector<std::vector<int>> sample_idx(num_col);
     // local buffer to re-use memory
@@ -1341,10 +1335,8 @@ int LGBM_DatasetCreateFromCSC(const void* col_ptr,
   int32_t nrow = static_cast<int32_t>(num_row);
   if (reference == nullptr) {
     // sample data first
-    Random rand(config.data_random_seed);
-    int sample_cnt = static_cast<int>(nrow < config.bin_construct_sample_cnt ? nrow : config.bin_construct_sample_cnt);
-    auto sample_indices = rand.Sample(nrow, sample_cnt);
-    sample_cnt = static_cast<int>(sample_indices.size());
+    auto sample_indices = CreateSampleIndices(nrow, config);
+    int sample_cnt = static_cast<int>(sample_indices.size());
     std::vector<std::vector<double>> sample_values(ncol_ptr - 1);
     std::vector<std::vector<int>> sample_idx(ncol_ptr - 1);
     OMP_INIT_EX();
