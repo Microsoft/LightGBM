@@ -7,9 +7,12 @@ along with parameters description in LightGBM/docs/Parameters.rst file
 from the information in LightGBM/include/LightGBM/config.h file.
 """
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 
-def get_parameter_infos(config_hpp):
+def get_parameter_infos(
+    config_hpp: Path
+) -> Tuple[List[Tuple[str, int]], List[List[Dict[str, List]]]]:
     """Parse config header file.
 
     Parameters
@@ -25,9 +28,9 @@ def get_parameter_infos(config_hpp):
     is_inparameter = False
     cur_key = None
     key_lvl = 0
-    cur_info = {}
+    cur_info: Dict[str, List] = {}
     keys = []
-    member_infos = []
+    member_infos: List[List[Dict[str, List]]] = []
     with open(config_hpp) as config_hpp_file:
         for line in config_hpp_file:
             if "#pragma region Parameters" in line:
@@ -76,10 +79,13 @@ def get_parameter_infos(config_hpp):
                             cur_info["name"] = [tokens[1][:-1].strip()]
                     member_infos[-1].append(cur_info)
                     cur_info = {}
+
     return keys, member_infos
 
 
-def get_names(infos):
+def get_names(
+    infos: List[List[Dict[str, List]]]
+) -> List[str]:
     """Get names of all parameters.
 
     Parameters
@@ -99,7 +105,9 @@ def get_names(infos):
     return names
 
 
-def get_alias(infos):
+def get_alias(
+    infos: List[List[Dict[str, List]]]
+) -> List[Tuple[str, str]]:
     """Get aliases of all parameters.
 
     Parameters
@@ -123,7 +131,10 @@ def get_alias(infos):
     return pairs
 
 
-def parse_check(check, reverse=False):
+def parse_check(
+    check: str,
+    reverse: bool = False
+) -> Tuple[str, str]:
     """Parse the constraint.
 
     Parameters
@@ -151,7 +162,11 @@ def parse_check(check, reverse=False):
         return check[idx:], check[:idx]
 
 
-def set_one_var_from_string(name, param_type, checks):
+def set_one_var_from_string(
+    name: str,
+    param_type: str,
+    checks: List[str]
+) -> str:
     """Construct code for auto config file for one param value.
 
     Parameters
@@ -189,7 +204,11 @@ def set_one_var_from_string(name, param_type, checks):
     return ret
 
 
-def gen_parameter_description(sections, descriptions, params_rst):
+def gen_parameter_description(
+    sections: List[Tuple[str, int]],
+    descriptions: List[List[Dict[str, List]]],
+    params_rst: Path
+) -> None:
     """Write descriptions of parameters to the documentation file.
 
     Parameters
@@ -251,7 +270,10 @@ def gen_parameter_description(sections, descriptions, params_rst):
         new_params_file.write(after)
 
 
-def gen_parameter_code(config_hpp, config_out_cpp):
+def gen_parameter_code(
+    config_hpp: Path,
+    config_out_cpp: Path
+) -> Tuple[List[Tuple[str, int]], List[List[Dict[str, List]]]]:
     """Generate auto config file.
 
     Parameters
