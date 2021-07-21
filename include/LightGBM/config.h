@@ -147,6 +147,7 @@ struct Config {
   // desc = ``dart``, `Dropouts meet Multiple Additive Regression Trees <https://arxiv.org/abs/1505.01866>`__
   // desc = ``goss``, Gradient-based One-Side Sampling
   // descl2 = **Note**: internally, LightGBM uses ``gbdt`` mode for the first ``1 / learning_rate`` iterations
+  // desc = ``mvs``, Minimal variance sampling <https://arxiv.org/abs/1910.13204>__
   std::string boosting = "gbdt";
 
   // alias = train, train_data, train_data_file, data_filename
@@ -304,6 +305,25 @@ struct Config {
   // desc = **Note**: if both ``pos_bagging_fraction`` and ``neg_bagging_fraction`` are set to ``1.0``,  balanced bagging is disabled
   // desc = **Note**: if balanced bagging is enabled, ``bagging_fraction`` will be ignored
   double neg_bagging_fraction = 1.0;
+
+  // default = 1e-4
+  // check = >0.0
+  // desc = used in MVS boosting. If ``mvs_adaptive == true`` then this value is ignored.
+  // desc = used only in ``mvs``
+  double mvs_lambda = 1e-4;
+
+  // default = false
+  // desc = use adaptive variant of mvs boosting
+  // desc = used only in ``mvs``
+  bool mvs_adaptive = false;
+
+  // default = 256000
+  // check = >0
+  // desc = used in MVS boosting training. If dataset size is greater than ``mvs_max_sequential_size``, then threshold
+  // desc = for MVS is chosen for each thread independently.
+  // desc = used only in ``mvs``
+  // desc = **Note**: on small dataset setting this parameter less than size of dataset may produce results depending on number of threads
+  int mvs_max_sequential_size = 256000;
 
   // alias = subsample_freq
   // desc = frequency for bagging

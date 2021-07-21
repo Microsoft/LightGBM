@@ -102,7 +102,8 @@ original datasets}
 \item{...}{other parameters, see \href{https://lightgbm.readthedocs.io/en/latest/Parameters.html}{
 the "Parameters" section of the documentation} for more information. A few key parameters:
 \itemize{
-    \item{\code{boosting}: Boosting type. \code{"gbdt"}, \code{"rf"}, \code{"dart"} or \code{"goss"}.}
+    \item{\code{boosting}: Boosting type. \code{"gbdt"}, \code{"rf"}, \code{"dart"},
+                                          \code{"goss"} or \code{"mvs"}.}
     \item{\code{num_leaves}: Maximum number of leaves in one tree.}
     \item{\code{max_depth}: Limit the max depth for tree model. This is used to deal with
                      overfitting. Tree still grow by leaf-wise.}

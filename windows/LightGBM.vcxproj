@@ -274,6 +274,7 @@
     <ClInclude Include="..\src\boosting\dart.hpp" />
     <ClInclude Include="..\src\boosting\goss.hpp" />
     <ClInclude Include="..\src\boosting\rf.hpp" />
+    <ClInclude Include="..\src\boosting\mvs.hpp" />
     <ClInclude Include="..\src\boosting\score_updater.hpp" />
     <ClInclude Include="..\src\io\dense_bin.hpp" />
     <ClInclude Include="..\src\io\multi_val_dense_bin.hpp" />
@@ -310,6 +311,7 @@
     <ClCompile Include="..\src\boosting\gbdt.cpp" />
     <ClCompile Include="..\src\boosting\gbdt_model_text.cpp" />
     <ClCompile Include="..\src\boosting\gbdt_prediction.cpp" />
+    <ClCompile Include="..\src\boosting\mvs.cpp" />
     <ClCompile Include="..\src\boosting\prediction_early_stop.cpp" />
     <ClCompile Include="..\src\c_api.cpp" />
     <ClCompile Include="..\src\io\bin.cpp" />

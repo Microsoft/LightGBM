@@ -120,7 +120,8 @@ into a predictor model which frees up memory and the original datasets}
 
 \item{...}{other parameters, see Parameters.rst for more information. A few key parameters:
 \itemize{
-    \item{\code{boosting}: Boosting type. \code{"gbdt"}, \code{"rf"}, \code{"dart"} or \code{"goss"}.}
+    \item{\code{boosting}: Boosting type. \code{"gbdt"}, \code{"rf"}, \code{"dart"}, \code{"goss"}
+                                       or \code{"mvs"}.}
     \item{\code{num_leaves}: Maximum number of leaves in one tree.}
     \item{\code{max_depth}: Limit the max depth for tree model. This is used to deal with
                      overfit when #data is small. Tree still grow by leaf-wise.}

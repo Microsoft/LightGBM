@@ -42,6 +42,9 @@
     <ClInclude Include="..\src\boosting\gbdt.h">
       <Filter>src\boosting</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\boosting\mvs.hpp">
+          <Filter>src\boosting</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\network\linkers.h">
       <Filter>src\network</Filter>
     </ClInclude>
@@ -247,6 +250,9 @@
     </ClCompile>
     <ClCompile Include="..\src\Boosting\gbdt.cpp">
       <Filter>src\boosting</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\Boosting\mvs.cpp">
+          <Filter>src\boosting</Filter>
     </ClCompile>
     <ClCompile Include="..\src\io\dataset.cpp">
       <Filter>src\io</Filter>

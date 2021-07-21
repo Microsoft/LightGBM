@@ -58,6 +58,8 @@ void GetBoostingType(const std::unordered_map<std::string, std::string>& params,
       *boosting = "goss";
     } else if (value == std::string("rf") || value == std::string("random_forest")) {
       *boosting = "rf";
+    } else if (value == std::string("mvs")) {
+      *boosting = "mvs";
     } else {
       Log::Fatal("Unknown boosting type %s", value.c_str());
     }

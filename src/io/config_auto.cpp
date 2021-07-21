@@ -195,6 +195,9 @@ const std::unordered_set<std::string>& Config::parameter_set() {
   "bagging_fraction",
   "pos_bagging_fraction",
   "neg_bagging_fraction",
+  "mvs_lambda",
+  "mvs_adaptive",
+  "mvs_max_sequential_size",
   "bagging_freq",
   "bagging_seed",
   "feature_fraction",
@@ -354,6 +357,14 @@ void Config::GetMembersFromString(const std::unordered_map<std::string, std::str
   GetDouble(params, "neg_bagging_fraction", &neg_bagging_fraction);
   CHECK_GT(neg_bagging_fraction, 0.0);
   CHECK_LE(neg_bagging_fraction, 1.0);
+
+  GetDouble(params, "mvs_lambda", &mvs_lambda);
+  CHECK_GT(mvs_lambda, 0.0);
+
+  GetBool(params, "mvs_adaptive", &mvs_adaptive);
+
+  GetInt(params, "mvs_max_sequential_size", &mvs_max_sequential_size);
+  CHECK_GT(mvs_max_sequential_size, 0);
 
   GetInt(params, "bagging_freq", &bagging_freq);
 
@@ -650,6 +661,9 @@ std::string Config::SaveMembersToString() const {
   str_buf << "[bagging_fraction: " << bagging_fraction << "]\n";
   str_buf << "[pos_bagging_fraction: " << pos_bagging_fraction << "]\n";
   str_buf << "[neg_bagging_fraction: " << neg_bagging_fraction << "]\n";
+  str_buf << "[mvs_lambda: " << mvs_lambda << "]\n";
+  str_buf << "[mvs_adaptive: " << mvs_adaptive << "]\n";
+  str_buf << "[mvs_max_sequential_size: " << mvs_max_sequential_size << "]\n";
   str_buf << "[bagging_freq: " << bagging_freq << "]\n";
   str_buf << "[bagging_seed: " << bagging_seed << "]\n";
   str_buf << "[feature_fraction: " << feature_fraction << "]\n";

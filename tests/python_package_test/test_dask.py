@@ -40,7 +40,7 @@ sk_version = parse_version(sk_version)
 tasks = ['binary-classification', 'multiclass-classification', 'regression', 'ranking']
 distributed_training_algorithms = ['data', 'voting']
 data_output = ['array', 'scipy_csr_matrix', 'dataframe', 'dataframe-with-categorical']
-boosting_types = ['gbdt', 'dart', 'goss', 'rf']
+boosting_types = ['gbdt', 'dart', 'goss', 'rf', 'mvs']
 group_sizes = [5, 5, 5, 10, 10, 10, 20, 20, 20, 50, 50]
 task_to_dask_factory = {
     'regression': lgb.DaskLGBMRegressor,
@@ -277,6 +277,12 @@ def test_classifier(output, task, boosting_type, tree_learner, cluster):
             })
         elif boosting_type == 'goss':
             params['top_rate'] = 0.5
+        elif boosting_type == 'mvs':
+            params.update({
+                'bagging_freq': 1,
+                'mvs_adaptive': True,
+                'bagging_fraction': 0.9
+            })
 
         dask_classifier = lgb.DaskLGBMClassifier(
             client=client,
@@ -533,6 +539,12 @@ def test_regressor(output, boosting_type, tree_learner, cluster):
                 'bagging_freq': 1,
                 'bagging_fraction': 0.9,
             })
+        elif boosting_type == 'mvs':
+            params.update({
+                'bagging_freq': 1,
+                'mvs_adaptive': True,
+                'bagging_fraction': 0.9
+            })
 
         dask_regressor = lgb.DaskLGBMRegressor(
             client=client,
@@ -733,6 +745,12 @@ def test_ranker(output, group, boosting_type, tree_learner, cluster):
             params.update({
                 'bagging_freq': 1,
                 'bagging_fraction': 0.9,
+            })
+        elif boosting_type == 'mvs':
+            params.update({
+                'bagging_freq': 1,
+                'mvs_adaptive': True,
+                'bagging_fraction': 0.9
             })
 
         dask_ranker = lgb.DaskLGBMRanker(

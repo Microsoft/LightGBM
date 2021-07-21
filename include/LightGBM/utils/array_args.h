@@ -9,6 +9,7 @@
 #include <LightGBM/utils/threading.h>
 
 #include <algorithm>
+#include <numeric>
 #include <utility>
 #include <vector>
 
@@ -184,6 +185,36 @@ class ArrayArgs {
       }
     }
     return true;
+  }
+
+  static double CalculateThresholdMVS(std::vector<VAL_T>* gradients, data_size_t begin, data_size_t end,
+                                             const double sample_size) {
+    double current_sum_small = 0.0;
+    data_size_t big_grad_size = 0;
+
+    while (begin != end) {
+      data_size_t middle_begin = begin - 1, middle_end = end;
+      ArrayArgs<score_t>::Partition(gradients, begin, end, &middle_begin, &middle_end);
+      ++middle_begin;  // for half intervals
+      const data_size_t n_middle = middle_end - middle_begin;
+      const data_size_t large_size = middle_begin - begin;
+
+      const double sum_small = std::accumulate(gradients->begin() + middle_end, gradients->begin() + end, 0.0);
+      const double sum_middle = (*gradients)[middle_begin] * n_middle;
+
+      const double
+          current_sampling_rate = (current_sum_small + sum_small) / (*gradients)[middle_begin] + big_grad_size + n_middle + large_size;
+
+      if (current_sampling_rate > sample_size) {
+        current_sum_small += sum_small + sum_middle;
+        end = middle_begin;
+      } else {
+        big_grad_size += n_middle + large_size;
+        begin = middle_end;
+      }
+    }
+
+    return current_sum_small / (sample_size - big_grad_size + kEpsilon);
   }
 };
 

@@ -139,6 +139,8 @@ Core Parameters
 
       -  **Note**: internally, LightGBM uses ``gbdt`` mode for the first ``1 / learning_rate`` iterations
 
+   -  ``mvs``, Minimal variance sampling <https://arxiv.org/abs/1910.13204>__
+
 -  ``data`` :raw-html:`<a id="data" title="Permalink to this parameter" href="#data">&#x1F517;&#xFE0E;</a>`, default = ``""``, type = string, aliases: ``train``, ``train_data``, ``train_data_file``, ``data_filename``
 
    -  path of training data, LightGBM will train from this data
@@ -333,6 +335,28 @@ Learning Control Parameters
    -  **Note**: if both ``pos_bagging_fraction`` and ``neg_bagging_fraction`` are set to ``1.0``,  balanced bagging is disabled
 
    -  **Note**: if balanced bagging is enabled, ``bagging_fraction`` will be ignored
+
+-  ``mvs_lambda`` :raw-html:`<a id="mvs_lambda" title="Permalink to this parameter" href="#mvs_lambda">&#x1F517;&#xFE0E;</a>`, default = ``1e-4``, type = double, constraints: ``mvs_lambda > 0.0``
+
+   -  used in MVS boosting. If ``mvs_adaptive == true`` then this value is ignored.
+
+   -  used only in ``mvs``
+
+-  ``mvs_adaptive`` :raw-html:`<a id="mvs_adaptive" title="Permalink to this parameter" href="#mvs_adaptive">&#x1F517;&#xFE0E;</a>`, default = ``false``, type = bool
+
+   -  use adaptive variant of mvs boosting
+
+   -  used only in ``mvs``
+
+-  ``mvs_max_sequential_size`` :raw-html:`<a id="mvs_max_sequential_size" title="Permalink to this parameter" href="#mvs_max_sequential_size">&#x1F517;&#xFE0E;</a>`, default = ``256000``, type = int, constraints: ``mvs_max_sequential_size > 0``
+
+   -  used in MVS boosting training. If dataset size is greater than ``mvs_max_sequential_size``, then threshold
+
+   -  for MVS is chosen for each thread independently.
+
+   -  used only in ``mvs``
+
+   -  **Note**: on small dataset setting this parameter less than size of dataset may produce results depending on number of threads
 
 -  ``bagging_freq`` :raw-html:`<a id="bagging_freq" title="Permalink to this parameter" href="#bagging_freq">&#x1F517;&#xFE0E;</a>`, default = ``0``, type = int, aliases: ``subsample_freq``
 
