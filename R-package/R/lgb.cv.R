@@ -41,6 +41,8 @@ CVBooster <- R6::R6Class(
 #' @param callbacks List of callback functions that are applied at each iteration.
 #' @param reset_data Boolean, setting it to TRUE (not the default value) will transform the booster model
 #'                   into a predictor model which frees up memory and the original datasets
+#' @param train_folds \code{list} specifying which indices to use for training. If \code{NULL}
+#'                    (the default) all indices not specified in \code{folds} will be used for training.
 #' @param ... other parameters, see Parameters.rst for more information. A few key parameters:
 #'            \itemize{
 #'                \item{\code{boosting}: Boosting type. \code{"gbdt"}, \code{"rf"}, \code{"dart"} or \code{"goss"}.}
@@ -92,6 +94,7 @@ lgb.cv <- function(params = list()
                    , early_stopping_rounds = NULL
                    , callbacks = list()
                    , reset_data = FALSE
+                   , train_folds = NULL
                    , ...
                    ) {
 
@@ -309,7 +312,14 @@ lgb.cv <- function(params = list()
       } else {
         test_indices <- folds[[k]]
       }
-      train_indices <- seq_len(nrow(data))[-test_indices]
+
+      # Generate train_indices from either the train_folds argument
+      # or as the opposite of (test)folds argument:
+      if (!is.null(train_folds)) {
+        train_indices <- train_folds[[k]]
+      } else {
+        train_indices <- seq_len(nrow(data))[-test_indices]
+      }
 
       # set up test set
       indexDT <- data.table::data.table(

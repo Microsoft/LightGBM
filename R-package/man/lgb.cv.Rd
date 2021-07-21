@@ -25,6 +25,7 @@ lgb.cv(
   early_stopping_rounds = NULL,
   callbacks = list(),
   reset_data = FALSE,
+  train_folds = NULL,
   ...
 )
 }
@@ -117,6 +118,9 @@ set to the iteration number of the best iteration.}
 
 \item{reset_data}{Boolean, setting it to TRUE (not the default value) will transform the booster model
 into a predictor model which frees up memory and the original datasets}
+
+\item{train_folds}{\code{list} specifying which indicies to use for training. If \code{NULL}
+(the default) all indices not specified in \code{folds} will be used for training.}
 
 \item{...}{other parameters, see Parameters.rst for more information. A few key parameters:
 \itemize{
