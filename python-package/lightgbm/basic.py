@@ -641,9 +641,12 @@ class Sequence(abc.ABC):
         .. code-block:: python
 
             if isinstance(idx, numbers.Integral):
-                return self.__get_one_line__(idx)
+                return self._get_one_line(idx)
             elif isinstance(idx, slice):
-                return np.stack(self.__get_one_line__(i) for i in range(idx.start, idx.stop))
+                return np.stack(self._get_one_line(i) for i in range(idx.start, idx.stop))
+            elif isinstance(idx, list):
+                # Only required if using ``Dataset.get_data``.
+                return np.array(self._get_one_line(i) for i in idx)
             else:
                 raise TypeError(f"Sequence index must be integer or slice, got {type(idx).__name__}")
 
@@ -1515,7 +1518,8 @@ class Dataset:
         # set feature names
         return self.set_feature_name(feature_name)
 
-    def __yield_row_from(self, seqs: List[Sequence], indices: Iterable[int]):
+    @staticmethod
+    def _yield_row_from_seqlist(seqs: List[Sequence], indices: Iterable[int]):
         offset = 0
         seq_id = 0
         seq = seqs[seq_id]
@@ -1541,7 +1545,7 @@ class Dataset:
         indices = self._create_sample_indices(total_nrow)
 
         # Select sampled rows, transpose to column order.
-        sampled = np.array([row for row in self.__yield_row_from(seqs, indices)])
+        sampled = np.array([row for row in self._yield_row_from_seqlist(seqs, indices)])
         sampled = sampled.T
 
         filtered = []
@@ -2236,7 +2240,7 @@ class Dataset:
 
         Returns
         -------
-        data : string, pathlib.Path, numpy array, pandas DataFrame, H2O DataTable's Frame, scipy.sparse, list of numpy arrays or None
+        data : string, pathlib.Path, numpy array, pandas DataFrame, H2O DataTable's Frame, scipy.sparse, Sequence, list of Sequences or list of numpy arrays or None
             Raw data used in the Dataset construction.
         """
         if self.handle is None:
@@ -2250,6 +2254,10 @@ class Dataset:
                     self.data = self.data.iloc[self.used_indices].copy()
                 elif isinstance(self.data, dt_DataTable):
                     self.data = self.data[self.used_indices, :]
+                elif isinstance(self.data, Sequence):
+                    self.data = self.data[self.used_indices]
+                elif isinstance(self.data, list) and len(self.data) > 0 and all(isinstance(x, Sequence) for x in self.data):
+                    self.data = np.array([row for row in self._yield_row_from_seqlist(self.data, self.used_indices)])
                 else:
                     _log_warning(f"Cannot subset {type(self.data).__name__} type of raw data.\n"
                                  "Returning original raw data")
