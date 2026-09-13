@@ -541,7 +541,7 @@ endif()
 #
 # Hiding other symbols 
 if(NOT BUILD_STATIC_LIB)
-  # 
+  # hide any LightGBM symbols not explicitly marked for export
   set_target_properties(
     lightgbm_objs lightgbm_capi_objs _lightgbm
     PROPERTIES
@@ -550,6 +550,13 @@ if(NOT BUILD_STATIC_LIB)
       CUDA_VISIBILITY_PRESET hidden
       VISIBILITY_INLINES_HIDDEN TRUE
   )
+
+  # avoid 
+  if(APPLE AND NOT BUILD_STATIC_LIB)
+    target_link_options(_lightgbm PRIVATE
+      "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/cmake/lightgbm.exports"
+    )
+  endif()
 endif()
 
 if(USE_SWIG)
