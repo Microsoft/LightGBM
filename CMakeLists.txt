@@ -539,7 +539,8 @@ endif()
 # Only the C API (functions / types with names prefixed 'LGBM_*') is considered part of LightGBM's
 # public API.
 #
-# Hiding other symbols 
+# Hiding other symbols makes library loading faster and reduce the risk of LightGBM
+# conflicting with others libraries.
 if(NOT BUILD_STATIC_LIB)
   # hide any LightGBM symbols not explicitly marked for export
   set_target_properties(
@@ -550,13 +551,6 @@ if(NOT BUILD_STATIC_LIB)
       CUDA_VISIBILITY_PRESET hidden
       VISIBILITY_INLINES_HIDDEN TRUE
   )
-
-  # avoid 
-  if(APPLE AND NOT BUILD_STATIC_LIB)
-    target_link_options(_lightgbm PRIVATE
-      "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/cmake/lightgbm.exports"
-    )
-  endif()
 endif()
 
 if(USE_SWIG)
