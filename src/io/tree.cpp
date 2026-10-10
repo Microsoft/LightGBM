@@ -875,19 +875,11 @@ Tree::Tree(const char* str, size_t* used_len) {
 namespace {
 
 // QuadratureTreeSHAP (arXiv:2605.04497) writes each SHAP value as an integral over t in [0, 1] and
-// evaluates it with a fixed Gauss-Legendre rule. For one feature, the path integrand is a polynomial
-// in t whose degree is the number of other distinct features on the path. An n-point rule integrates
-// degree <= 2n - 1 exactly, so the 8-point rule is exact up to 16 distinct features per path.
-constexpr int kQuadraturePoints = 8;
-// A zero-count child keeps this tiny branch probability so the quadrature stays well-defined.
-constexpr double kMinBranchWeight = 1e-12;
-
-using QuadratureBuffer = std::array<double, kQuadraturePoints>;
-
-struct QuadratureRule {
-  QuadratureBuffer points;
-  QuadratureBuffer weights;
-};
+// evaluates it with a Gauss-Legendre rule. For one feature, the path integrand is a polynomial in t
+// whose degree is the number of other distinct features on the path, and an n-point rule integrates
+// degree <= 2n - 1 exactly, so paths with at most d distinct features are exact with n >= ceil(d / 2)
+// points. The recursion is compiled for rules of 4, 8, 12, 16, 24 and 32 points; trees with d > 48 use 32
+// points, which is exact up to d = 64 and approximate beyond.
 
 // Legendre polynomial P_n(x), by the three-term recurrence
 double LegendrePolynomial(int n, double x) {
@@ -909,31 +901,43 @@ double LegendreDerivative(int n, double x, double pn) {
   return n * (x * pn - LegendrePolynomial(n - 1, x)) / (x * x - 1.0);
 }
 
-// Gauss-Legendre rule on [0, 1]: Newton's method finds the roots of P_n in [-1, 1], which are then mapped to [0, 1]
-QuadratureRule MakeGaussLegendreRule() {
-  constexpr int n = kQuadraturePoints;
+// Gauss-Legendre points (increasing) and weights on [0, 1]
+template <int kNumPoints>
+struct GaussLegendreRule {
+  std::array<double, kNumPoints> points;
+  std::array<double, kNumPoints> weights;
+};
+
+// Newton's method finds the roots of P_n in [-1, 1], which are then mapped to [0, 1]
+template <int kNumPoints>
+GaussLegendreRule<kNumPoints> MakeGaussLegendreRule() {
   constexpr double kPi = 3.141592653589793238462643383279502884;
-  QuadratureRule rule;
-  for (int i = 0; i < n; ++i) {
+  GaussLegendreRule<kNumPoints> rule;
+  for (int i = 0; i < kNumPoints; ++i) {
     // initial guess for the i-th largest root
-    double x = std::cos(kPi * (i + 0.75) / (n + 0.5));
+    double x = std::cos(kPi * (i + 0.75) / (kNumPoints + 0.5));
     for (int iter = 0; iter < 64; ++iter) {
-      const double pn = LegendrePolynomial(n, x);
-      const double dx = pn / LegendreDerivative(n, x, pn);
+      const double pn = LegendrePolynomial(kNumPoints, x);
+      const double dx = pn / LegendreDerivative(kNumPoints, x, pn);
       x -= dx;
       if (std::fabs(dx) < 1e-15) {
         break;
       }
     }
-    const double dpn = LegendreDerivative(n, x, LegendrePolynomial(n, x));
-    // store the points in increasing order; the weight on [-1, 1] is 2 / ((1 - x^2) P_n'(x)^2), halved for [0, 1]
-    rule.points[n - 1 - i] = 0.5 * (x + 1.0);
-    rule.weights[n - 1 - i] = 1.0 / ((1.0 - x * x) * dpn * dpn);
+    const double dpn = LegendreDerivative(kNumPoints, x, LegendrePolynomial(kNumPoints, x));
+    // the weight on [-1, 1] is 2 / ((1 - x^2) P_n'(x)^2), halved for [0, 1]
+    rule.points[kNumPoints - 1 - i] = 0.5 * (x + 1.0);
+    rule.weights[kNumPoints - 1 - i] = 1.0 / ((1.0 - x * x) * dpn * dpn);
   }
   return rule;
 }
 
-const QuadratureRule kGaussLegendreRule = MakeGaussLegendreRule();
+// The rules, computed when the library loads
+template <int kNumPoints>
+const GaussLegendreRule<kNumPoints> kGaussLegendreRule = MakeGaussLegendreRule<kNumPoints>();
+
+// A zero-count child keeps this tiny branch probability so the quadrature stays well-defined.
+constexpr double kMinBranchWeight = 1e-12;
 
 // Probability of the branch to a child: its share of the parent's training data
 double BranchWeight(int child_count, int parent_count) {
@@ -945,39 +949,41 @@ double BranchWeight(int child_count, int parent_count) {
   return std::max(static_cast<double>(child_count) / parent_count, kMinBranchWeight);
 }
 
-// A distinct feature on the current root-to-node path
-struct QuadraturePathFeature {
-  int feature_index;
-  // product of 1 / branch weight over the path's edges that split on this feature,
-  // or 0 if the record does not follow one of them
-  double p;
-};
+// The record's value of a feature: a dense record has every feature, a sparse one only its non-zeros
+double FeatureValue(const double* feature_values, int feature) {
+  return feature_values[feature];
+}
 
-// Recursive QuadratureTreeSHAP over the subtree at node.
-// With alpha = p - 1 for each distinct feature on the path to node, c[i] is the product of
-// (1 + alpha * t_i) over these features and w_prod is the product of the path's branch weights.
-// On return, h[i] is the sum of c[i] * w_prod * leaf_value over the subtree's leaves, with c and w_prod
-// extended down to each leaf. hot_child_of(node) is the child the record goes to, and phi is indexed by
-// feature (double* for dense output, std::unordered_map<int, double> for sparse output).
-template <typename HotChildFn, typename Phi>
-void QuadratureTreeSHAPNode(const Tree& tree, const HotChildFn& hot_child_of, Phi& phi, int node,
-                            const QuadratureBuffer& c, double w_prod,
-                            QuadraturePathFeature* path, int path_len, QuadratureBuffer* h) {
-  const QuadratureBuffer& t = kGaussLegendreRule.points;
-  const QuadratureBuffer& weights = kGaussLegendreRule.weights;
+double FeatureValue(const std::unordered_map<int, double>& feature_values, int feature) {
+  const auto it = feature_values.find(feature);
+  return it != feature_values.end() ? it->second : 0.0;
+}
+
+}  // namespace
+
+// The QuadratureTreeSHAP algorithm over the subtree at node.
+// Closely follows the recursion in Algorithm 1 of arXiv:2605.04497, with the path's distinct features stored in
+// path[0..path_len) and the current product of branch weights in w_prod.
+template <int kNumPoints, typename FeatureValues, typename Phi>
+void Tree::QuadratureTreeSHAPNode(const FeatureValues& feature_values, Phi& phi, int node,
+                                  const std::array<double, kNumPoints>& c, double w_prod,
+                                  QuadraturePathFeature* path, int path_len,
+                                  std::array<double, kNumPoints>* h) const {
+  const double* t = kGaussLegendreRule<kNumPoints>.points.data();
+  const double* weights = kGaussLegendreRule<kNumPoints>.weights.data();
 
   // leaf node
   if (node < 0) {
-    const double leaf_scale = w_prod * tree.LeafOutput(~node);
-    for (int i = 0; i < kQuadraturePoints; ++i) {
+    const double leaf_scale = w_prod * leaf_value_[~node];
+    for (int i = 0; i < kNumPoints; ++i) {
       (*h)[i] = c[i] * leaf_scale;
     }
     return;
   }
 
   // internal node
-  const int feature = tree.split_feature(node);
-  const int hot_child = hot_child_of(node);
+  const int feature = split_feature_[node];
+  const int hot_child = Decision(FeatureValue(feature_values, feature), node);
 
   // see if we have already split on this feature, if not add it to the path with the neutral p = 1
   int path_index = 0;
@@ -991,10 +997,10 @@ void QuadratureTreeSHAPNode(const Tree& tree, const HotChildFn& hot_child_of, Ph
   const double alpha_old = p_old - 1.0;
 
   // remove the feature's factor from c, so that each child can apply its own
-  QuadratureBuffer c_without_feature = c;
-  QuadratureBuffer old_term{};  // alpha_old / (1 + alpha_old * t)
+  std::array<double, kNumPoints> c_without_feature = c;
+  std::array<double, kNumPoints> old_term{};  // alpha_old / (1 + alpha_old * t)
   if (alpha_old != 0.0) {
-    for (int i = 0; i < kQuadraturePoints; ++i) {
+    for (int i = 0; i < kNumPoints; ++i) {
       const double old_factor = 1.0 + alpha_old * t[i];
       c_without_feature[i] /= old_factor;
       old_term[i] = alpha_old / old_factor;
@@ -1002,25 +1008,25 @@ void QuadratureTreeSHAPNode(const Tree& tree, const HotChildFn& hot_child_of, Ph
   }
 
   h->fill(0.0);
-  const int parent_count = tree.data_count(node);
-  const int children[] = {tree.left_child(node), tree.right_child(node)};
+  const int parent_count = data_count(node);
+  const int children[] = {left_child_[node], right_child_[node]};
   for (const int child : children) {
-    const double child_weight = BranchWeight(tree.data_count(child), parent_count);
+    const double child_weight = BranchWeight(data_count(child), parent_count);
     const double p = (child == hot_child) ? p_old / child_weight : 0.0;
     const double alpha = p - 1.0;
-    QuadratureBuffer child_c;
-    for (int i = 0; i < kQuadraturePoints; ++i) {
+    std::array<double, kNumPoints> child_c;
+    for (int i = 0; i < kNumPoints; ++i) {
       child_c[i] = c_without_feature[i] * (1.0 + alpha * t[i]);
     }
 
     path[path_index].p = p;
-    QuadratureBuffer child_h;
-    QuadratureTreeSHAPNode(tree, hot_child_of, phi, child, child_c, w_prod * child_weight,
-                           path, path_len, &child_h);
+    std::array<double, kNumPoints> child_h;
+    QuadratureTreeSHAPNode<kNumPoints>(feature_values, phi, child, child_c, w_prod * child_weight,
+                                       path, path_len, &child_h);
 
     // the edge adds the integral of h(t) * (alpha / (1 + alpha * t) - alpha_old / (1 + alpha_old * t))
     double delta = 0.0;
-    for (int i = 0; i < kQuadraturePoints; ++i) {
+    for (int i = 0; i < kNumPoints; ++i) {
       delta += weights[i] * (child_h[i] * (alpha / (1.0 + alpha * t[i]) - old_term[i]));
       (*h)[i] += child_h[i];
     }
@@ -1029,29 +1035,42 @@ void QuadratureTreeSHAPNode(const Tree& tree, const HotChildFn& hot_child_of, Ph
   path[path_index].p = p_old;
 }
 
-}  // namespace
-
-void Tree::QuadratureTreeSHAP(const double* feature_values, double* phi) const {
-  const auto hot_child_of = [this, feature_values](int node) {
-    return Decision(feature_values[split_feature_[node]], node);
-  };
+template <int kNumPoints, typename FeatureValues, typename Phi>
+void Tree::QuadratureTreeSHAPRun(const FeatureValues& feature_values, Phi& phi) const {
   // a path has at most max_depth_ distinct features
   std::vector<QuadraturePathFeature> path(max_depth_);
-  QuadratureBuffer c, h;
-  c.fill(1.0);
-  QuadratureTreeSHAPNode(*this, hot_child_of, phi, 0, c, 1.0, path.data(), 0, &h);
+  std::array<double, kNumPoints> c, h;
+  c.fill(1.0);  // the empty path's product
+  QuadratureTreeSHAPNode<kNumPoints>(feature_values, phi, 0, c, 1.0, path.data(), 0, &h);
 }
 
-void Tree::QuadratureTreeSHAPByMap(const std::unordered_map<int, double>& feature_values,
+template <typename FeatureValues, typename Phi>
+void Tree::QuadratureTreeSHAPRoot(const FeatureValues& feature_values, int num_features, Phi& phi) const {
+  // a path has at most min(max_depth_, num_features) distinct features, so a rule with at least half as
+  // many points is exact; beyond 48 features the 32-point rule is used
+  const int needed = (std::min(max_depth_, num_features) + 1) / 2;
+  if (needed <= 4) {
+    QuadratureTreeSHAPRun<4>(feature_values, phi);
+  } else if (needed <= 8) {
+    QuadratureTreeSHAPRun<8>(feature_values, phi);
+  } else if (needed <= 12) {
+    QuadratureTreeSHAPRun<12>(feature_values, phi);
+  } else if (needed <= 16) {
+    QuadratureTreeSHAPRun<16>(feature_values, phi);
+  } else if (needed <= 24) {
+    QuadratureTreeSHAPRun<24>(feature_values, phi);
+  } else {
+    QuadratureTreeSHAPRun<32>(feature_values, phi);
+  }
+}
+
+void Tree::QuadratureTreeSHAP(const double* feature_values, int num_features, double* phi) const {
+  QuadratureTreeSHAPRoot(feature_values, num_features, phi);
+}
+
+void Tree::QuadratureTreeSHAPByMap(const std::unordered_map<int, double>& feature_values, int num_features,
                                    std::unordered_map<int, double>* phi) const {
-  const auto hot_child_of = [this, &feature_values](int node) {
-    const auto it = feature_values.find(split_feature_[node]);
-    return Decision(it != feature_values.end() ? it->second : 0.0, node);
-  };
-  std::vector<QuadraturePathFeature> path(max_depth_);
-  QuadratureBuffer c, h;
-  c.fill(1.0);
-  QuadratureTreeSHAPNode(*this, hot_child_of, *phi, 0, c, 1.0, path.data(), 0, &h);
+  QuadratureTreeSHAPRoot(feature_values, num_features, *phi);
 }
 
 double Tree::ExpectedValue() const {

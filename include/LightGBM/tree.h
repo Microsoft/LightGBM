@@ -9,6 +9,7 @@
 #include <LightGBM/dataset.h>
 #include <LightGBM/meta.h>
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <map>
@@ -439,10 +440,33 @@ class Tree {
   inline void RecomputeLeafDepths(int node = 0, int depth = 0);
 
   /*! \brief Add the SHAP values of one record to phi, computed by QuadratureTreeSHAP (arXiv:2605.04497)*/
-  void QuadratureTreeSHAP(const double* feature_values, double* phi) const;
+  void QuadratureTreeSHAP(const double* feature_values, int num_features, double* phi) const;
 
-  void QuadratureTreeSHAPByMap(const std::unordered_map<int, double>& feature_values,
+  void QuadratureTreeSHAPByMap(const std::unordered_map<int, double>& feature_values, int num_features,
                                std::unordered_map<int, double>* phi) const;
+
+  /*! \brief A distinct feature on the root-to-node path of QuadratureTreeSHAP*/
+  struct QuadraturePathFeature {
+    int feature_index;
+    // product of 1 / branch weight over the path's edges that split on this feature,
+    // or 0 if the record does not follow one of them
+    double p;
+  };
+
+  /*! \brief Run QuadratureTreeSHAP with the smallest quadrature rule that is exact for this tree*/
+  template <typename FeatureValues, typename Phi>
+  void QuadratureTreeSHAPRoot(const FeatureValues& feature_values, int num_features, Phi& phi) const;
+
+  /*! \brief Run QuadratureTreeSHAP from the root with kNumPoints quadrature points*/
+  template <int kNumPoints, typename FeatureValues, typename Phi>
+  void QuadratureTreeSHAPRun(const FeatureValues& feature_values, Phi& phi) const;
+
+  /*! \brief QuadratureTreeSHAP recursion over the subtree at node, with kNumPoints quadrature points*/
+  template <int kNumPoints, typename FeatureValues, typename Phi>
+  void QuadratureTreeSHAPNode(const FeatureValues& feature_values, Phi& phi, int node,
+                              const std::array<double, kNumPoints>& c, double w_prod,
+                              QuadraturePathFeature* path, int path_len,
+                              std::array<double, kNumPoints>* h) const;
 
   /*! \brief Number of max leaves*/
   int max_leaves_;
@@ -638,7 +662,7 @@ inline void Tree::PredictContrib(const double* feature_values, int num_features,
   output[num_features] += ExpectedValue();
   if (num_leaves_ > 1) {
     CHECK_GE(max_depth_, 0);
-    QuadratureTreeSHAP(feature_values, output);
+    QuadratureTreeSHAP(feature_values, num_features, output);
   }
 }
 
@@ -647,7 +671,7 @@ inline void Tree::PredictContribByMap(const std::unordered_map<int, double>& fea
   (*output)[num_features] += ExpectedValue();
   if (num_leaves_ > 1) {
     CHECK_GE(max_depth_, 0);
-    QuadratureTreeSHAPByMap(feature_values, output);
+    QuadratureTreeSHAPByMap(feature_values, num_features, output);
   }
 }
 
