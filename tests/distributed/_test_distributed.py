@@ -1,6 +1,5 @@
 import copy
 import io
-import socket
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -11,6 +10,8 @@ import pytest
 from sklearn.datasets import make_blobs, make_regression
 from sklearn.metrics import accuracy_score
 
+from .utils import find_random_open_port
+
 TESTS_DIR = Path(__file__).absolute().parent
 
 
@@ -20,16 +21,8 @@ def executable(pytestconfig) -> str:
     return pytestconfig.getoption("execfile")
 
 
-def _find_random_open_port() -> int:
-    """Find a random open port on localhost."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        port = s.getsockname()[1]
-    return port  # noqa: RET504
-
-
 def _generate_n_ports(n: int) -> Generator[int, None, None]:
-    return (_find_random_open_port() for _ in range(n))
+    return (find_random_open_port() for _ in range(n))
 
 
 def _write_dict(d: Dict, file: io.TextIOWrapper) -> None:

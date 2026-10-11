@@ -81,6 +81,7 @@ if needs_sphinx > sphinx.__version__:
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    "myst_parser",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.todo",
@@ -88,6 +89,13 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.intersphinx",
 ]
+
+# override default list of supported extensions
+# ref: https://www.sphinx-doc.org/en/master/usage/markdown.html
+source_suffix = {
+    ".md": "markdown",
+    ".rst": "restructuredtext",
+}
 
 autodoc_default_flags = ["members", "inherited-members", "show-inheritance"]
 autodoc_default_options = {
@@ -162,6 +170,15 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = "default"
+
+# -- myst configuration ---------------------------------------------------
+# ref: https://myst-parser.readthedocs.io/en/latest/configuration.html
+
+# use "GitHub-flavored markdown"
+myst_gfm_only = True
+
+# generate hyperlinks that open new tabs
+myst_links_external_new_tab = True
 
 # -- Configuration for C API docs generation ------------------------------
 

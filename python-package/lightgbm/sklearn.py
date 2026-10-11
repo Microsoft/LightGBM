@@ -2131,6 +2131,12 @@ class LGBMClassifier(_LGBMClassifierBase, LGBMModel):
                 else:
                     valid_sets.append((valid_x, self._le.transform(valid_y)))
 
+        if eval_y is not None:
+            if isinstance(eval_y, tuple):
+                eval_y = tuple(self._le.transform(valid_y) for valid_y in eval_y)
+            else:
+                eval_y = self._le.transform(eval_y)
+
         super().fit(
             X,
             _y,
