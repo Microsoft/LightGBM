@@ -1043,7 +1043,7 @@ void Tree::QuadratureTreeSHAPRun(const FeatureValues& feature_values, Phi& phi) 
 template <typename FeatureValues, typename Phi>
 void Tree::QuadratureTreeSHAPRoot(const FeatureValues& feature_values, int num_features, Phi& phi) const {
   // a path has at most min(max_depth_, num_features) distinct features, so a rule with at least half as
-  // many points is exact. Beyond 64 features the 32-point rule is used for efficiency and simplicity, 
+  // many points is exact. Beyond 64 features the 32-point rule is used for efficiency and simplicity,
   // which is exact up to 64 features and approximate beyond.
   const int needed = (std::min(max_depth_, num_features) + 1) / 2;
   if (needed <= 4) {
