@@ -1,0 +1,162 @@
+name: C++
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# automatically cancel in-progress builds if another commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# default to 0 permissions
+# (job-level overrides add the minimal permissions needed)
+permissions:
+  contents: none
+
+env:
+  # tell scripts where to put artifacts
+  # (this variable name is left over from when jobs ran on Azure DevOps)
+  BUILD_ARTIFACTSTAGINGDIRECTORY: '${{ github.workspace }}/artifacts'
+  # where repo sources are cloned to
+  BUILD_DIRECTORY: '${{ github.workspace }}'
+  # in CMake-driven builds, parallelize compilation
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+
+jobs:
+  test:
+    name: ${{ matrix.task }} (${{ matrix.os-display-name || matrix.os }}, ${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          #############
+          # C++ tests #
+          #############
+          - os: ubuntu-latest
+            task: cpp-tests
+            compiler: clang-17
+            method: with-sanitizers
+            container: 'ubuntu:22.04'
+            os-display-name: 'ubuntu22.04'
+          - os: macos-15
+            task: cpp-tests
+            compiler: clang
+            method: with-sanitizers
+            sanitizers: "address;undefined"
+            container: null
+          - os: windows-2022
+            task: cpp-tests
+            compiler: msvc
+            container: null
+          - os: ubuntu-24.04-ppc64le
+            task: cpp-tests
+            compiler: gcc
+            container: 'ghcr.io/lightgbm-org/lightgbm-ci:ppc64le-manylinux-2_28'
+            os-display-name: 'ubuntu24.04-ppc64le'
+          ###########
+          # if-else #
+          ###########
+          # These test CLI-generated C++ inference code.
+          #
+          # They need Python because they're written with pytest, but they
+          # do not need the LightGBM Python package
+          - os: ubuntu-latest
+            task: if-else
+            compiler: clang-17
+            container: 'ubuntu:22.04'
+            os-display-name: 'ubuntu22.04'
+            python_version: '3.14'
+            setup-conda: 'true'
+          - os: macos-15-intel
+            task: if-else
+            compiler: clang
+            python_version: '3.10'
+            container: null
+          - os: ubuntu-latest
+            task: if-else
+            compiler: gcc
+            python_version: '3.11'
+            container: 'ghcr.io/lightgbm-org/lightgbm-vsts-agent:manylinux_2_28_x86_64'
+            os-display-name: 'manylinux_2_28'
+    steps:
+      - name: Install packages used by third-party actions
+        if: matrix.container == 'ubuntu:22.04'
+        shell: bash
+        run: |
+          apt-get update -y
+          apt-get install --no-install-recommends -y \
+            dirmngr \
+            gpg \
+            gpg-agent \
+            software-properties-common \
+            sudo
+          # install newest version of git
+          # ref:
+          #     - https://unix.stackexchange.com/a/170831/550004
+          #     - https://git-scm.com/download/linux
+          add-apt-repository ppa:git-core/ppa -y
+          apt-get update -y
+          apt-get install --no-install-recommends -y \
+            git
+      - name: Trust git cloning LightGBM
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 5
+          persist-credentials: false
+          submodules: true
+      - name: Setup and run tests on Linux and macOS
+        if: startsWith(matrix.os, 'macos') || startsWith(matrix.os, 'ubuntu')
+        shell: bash
+        run: |
+          export COMPILER="${{ matrix.compiler }}"
+          export CONDA="${HOME}/miniforge"
+          export METHOD="${{ matrix.method }}"
+          export PATH=${CONDA}/bin:${PATH}
+          export PYTHON_VERSION="${{ matrix.python_version }}"
+          export SANITIZERS="${{ matrix.sanitizers }}"
+          export SETUP_CONDA="${{ matrix.setup-conda }}"
+          export TASK="${{ matrix.task }}"
+          if [[ "${{ matrix.os }}" =~ ^macos ]]; then
+              export OS_NAME="macos"
+          elif [[ "${{ matrix.os }}" == "ubuntu-latest" || "${{ matrix.os }}" == "ubuntu-24.04-ppc64le" ]]; then
+              export OS_NAME="linux"
+          fi
+          if [[ "${{ matrix.container }}" == "ubuntu:22.04" ]]; then
+            export DEBIAN_FRONTEND=noninteractive
+            export IN_UBUNTU_BASE_CONTAINER="true"
+          fi
+          $GITHUB_WORKSPACE/.ci/setup.sh
+          $GITHUB_WORKSPACE/.ci/test.sh
+      - name: Setup and run tests on Windows
+        if: startsWith(matrix.os, 'windows')
+        shell: pwsh -command ". {0}"
+        run: |
+          $env:BUILD_SOURCESDIRECTORY = $env:BUILD_DIRECTORY
+          $env:TASK = "${{ matrix.task }}"
+          & "$env:GITHUB_WORKSPACE/.ci/test-windows.ps1"
+  all-cpp-jobs-successful:
+    if: always()
+    runs-on: ubuntu-latest
+    needs:
+      - test
+    permissions:
+      statuses: read
+    steps:
+      - name: Note that all tests succeeded
+        uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35  # v1.3.0
+        with:
+          jobs: ${{ toJSON(needs) }}

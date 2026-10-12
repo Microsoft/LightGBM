@@ -1,0 +1,105 @@
+name: SWIG
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# automatically cancel in-progress builds if another commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# default to 0 permissions
+# (job-level overrides add the minimal permissions needed)
+permissions:
+  contents: none
+
+env:
+  # tell scripts where to put artifacts
+  # (this variable name is left over from when jobs ran on Azure DevOps)
+  BUILD_ARTIFACTSTAGINGDIRECTORY: '${{ github.workspace }}/artifacts'
+  # in CMake-driven builds, parallelize compilation
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+  # all SWIG jobs produce artifacts
+  PRODUCES_ARTIFACTS: 'true'
+  # all jobs here have the same 'TASK'
+  TASK: swig
+
+jobs:
+  test-swig:
+    name: swig (${{ matrix.os-display-name || matrix.os }}, ${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            compiler: gcc
+            container: 'ghcr.io/lightgbm-org/lightgbm-vsts-agent:manylinux_2_28_x86_64'
+            artifact-name: swig-linux-x86_64-jar
+            os-display-name: 'manylinux_2_28'
+          - os: macos-15-intel
+            compiler: clang
+            container: null
+            artifact-name: swig-macos-x86_64-jar
+          # Visual Studio 2022
+          - os: windows-2022
+            compiler: msvc
+            container: null
+            artifact-name: swig-windows-x86_64-jar
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 5
+          persist-credentials: false
+          submodules: true
+      - name: Setup and run tests on Linux and macOS
+        if: startsWith(matrix.os, 'macos') || startsWith(matrix.os, 'ubuntu')
+        shell: bash
+        run: |
+          export BUILD_DIRECTORY="${GITHUB_WORKSPACE}"
+          export COMPILER="${{ matrix.compiler }}"
+          export CONDA="${HOME}/miniforge"
+          export PATH=${CONDA}/bin:${PATH}
+          if [[ "${{ matrix.os }}" =~ ^macos ]]; then
+              export OS_NAME="macos"
+          elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+              export OS_NAME="linux"
+          fi
+          $GITHUB_WORKSPACE/.ci/setup.sh
+          $GITHUB_WORKSPACE/.ci/test.sh
+      - name: Setup and run tests on Windows
+        if: startsWith(matrix.os, 'windows')
+        shell: pwsh -command ". {0}"
+        run: |
+          $env:BUILD_DIRECTORY = $env:GITHUB_WORKSPACE
+          $env:BUILD_SOURCESDIRECTORY = $env:BUILD_DIRECTORY
+          & "$env:GITHUB_WORKSPACE/.ci/test-windows.ps1"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}/*.jar
+          if-no-files-found: error
+  all-swig-jobs-successful:
+    if: always()
+    runs-on: ubuntu-latest
+    needs:
+      - test-swig
+    permissions:
+      statuses: read
+    steps:
+      - name: Note that all tests succeeded
+        uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35  # v1.3.0
+        with:
+          jobs: ${{ toJSON(needs) }}
