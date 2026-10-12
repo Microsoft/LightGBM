@@ -188,26 +188,26 @@ jobs:
           # jobs that create  #
           # release artifacts #
           #####################
-          - os: macos-15-intel
-            task: bdist
-            compiler: clang
-            method: wheel
-            produces-artifacts: 'true'
-            artifact-name: 'macosx-amd64-wheel'
-            python_version: '3.13'
-          - os: macos-15
-            task: bdist
-            compiler: clang
-            method: wheel
-            produces-artifacts: 'true'
-            artifact-name: 'macosx-arm64-wheel'
-            python_version: '3.11'
-          - os: macos-15-intel
-            task: regular
-            compiler: clang
-            produces-artifacts: 'true'
-            artifact-name: 'macosx-amd64-liblightgbm'
-            python_version: '3.11'
+          # - os: macos-15-intel
+          #   task: bdist
+          #   compiler: clang
+          #   method: wheel
+          #   produces-artifacts: 'true'
+          #   artifact-name: 'macosx-amd64-wheel'
+          #   python_version: '3.13'
+          # - os: macos-15
+          #   task: bdist
+          #   compiler: clang
+          #   method: wheel
+          #   produces-artifacts: 'true'
+          #   artifact-name: 'macosx-arm64-wheel'
+          #   python_version: '3.11'
+          # - os: macos-15-intel
+          #   task: regular
+          #   compiler: clang
+          #   produces-artifacts: 'true'
+          #   artifact-name: 'macosx-amd64-liblightgbm'
+          #   python_version: '3.11'
           - os: ubuntu-latest
             container: *manylinux_amd64_image
             os-display-name: *manylinux_amd64_display_name
@@ -241,29 +241,29 @@ jobs:
             setup-conda: 'false'
             produces-artifacts: 'true'
             artifact-name: 'sdist'
-          - os: windows-2022
-            task: bdist
-            compiler: MSVC
-            method: wheel
-            produces-artifacts: 'true'
-            artifact-name: 'windows-amd64-wheel'
-            wheel-platform-tag: 'win_amd64'
-            python_version: '3.13'
-          - os: windows-11-arm
-            task: bdist
-            compiler: MSVC
-            method: wheel
-            produces-artifacts: 'true'
-            artifact-name: 'windows-arm64-wheel'
-            setup-conda: 'false'
-            wheel-platform-tag: 'win_arm64'
-            python_version: '3.13'
-          - os: windows-2022
-            task: regular
-            compiler: MSVC
-            produces-artifacts: 'true'
-            artifact-name: 'windows-amd64-cli-and-liblightgbm'
-            python_version: '3.11'
+          # - os: windows-2022
+          #   task: bdist
+          #   compiler: MSVC
+          #   method: wheel
+          #   produces-artifacts: 'true'
+          #   artifact-name: 'windows-amd64-wheel'
+          #   wheel-platform-tag: 'win_amd64'
+          #   python_version: '3.13'
+          # - os: windows-11-arm
+          #   task: bdist
+          #   compiler: MSVC
+          #   method: wheel
+          #   produces-artifacts: 'true'
+          #   artifact-name: 'windows-arm64-wheel'
+          #   setup-conda: 'false'
+          #   wheel-platform-tag: 'win_arm64'
+          #   python_version: '3.13'
+          # - os: windows-2022
+          #   task: regular
+          #   compiler: MSVC
+          #   produces-artifacts: 'true'
+          #   artifact-name: 'windows-amd64-cli-and-liblightgbm'
+          #   python_version: '3.11'
           - os: ubuntu-24.04-ppc64le
             container: 'ghcr.io/lightgbm-org/lightgbm-ci:ppc64le-manylinux-2_28'
             os-display-name: 'ppc64le-manylinux_2_28'

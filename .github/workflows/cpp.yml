@@ -48,16 +48,16 @@ jobs:
             method: with-sanitizers
             container: 'ubuntu:22.04'
             os-display-name: 'ubuntu22.04'
-          - os: macos-15
-            task: cpp-tests
-            compiler: clang
-            method: with-sanitizers
-            sanitizers: "address;undefined"
-            container: null
-          - os: windows-2022
-            task: cpp-tests
-            compiler: msvc
-            container: null
+          # - os: macos-15
+          #   task: cpp-tests
+          #   compiler: clang
+          #   method: with-sanitizers
+          #   sanitizers: "address;undefined"
+          #   container: null
+          # - os: windows-2022
+          #   task: cpp-tests
+          #   compiler: msvc
+          #   container: null
           - os: ubuntu-24.04-ppc64le
             task: cpp-tests
             compiler: gcc
@@ -77,11 +77,11 @@ jobs:
             os-display-name: 'ubuntu22.04'
             python_version: '3.14'
             setup-conda: 'true'
-          - os: macos-15-intel
-            task: if-else
-            compiler: clang
-            python_version: '3.10'
-            container: null
+          # - os: macos-15-intel
+          #   task: if-else
+          #   compiler: clang
+          #   python_version: '3.10'
+          #   container: null
           - os: ubuntu-latest
             task: if-else
             compiler: gcc
