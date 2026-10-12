@@ -43,12 +43,12 @@ jobs:
           - os: ubuntu-24.04-arm
             dockerfile: .ci/ci-images/manylinux_2_28_aarch64/Dockerfile
             # TODO(jameslamb): revert hard-coded tag before merging
-            tag: ci-manylinux_2_28_aarch64-dev
+            image-tag: ci-manylinux_2_28_aarch64-dev
             # tag: ci-manylinux_2_28_aarch64${{ inputs.tag-suffix }}
           - os: ubuntu-latest
             dockerfile: .ci/ci-images/manylinux_2_28_x86_64/Dockerfile
             # TODO(jameslamb): revert hard-coded tag before merging
-            tag: ci-manylinux_2_28_x86_64-dev
+            image-tag: ci-manylinux_2_28_x86_64-dev
             # tag: ci-manylinux_2_28_x86_64${{ inputs.tag-suffix }}
           # - os: ubuntu-24.04-ppc64le
           #   dockerfile: .ci/ci-images/ppc64le-manylinux/Dockerfile
