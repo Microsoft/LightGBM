@@ -442,7 +442,7 @@ jobs:
             --env CMAKE_BUILD_PARALLEL_LEVEL=${{ env.CMAKE_BUILD_PARALLEL_LEVEL }} \
             -v $(pwd):/opt/lgb-build \
             -w /opt/lgb-build \
-            ghcr.io/lightgbm-org/lightgbm-ci:manylinux_2_28_x86_64-dev' \
+            ghcr.io/lightgbm-org/lightgbm-ci:manylinux_2_28_x86_64-dev \
             /bin/bash -c '
               export PATH=/opt/miniforge/bin:$PATH
               pip install "build>=0.10"
@@ -482,7 +482,7 @@ jobs:
             --env CMAKE_BUILD_PARALLEL_LEVEL=${{ env.CMAKE_BUILD_PARALLEL_LEVEL }} \
             -v $(pwd):/opt/lgb-build \
             -w /opt/lgb-build \
-            ghcr.io/lightgbm-org/lightgbm-ci:manylinux_2_28_x86_64-dev' \
+            ghcr.io/lightgbm-org/lightgbm-ci:manylinux_2_28_x86_64-dev \
             /bin/bash -c '
               export PATH=/opt/miniforge/bin:$PATH
               pip install "build>=0.10"

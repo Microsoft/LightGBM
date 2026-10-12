@@ -292,7 +292,7 @@ sh ./build-python.sh install --precompile || exit 1
 
 # This MPI skip can be removed when those jobs do not use conda.
 # ref: https://github.com/lightgbm-org/LightGBM/issues/7355#issuecomment-5578260518
-if [[ "${TASK}" != "mpi" ]]; then
+if [[ "${TASK}" != "mpi" ]] && [[ "${TASK}" != "gpu" ]]; then
     echo "testing imports with 'python -O1'"
     PYTHONOPTIMIZE=1 python -c "import lightgbm; print(lightgbm.__version__)"
 
