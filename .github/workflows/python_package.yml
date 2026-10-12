@@ -60,7 +60,7 @@ jobs:
           ${{ env.BUILD_DIRECTORY }}/.ci/setup.sh || exit 1
           ${{ env.BUILD_DIRECTORY }}/.ci/test.sh || exit 1
           EOF
-          IMAGE_URI="ghcr.io/microsoft/lightgbm:ci-manylinux_2_28_aarch64-dev"
+          IMAGE_URI="ghcr.io/lightgbm-org/lightgbm-ci:manylinux_2_28_aarch64-dev"
           docker pull "${IMAGE_URI}" || exit 1
           docker run \
             --platform "${PLATFORM}" \
@@ -139,7 +139,7 @@ jobs:
           #   python_version: '3.12'
           #   in-ubuntu-base-container: 'true'
           - os: ubuntu-latest
-            container: &manylinux_amd64_image ghcr.io/lightgbm-org/lightgbm:ci-manylinux_2_28_x86_64-dev
+            container: &manylinux_amd64_image ghcr.io/lightgbm-org/lightgbm-ci:manylinux_2_28_x86_64-dev
             os-display-name: &manylinux_amd64_display_name 'x86_64_manylinux_2_28'
             task: gpu
             method: source
@@ -442,7 +442,7 @@ jobs:
             --env CMAKE_BUILD_PARALLEL_LEVEL=${{ env.CMAKE_BUILD_PARALLEL_LEVEL }} \
             -v $(pwd):/opt/lgb-build \
             -w /opt/lgb-build \
-            ghcr.io/lightgbm-org/lightgbm:ci-manylinux_2_28_x86_64-dev' \
+            ghcr.io/lightgbm-org/lightgbm-ci:manylinux_2_28_x86_64-dev' \
             /bin/bash -c '
               export PATH=/opt/miniforge/bin:$PATH
               pip install "build>=0.10"
@@ -482,7 +482,7 @@ jobs:
             --env CMAKE_BUILD_PARALLEL_LEVEL=${{ env.CMAKE_BUILD_PARALLEL_LEVEL }} \
             -v $(pwd):/opt/lgb-build \
             -w /opt/lgb-build \
-            ghcr.io/lightgbm-org/lightgbm:ci-manylinux_2_28_x86_64-dev' \
+            ghcr.io/lightgbm-org/lightgbm-ci:manylinux_2_28_x86_64-dev' \
             /bin/bash -c '
               export PATH=/opt/miniforge/bin:$PATH
               pip install "build>=0.10"

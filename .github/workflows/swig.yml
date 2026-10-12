@@ -44,7 +44,7 @@ jobs:
         include:
           - os: ubuntu-latest
             compiler: gcc
-            container: 'ghcr.io/lightgbm-org/lightgbm:ci-manylinux_2_28_x86_64-dev'
+            container: 'ghcr.io/lightgbm-org/lightgbm-ci:manylinux_2_28_x86_64-dev'
             artifact-name: swig-linux-x86_64-jar
             os-display-name: 'manylinux_2_28'
           - os: macos-15-intel

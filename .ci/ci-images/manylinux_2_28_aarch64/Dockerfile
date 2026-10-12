@@ -68,7 +68,7 @@ AARCH64_CPUS="${AARCH64_CPUS};thunderx;thunderx2t99;thunderxt81;thunderxt83;thun
 #  - needs an ocl-icd>=2.3 (I think?)
 #  - almalinux 8 has ocl-icd=2.2.*
 #  - almalinux 10 has a 2.3.*, but its GLIBC requirement is too high
-# 
+#
 # relevant CMake output:
 #
 # -- Checking for module 'ocl-icd>=1.3'
@@ -81,12 +81,12 @@ AARCH64_CPUS="${AARCH64_CPUS};thunderx;thunderx2t99;thunderxt81;thunderxt83;thun
 # -- Using an ICD loader (override): 0
 # -- Run tests with ICD: 0
 # -- Using PoCL's OpenCL 3.0 headers
-# 
+#
 # references:
 #
 #    - https://github.com/pocl/pocl/issues/1280
 #
-# 
+#
 cmake \
    -B pocl/build \
    -S pocl \

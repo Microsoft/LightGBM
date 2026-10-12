@@ -86,7 +86,7 @@ jobs:
             task: if-else
             compiler: gcc
             python_version: '3.11'
-            container: 'ghcr.io/lightgbm-org/lightgbm:ci-manylinux_2_28_x86_64-dev'
+            container: 'ghcr.io/lightgbm-org/lightgbm-ci:manylinux_2_28_x86_64-dev'
             os-display-name: 'manylinux_2_28'
     steps:
       - name: Install packages used by third-party actions
