@@ -35,7 +35,7 @@ test_that("lgb.plot.interpretation works as expected for binary classification",
         , nrounds = 3L
     )
     num_trees <- 5L
-    tree_interpretation <- lgb.interprete(
+    tree_interpretation <- lgb.interpret(
         model = model
         , data = test$data
         , idxset = seq_len(num_trees)
@@ -86,7 +86,7 @@ test_that("lgb.plot.interpretation works as expected for multiclass classificati
         , verbose = .LGB_VERBOSITY
     )
     num_trees <- 5L
-    tree_interpretation <- lgb.interprete(
+    tree_interpretation <- lgb.interpret(
         model = model
         , data = test[, 1L:4L]
         , idxset = seq_len(num_trees)

@@ -1,0 +1,80 @@
+[workspace]
+channels = ["conda-forge"]
+name = "lightgbm"
+platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64"]
+
+[dependencies]
+# This project has non-Python pixi environments, so want to avoid
+# requiring 'pip' or a Python interpreter in the default dependencies.
+#
+# Every CI job ends up making network requests, and so needs 'ca-certificates',
+# so it's used here just to have a non-empty default set of dependencies.
+ca-certificates = ">=2026"
+
+[feature.python-common.dependencies]
+narwhals = ">=1.15"
+numpy = ">=1.21.3"
+pip = "*"
+python = ">=3.10"
+scipy = "*"
+
+[feature.py310.dependencies]
+# direct dependencies
+cffi = "1.15.*"
+joblib = "1.3.*"
+matplotlib-base = "3.7.*"
+narwhals = "1.15.*"
+numpy = "1.22.*"
+pandas = "1.3.*"
+polars = "1.0.*"
+pyarrow = "16.0.*"
+python = "3.10.*"
+python-graphviz = "0.20.*"
+scikit-learn = "1.0.*"
+scipy = "1.7.*"
+
+# build-time dependencies
+hatchling = ">=1.27.0"
+python-build = "1.4.*"
+scikit-build-core = ">=0.11.0"
+
+# testing-only packages
+cloudpickle = "2.2.*"
+h5py = ">=3.10"
+ipywidgets = ">=8.1.2"
+jupyterlab = "4.5.*"
+pluggy = "1.0.*"
+psutil = "5.9.3.*"
+pytest = "7.4.*"
+
+# dask dependencies are not needed on Windows, so split out separately here
+[feature.py310.target.unix.dependencies]
+dask = "2022.12.*"
+distributed = "2022.12.*"
+
+[feature.r-macos-intel]
+platforms = ["osx-64"]
+
+[feature.r-macos-intel.dependencies]
+autoconf = "*"
+automake = "*"
+# putting a ceiling on 'clang' to avoid this compiler warning:
+#
+#   warning "The selected platform is no longer supported by libc++."
+#
+clang = "<22"
+qpdf = "*"
+r-base = ">=4.5"
+"r-data.table" = ">=1.9.6"
+r-jsonlite = ">=1.0"
+r-knitr = "*"
+r-markdown = "*"
+r-Matrix = ">=1.1"
+r-R6 = "*"
+r-RhpcBLASctl = "*"
+r-testthat = "*"
+
+[environments]
+default = []
+py310 = ["python-common", "py310"]
+r-macos-intel = ["r-macos-intel"]

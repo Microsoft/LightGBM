@@ -15,6 +15,11 @@ FILES_TO_LINT <- list.files(
     , include.dirs = FALSE
 )
 
+# skip R files fromthird-party dependencies
+FILES_TO_LINT <- FILES_TO_LINT[
+    !grepl("external_libs/|site-packages/", FILES_TO_LINT, fixed = TRUE)
+]
+
 # text to use for pipe operators from packages like 'magrittr'
 pipe_text <- paste0(
     "For consistency and the sake of being explicit, this project's code "
@@ -108,6 +113,7 @@ LINTERS_TO_USE <- list(
             , "|>" = pipe_text
             , "?" = interactive_text
             , "??" = interactive_text
+            , "<<-" = "Explicitly using environments is strongly preferred to <<-, for predictability and readability."
         )
     )
     , "unnecessary_concatenation" = lintr::unnecessary_concatenation_linter()

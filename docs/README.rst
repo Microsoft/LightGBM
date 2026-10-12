@@ -5,10 +5,10 @@ Documentation for LightGBM is generated using `Sphinx <https://www.sphinx-doc.or
 and `Breathe <https://breathe.readthedocs.io/>`__, which works on top of `Doxygen <https://www.doxygen.nl/index.html>`__ output.
 
 List of parameters and their descriptions in `Parameters.rst <./Parameters.rst>`__
-is generated automatically from comments in `config file <https://github.com/microsoft/LightGBM/blob/master/include/LightGBM/config.h>`__
-by `this script <https://github.com/microsoft/LightGBM/blob/master/.ci/parameter-generator.py>`__.
+is generated automatically from comments in `config file <https://github.com/lightgbm-org/LightGBM/blob/main/include/LightGBM/config.h>`__
+by `this script <https://github.com/lightgbm-org/LightGBM/blob/main/.ci/parameter-generator.py>`__.
 
-After each commit on ``master``, documentation is updated and published to `Read the Docs <https://lightgbm.readthedocs.io/>`__.
+After each commit on ``main``, documentation is updated and published to `Read the Docs <https://lightgbm.readthedocs.io/>`__.
 
 Build
 -----

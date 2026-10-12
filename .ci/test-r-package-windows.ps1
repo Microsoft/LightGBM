@@ -104,7 +104,7 @@ $env:CRAN_MIRROR = "https://cran.rstudio.com"
 $env:MIKTEX_EXCEPTION_PATH = "$env:TEMP\miktex"
 
 # don't fail builds for long-running examples unless they're very long.
-# See https://github.com/microsoft/LightGBM/issues/4049#issuecomment-793412254.
+# See https://github.com/lightgbm-org/LightGBM/issues/4049#issuecomment-793412254.
 if ($env:R_BUILD_TYPE -ne "cran") {
     $env:_R_CHECK_EXAMPLE_TIMING_THRESHOLD_ = 30
 }
@@ -128,7 +128,7 @@ $params = @{
 Get-File-With-Tenacity @params
 
 $params = @{
-    url = "https://github.com/microsoft/LightGBM/releases/download/v2.0.12/$env:RTOOLS_EXE_FILE"
+    url = "https://github.com/lightgbm-org/LightGBM/releases/download/v2.0.12/$env:RTOOLS_EXE_FILE"
     destfile = "Rtools.exe"
 }
 Get-File-With-Tenacity @params

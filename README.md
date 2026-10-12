@@ -1,25 +1,31 @@
-<img src=https://github.com/microsoft/LightGBM/blob/master/docs/logo/LightGBM_logo_black_text.svg width=300 />
+<img src=https://github.com/lightgbm-org/LightGBM/blob/main/docs/logo/LightGBM_logo_black_text.svg width=300 />
+
+> [!NOTE]
+> This project moved from `Microsoft/LightGBM` to `lightgbm-org/LightGBM` in March 2026.
+> This repository is still the official LightGBM source code, managed by the same maintainers (including the creator of LightGBM).
+> For details, see https://github.com/lightgbm-org/LightGBM/issues/7187
 
 Light Gradient Boosting Machine
 ===============================
 
-[![C++ GitHub Actions Build Status](https://github.com/microsoft/LightGBM/actions/workflows/cpp.yml/badge.svg?branch=master)](https://github.com/microsoft/LightGBM/actions/workflows/cpp.yml)
-[![Python-package GitHub Actions Build Status](https://github.com/microsoft/LightGBM/actions/workflows/python_package.yml/badge.svg?branch=master)](https://github.com/microsoft/LightGBM/actions/workflows/python_package.yml)
-[![R-package GitHub Actions Build Status](https://github.com/microsoft/LightGBM/actions/workflows/r_package.yml/badge.svg?branch=master)](https://github.com/microsoft/LightGBM/actions/workflows/r_package.yml)
-[![CUDA Version GitHub Actions Build Status](https://github.com/microsoft/LightGBM/actions/workflows/cuda.yml/badge.svg?branch=master)](https://github.com/microsoft/LightGBM/actions/workflows/cuda.yml)
-[![SWIG Wrapper GitHub Actions Build Status](https://github.com/microsoft/LightGBM/actions/workflows/swig.yml/badge.svg?branch=master)](https://github.com/microsoft/LightGBM/actions/workflows/swig.yml)
-[![Static Analysis GitHub Actions Build Status](https://github.com/microsoft/LightGBM/actions/workflows/static_analysis.yml/badge.svg?branch=master)](https://github.com/microsoft/LightGBM/actions/workflows/static_analysis.yml)
-[![Appveyor Build Status](https://ci.appveyor.com/api/projects/status/1ys5ot401m0fep6l/branch/master?svg=true)](https://ci.appveyor.com/project/guolinke/lightgbm/branch/master)
+[![C++ GitHub Actions Build Status](https://github.com/lightgbm-org/LightGBM/actions/workflows/cpp.yml/badge.svg?branch=main)](https://github.com/lightgbm-org/LightGBM/actions/workflows/cpp.yml)
+[![Python-package GitHub Actions Build Status](https://github.com/lightgbm-org/LightGBM/actions/workflows/python_package.yml/badge.svg?branch=main)](https://github.com/lightgbm-org/LightGBM/actions/workflows/python_package.yml)
+[![R-package GitHub Actions Build Status](https://github.com/lightgbm-org/LightGBM/actions/workflows/r_package.yml/badge.svg?branch=main)](https://github.com/lightgbm-org/LightGBM/actions/workflows/r_package.yml)
+[![CUDA Version GitHub Actions Build Status](https://github.com/lightgbm-org/LightGBM/actions/workflows/cuda.yml/badge.svg?branch=main)](https://github.com/lightgbm-org/LightGBM/actions/workflows/cuda.yml)
+[![SWIG Wrapper GitHub Actions Build Status](https://github.com/lightgbm-org/LightGBM/actions/workflows/swig.yml/badge.svg?branch=main)](https://github.com/lightgbm-org/LightGBM/actions/workflows/swig.yml)
+[![Static Analysis GitHub Actions Build Status](https://github.com/lightgbm-org/LightGBM/actions/workflows/static_analysis.yml/badge.svg?branch=main)](https://github.com/lightgbm-org/LightGBM/actions/workflows/static_analysis.yml)
+[![Appveyor Build Status](https://ci.appveyor.com/api/projects/status/1ys5ot401m0fep6l/branch/main?svg=true)](https://ci.appveyor.com/project/guolinke/lightgbm/branch/main)
 [![Documentation Status](https://readthedocs.org/projects/lightgbm/badge/?version=latest)](https://lightgbm.readthedocs.io/)
-[![Link checks](https://github.com/microsoft/LightGBM/actions/workflows/lychee.yml/badge.svg?branch=master)](https://github.com/microsoft/LightGBM/actions/workflows/lychee.yml)
-[![License](https://img.shields.io/github/license/microsoft/lightgbm.svg)](https://github.com/microsoft/LightGBM/blob/master/LICENSE)
-[![EffVer Versioning](https://img.shields.io/badge/version_scheme-EffVer-0097a7)](https://jacobtomlinson.dev/effver)
+[![Link checks](https://github.com/lightgbm-org/LightGBM/actions/workflows/lychee.yml/badge.svg?branch=main)](https://github.com/lightgbm-org/LightGBM/actions/workflows/lychee.yml)
+[![License](https://img.shields.io/github/license/lightgbm-org/lightgbm.svg)](https://github.com/lightgbm-org/LightGBM/blob/main/LICENSE)
+[![EffVer Versioning](https://img.shields.io/badge/version_scheme-EffVer-0097a7)](https://jacobtomlinson.dev/effver/)
 [![StackOverflow questions](https://img.shields.io/stackexchange/stackoverflow/t/lightgbm?logo=stackoverflow&logoColor=white&label=StackOverflow%20questions)](https://stackoverflow.com/questions/tagged/lightgbm?sort=votes)
 [![Python Versions](https://img.shields.io/pypi/pyversions/lightgbm.svg?logo=python&logoColor=white)](https://pypi.org/project/lightgbm)
 [![PyPI Version](https://img.shields.io/pypi/v/lightgbm.svg?logo=pypi&logoColor=white)](https://pypi.org/project/lightgbm)
 [![conda Version](https://img.shields.io/conda/vn/conda-forge/lightgbm?logo=conda-forge&logoColor=white&label=conda)](https://anaconda.org/conda-forge/lightgbm)
 [![CRAN Version](https://www.r-pkg.org/badges/version/lightgbm)](https://cran.r-project.org/package=lightgbm)
 [![NuGet Version](https://img.shields.io/nuget/v/lightgbm?logo=nuget&logoColor=white)](https://www.nuget.org/packages/LightGBM)
+[![Winget Version](https://img.shields.io/winget/v/Microsoft.LightGBM)](https://github.com/microsoft/winget-pkgs/tree/master/manifests/m/Microsoft/LightGBM)
 
 LightGBM is a gradient boosting framework that uses tree based learning algorithms. It is designed to be distributed and efficient with the following advantages:
 
@@ -29,11 +35,11 @@ LightGBM is a gradient boosting framework that uses tree based learning algorith
 - Support of parallel, distributed, and GPU learning.
 - Capable of handling large-scale data.
 
-For further details, please refer to [Features](https://github.com/microsoft/LightGBM/blob/master/docs/Features.rst).
+For further details, please refer to [Features](https://github.com/lightgbm-org/LightGBM/blob/main/docs/Features.rst).
 
-Benefiting from these advantages, LightGBM is being widely-used in many [winning solutions](https://github.com/microsoft/LightGBM/blob/master/examples/README.md#machine-learning-challenge-winning-solutions) of machine learning competitions.
+Benefiting from these advantages, LightGBM is being widely-used in many [winning solutions](https://github.com/lightgbm-org/LightGBM/blob/main/examples/README.md#machine-learning-challenge-winning-solutions) of machine learning competitions.
 
-[Comparison experiments](https://github.com/microsoft/LightGBM/blob/master/docs/Experiments.rst#comparison-experiment) on public datasets show that LightGBM can outperform existing boosting frameworks on both efficiency and accuracy, with significantly lower memory consumption. What's more, [distributed learning experiments](https://github.com/microsoft/LightGBM/blob/master/docs/Experiments.rst#parallel-experiment) show that LightGBM can achieve a linear speed-up by using multiple machines for training in specific settings.
+[Comparison experiments](https://github.com/lightgbm-org/LightGBM/blob/main/docs/Experiments.rst#comparison-experiment) on public datasets show that LightGBM can outperform existing boosting frameworks on both efficiency and accuracy, with significantly lower memory consumption. What's more, [distributed learning experiments](https://github.com/lightgbm-org/LightGBM/blob/main/docs/Experiments.rst#parallel-experiment) show that LightGBM can achieve a linear speed-up by using multiple machines for training in specific settings.
 
 Get Started and Documentation
 -----------------------------
@@ -42,23 +48,22 @@ Our primary documentation is at https://lightgbm.readthedocs.io/ and is generate
 
 Next you may want to read:
 
-- [**Examples**](https://github.com/microsoft/LightGBM/tree/master/examples) showing command line usage of common tasks.
-- [**Features**](https://github.com/microsoft/LightGBM/blob/master/docs/Features.rst) and algorithms supported by LightGBM.
-- [**Parameters**](https://github.com/microsoft/LightGBM/blob/master/docs/Parameters.rst) is an exhaustive list of customization you can make.
-- [**Distributed Learning**](https://github.com/microsoft/LightGBM/blob/master/docs/Parallel-Learning-Guide.rst) and [**GPU Learning**](https://github.com/microsoft/LightGBM/blob/master/docs/GPU-Tutorial.rst) can speed up computation.
-- [**FLAML**](https://www.microsoft.com/en-us/research/project/fast-and-lightweight-automl-for-large-scale-data/articles/flaml-a-fast-and-lightweight-automl-library/) provides automated tuning for LightGBM ([code examples](https://microsoft.github.io/FLAML/docs/Examples/AutoML-for-LightGBM/)).
+- [**Examples**](https://github.com/lightgbm-org/LightGBM/tree/main/examples) showing command line usage of common tasks.
+- [**Features**](https://github.com/lightgbm-org/LightGBM/blob/main/docs/Features.rst) and algorithms supported by LightGBM.
+- [**Parameters**](https://github.com/lightgbm-org/LightGBM/blob/main/docs/Parameters.rst) is an exhaustive list of customization you can make.
+- [**Distributed Learning**](https://github.com/lightgbm-org/LightGBM/blob/main/docs/Parallel-Learning-Guide.rst) and [**GPU Learning**](https://github.com/lightgbm-org/LightGBM/blob/main/docs/GPU-Tutorial.rst) can speed up computation.
+- [**FLAML**](https://www.microsoft.com/en-us/research/articles/flaml-a-fast-and-lightweight-automl-library/) provides automated tuning for LightGBM ([code examples](https://microsoft.github.io/FLAML/docs/Examples/AutoML-for-LightGBM/)).
 - [**Optuna Hyperparameter Tuner**](https://medium.com/optuna/lightgbm-tuner-new-optuna-integration-for-hyperparameter-optimization-8b7095e99258) provides automated tuning for LightGBM hyperparameters ([code examples](https://github.com/optuna/optuna-examples/blob/main/lightgbm/lightgbm_tuner_simple.py)).
-- [**Understanding LightGBM Parameters (and How to Tune Them using Neptune)**](https://neptune.ai/blog/lightgbm-parameters-guide).
 
 Documentation for contributors:
 
-- [**How we update readthedocs.io**](https://github.com/microsoft/LightGBM/blob/master/docs/README.rst).
-- Check out the [**Development Guide**](https://github.com/microsoft/LightGBM/blob/master/docs/Development-Guide.rst).
+- [**How we update readthedocs.io**](https://github.com/lightgbm-org/LightGBM/blob/main/docs/README.rst).
+- Check out the [**Development Guide**](https://github.com/lightgbm-org/LightGBM/blob/main/docs/Development-Guide.rst).
 
 News
 ----
 
-Please refer to changelogs at [GitHub releases](https://github.com/microsoft/LightGBM/releases) page.
+Please refer to changelogs at [GitHub releases](https://github.com/lightgbm-org/LightGBM/releases) page.
 
 External (Unofficial) Repositories
 ----------------------------------
@@ -80,7 +85,9 @@ GBNet (use `LightGBM` as a [PyTorch Module](https://docs.pytorch.org/docs/stable
 
 cuML Forest Inference Library (GPU-accelerated inference): https://github.com/rapidsai/cuml
 
-daal4py (Intel CPU-accelerated inference): https://github.com/intel/scikit-learn-intelex/tree/master/daal4py
+nvForest (GPU-accelerated inference): https://github.com/rapidsai/nvforest
+
+daal4py (Intel CPU-accelerated inference): https://github.com/uxlfoundation/scikit-learn-intelex/tree/master/daal4py
 
 m2cgen (model appliers for various languages): https://github.com/BayesWitnesses/m2cgen
 
@@ -88,7 +95,7 @@ leaves (Go model applier): https://github.com/dmitryikh/leaves
 
 ONNXMLTools (ONNX converter): https://github.com/onnx/onnxmltools
 
-SHAP (model output explainer): https://github.com/slundberg/shap
+SHAP (model output explainer): https://github.com/shap/shap
 
 Shapash (model visualization and interpretation): https://github.com/MAIF/shapash
 
@@ -134,15 +141,19 @@ Optuna (hyperparameter optimization framework): https://github.com/optuna/optuna
 
 LightGBMLSS (probabilistic modelling with LightGBM): https://github.com/StatMixedML/LightGBMLSS
 
+LightGBM-MoE (Mixture-of-Experts / regime-switching extension): https://github.com/kyo219/LightGBM-MoE
+
+darts (time series forecasting and anomaly detection with LightGBM): https://github.com/unit8co/darts
+
 mlforecast (time series forecasting with LightGBM): https://github.com/Nixtla/mlforecast
 
-skforecast (time series forecasting with LightGBM): https://github.com/JoaquinAmatRodrigo/skforecast
+skforecast (time series forecasting with LightGBM): https://github.com/skforecast/skforecast
 
 `{bonsai}` (R `{parsnip}`-compliant interface): https://github.com/tidymodels/bonsai
 
 `{mlr3extralearners}` (R `{mlr3}`-compliant interface): https://github.com/mlr-org/mlr3extralearners
 
-lightgbm-transform (feature transformation binding): https://github.com/microsoft/lightgbm-transform
+lightgbm-transform (feature transformation binding): https://github.com/Microsoft/LightGBM-transform
 
 `postgresml` (LightGBM training and prediction in SQL, via a Postgres extension): https://github.com/postgresml/postgresml
 
@@ -154,12 +165,12 @@ Support
 -------
 
 - Ask a question [on Stack Overflow with the `lightgbm` tag](https://stackoverflow.com/questions/ask?tags=lightgbm), we monitor this for new questions.
-- Open **bug reports** and **feature requests** on [GitHub issues](https://github.com/microsoft/LightGBM/issues).
+- Open **bug reports** and **feature requests** on [GitHub issues](https://github.com/lightgbm-org/LightGBM/issues).
 
 How to Contribute
 -----------------
 
-Check [CONTRIBUTING](https://github.com/microsoft/LightGBM/blob/master/CONTRIBUTING.md) page.
+Check [CONTRIBUTING](https://github.com/lightgbm-org/LightGBM/blob/main/CONTRIBUTING.md) page.
 
 Microsoft Open Source Code of Conduct
 -------------------------------------
@@ -180,4 +191,4 @@ Huan Zhang, Si Si and Cho-Jui Hsieh. "[GPU Acceleration for Large-scale Tree Boo
 License
 -------
 
-This project is licensed under the terms of the MIT license. See [LICENSE](https://github.com/microsoft/LightGBM/blob/master/LICENSE) for additional details.
+This project is licensed under the terms of the MIT license. See [LICENSE](https://github.com/lightgbm-org/LightGBM/blob/main/LICENSE) for additional details.

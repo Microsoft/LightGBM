@@ -4,15 +4,10 @@ set -e -u
 
 echo "checking that all OpenMP pragmas specify num_threads()"
 get_omp_pragmas_without_num_threads() {
-    grep \
+    git grep \
         -n \
-        -R \
-        --include='*.c' \
-        --include='*.cc' \
-        --include='*.cpp' \
-        --include='*.h' \
-        --include='*.hpp' \
         'pragma omp parallel' \
+        -- '*.c' '*.cc' '*.cpp' '*.cu' '*.cuh' '*.h' '*.hpp' '*.tpp' \
     | grep -v ' num_threads'
 }
 

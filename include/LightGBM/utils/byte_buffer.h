@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2022 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2022-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2022-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #ifndef LIGHTGBM_INCLUDE_LIGHTGBM_UTILS_BYTE_BUFFER_H_
@@ -41,11 +42,11 @@ struct ByteBuffer final : public BinaryWriter {
     buffer_.reserve(capacity);
   }
 
-  LIGHTGBM_EXPORT size_t GetSize() {
+  LIGHTGBM_EXPORT size_t GetSize() const {
     return buffer_.size();
   }
 
-  LIGHTGBM_EXPORT char GetAt(size_t index) {
+  LIGHTGBM_EXPORT char GetAt(size_t index) const {
     return buffer_.at(index);
   }
 

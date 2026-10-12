@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2020 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2020-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2020-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for
  * license information.
  */
@@ -56,7 +57,7 @@ class RankingObjective : public ObjectiveFunction {
     pos_biases_.resize(num_position_ids_, 0.0);
   }
 
-  void GetGradients(const double* score, const data_size_t num_sampled_queries, const data_size_t* sampled_query_indices,
+  void GetGradientsWithSampledQueries(const double* score, const data_size_t num_sampled_queries, const data_size_t* sampled_query_indices,
                     score_t* gradients, score_t* hessians) const override {
     const data_size_t num_queries = (sampled_query_indices == nullptr ? num_queries_ : num_sampled_queries);
 #pragma omp parallel for num_threads(OMP_NUM_THREADS()) schedule(guided)
@@ -87,7 +88,7 @@ class RankingObjective : public ObjectiveFunction {
   }
 
   void GetGradients(const double* score, score_t* gradients, score_t* hessians) const override {
-    GetGradients(score, num_queries_, nullptr, gradients, hessians);
+    GetGradientsWithSampledQueries(score, num_queries_, nullptr, gradients, hessians);
   }
 
   virtual void GetGradientsForOneQuery(data_size_t query_id, data_size_t cnt,

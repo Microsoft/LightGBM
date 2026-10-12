@@ -8,10 +8,13 @@
     "files": {
         "includes": [
             "**",
+            "!**/lib",
             "!build",
             "!external_libs",
             "!lightgbm-python",
-            "!lightgbm_r"
+            "!lightgbm_r",
+            "!.pixi",
+            "!R-package/docs"
         ]
     },
     "formatter": {

@@ -1,4 +1,4 @@
-#' @name lgb.interprete
+#' @name lgb.interpret
 #' @title Compute feature contribution of prediction
 #' @description Computes feature contribution components of rawscore prediction.
 #' @param model object of class \code{lgb.Booster}.
@@ -45,11 +45,11 @@
 #'     , nrounds = 3L
 #' )
 #'
-#' tree_interpretation <- lgb.interprete(model, test$data, 1L:5L)
+#' tree_interpretation <- lgb.interpret(model, test$data, 1L:5L)
 #' }
 #' @importFrom data.table as.data.table
 #' @export
-lgb.interprete <- function(model,
+lgb.interpret <- function(model,
                            data,
                            idxset,
                            num_iteration = NULL) {
@@ -88,7 +88,7 @@ lgb.interprete <- function(model,
   )
 
   for (i in seq_along(idxset)) {
-    tree_interpretation_dt_list[[i]] <- .single_row_interprete(
+    tree_interpretation_dt_list[[i]] <- .single_row_interpret(
       tree_dt = tree_dt
       , num_class = num_class
       , tree_index_mat = tree_index_mat_list[[i]]
@@ -100,10 +100,20 @@ lgb.interprete <- function(model,
 
 }
 
+#' @name lgb.interprete
+#' @title DEPRECATED - use lgb.interpret() instead
+#' @description Alias for \code{lgb.interpret}.
+#' @param ... Arguments passed through to \code{lgb.interpret}
+#' @export
+lgb.interprete <- function(...) {
+    warning("lgb.interprete() is deprecated and will be removed in a future release. Use lgb.interpret() instead.")
+    return(lgb.interpret(...))
+}
+
 #' @importFrom data.table data.table
-single.tree.interprete <- function(tree_dt,
-                                   tree_id,
-                                   leaf_id) {
+single.tree.interpret <- function(tree_dt,
+                                  tree_id,
+                                  leaf_id) {
 
   # Match tree id
   single_tree_dt <- tree_dt[tree_index == tree_id, ]
@@ -115,51 +125,53 @@ single.tree.interprete <- function(tree_dt,
   node_dt <- single_tree_dt[!is.na(split_index), .(split_index, split_feature, node_parent, internal_value)]
 
   # Prepare sequences
-  feature_seq <- character(0L)
-  value_seq <- numeric(0L)
+  tree_data <- new.env()
+  tree_data[["feature_seq"]] <- character(0L)
+  tree_data[["value_seq"]] <- numeric(0L)
 
   # Get to root from leaf
-  leaf_to_root <- function(parent_id, current_value) {
+  .leaf_to_root <- function(parent_id, current_value) {
 
-    value_seq <<- c(current_value, value_seq)
+    # put value at the beginning
+    tree_data[["value_seq"]] <- c(current_value, tree_data[["value_seq"]])
 
     if (!is.na(parent_id)) {
 
       # Not null means existing node
       this_node <- node_dt[split_index == parent_id, ]
-      feature_seq <<- c(this_node[["split_feature"]], feature_seq)
-      leaf_to_root(
+      tree_data[["feature_seq"]] <- c(this_node[["split_feature"]], tree_data[["feature_seq"]])
+      .leaf_to_root(
         parent_id = this_node[["node_parent"]]
         , current_value = this_node[["internal_value"]]
       )
 
     }
-
+    return(invisible(NULL))
   }
 
   # Perform leaf to root conversion
-  leaf_to_root(
+  .leaf_to_root(
     parent_id = leaf_dt[["leaf_parent"]]
     , current_value = leaf_dt[["leaf_value"]]
   )
 
   return(
     data.table::data.table(
-      Feature = feature_seq
-      , Contribution = diff.default(value_seq)
+      Feature = tree_data[["feature_seq"]]
+      , Contribution = diff.default(tree_data[["value_seq"]])
     )
   )
 
 }
 
 #' @importFrom data.table := rbindlist setorder
-.multiple_tree_interprete <- function(tree_dt,
+.multiple_tree_interpret <- function(tree_dt,
                                      tree_index,
                                      leaf_index) {
 
   interp_dt <- data.table::rbindlist(
     l = mapply(
-      FUN = single.tree.interprete
+      FUN = single.tree.interpret
       , tree_id = tree_index
       , leaf_id = leaf_index
       , MoreArgs = list(
@@ -188,7 +200,7 @@ single.tree.interprete <- function(tree_dt,
 }
 
 #' @importFrom data.table set setnames
-.single_row_interprete <- function(tree_dt, num_class, tree_index_mat, leaf_index_mat) {
+.single_row_interpret <- function(tree_dt, num_class, tree_index_mat, leaf_index_mat) {
 
   # Prepare vector list
   tree_interpretation <- vector(mode = "list", length = num_class)
@@ -196,7 +208,7 @@ single.tree.interprete <- function(tree_dt,
   # Loop throughout each class
   for (i in seq_len(num_class)) {
 
-    next_interp_dt <- .multiple_tree_interprete(
+    next_interp_dt <- .multiple_tree_interpret(
       tree_dt = tree_dt
       , tree_index = tree_index_mat[, i]
       , leaf_index = leaf_index_mat[, i]

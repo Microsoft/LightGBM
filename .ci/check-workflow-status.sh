@@ -31,7 +31,7 @@ echo "Searching for latest run of '${WORKFLOW_FILE}' on branch '${BRANCH}' "
 
 LATEST_RUN_ID=$(
     gh run list  \
-        --repo 'microsoft/LightGBM' \
+        --repo 'lightgbm-org/LightGBM' \
         --event 'workflow_dispatch' \
         --created ">= ${OLDEST_ALLOWED_RUN_DATE}" \
         --workflow "${WORKFLOW_FILE}" \
@@ -46,6 +46,6 @@ fi
 
 echo "Checking status of workflow run '${LATEST_RUN_ID}'"
 gh run view \
-    --repo "microsoft/LightGBM" \
+    --repo "lightgbm-org/LightGBM" \
     --exit-status \
     "${LATEST_RUN_ID}"

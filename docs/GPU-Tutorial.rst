@@ -55,7 +55,7 @@ Now we are ready to checkout LightGBM and compile it with GPU support:
 
 ::
 
-    git clone --recursive https://github.com/microsoft/LightGBM
+    git clone --recursive https://github.com/lightgbm-org/LightGBM
     cd LightGBM
     cmake -B build -S . -DUSE_GPU=1
     # if you have installed NVIDIA CUDA to a customized location, you should specify paths to OpenCL headers and library like the following:
@@ -73,8 +73,8 @@ If you want to use the Python interface of LightGBM, you can install it now (alo
 
 ::
 
-    sudo apt-get -y install python-pip
-    sudo -H pip install setuptools numpy scipy scikit-learn -U
+    sudo apt-get -y install python3-pip python3-venv
+    sudo -H pip install numpy scipy scikit-learn -U
     sudo sh ./build-python.sh install --precompile
 
 You need to set an additional parameter ``"device" : "gpu"`` (along with your other options like ``learning_rate``, ``num_leaves``, etc) to use GPU in Python.
@@ -185,7 +185,7 @@ Huan Zhang, Si Si and Cho-Jui Hsieh. "`GPU Acceleration for Large-scale Tree Boo
 
 .. _AMDGPU-Pro: https://www.amd.com/en/support.html
 
-.. _Python-package Examples: https://github.com/microsoft/LightGBM/tree/master/examples/python-guide
+.. _Python-package Examples: https://github.com/lightgbm-org/LightGBM/tree/main/examples/python-guide
 
 .. _GPU Acceleration for Large-scale Tree Boosting: https://arxiv.org/abs/1706.08359
 

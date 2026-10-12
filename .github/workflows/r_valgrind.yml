@@ -8,6 +8,16 @@ name: R valgrind tests
 # See https://github.com/orgs/community/discussions/73223#discussioncomment-11862624
 run-name: R valgrind tests (pr=${{ inputs.pr-number }})
 
+# automatically cancel in-progress builds if another commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# default to 0 permissions
+# (job-level overrides add the minimal permissions needed)
+permissions:
+  contents: none
+
 on:
   workflow_dispatch:
     inputs:
@@ -21,29 +31,21 @@ on:
         type: string
         description: Pull request ID, found in the PR URL.
 
-permissions:
-  actions: write
-  checks: write
-  contents: read
-  deployments: none
-  discussions: none
-  id-token: write
-  issues: none
-  packages: none
-  pages: none
-  pull-requests: write
-  repository-projects: none
-  security-events: none
-  statuses: write
-
 jobs:
   test-r-valgrind:
     name: r-package (ubuntu-latest, R-devel, valgrind)
     timeout-minutes: 360
     runs-on: ubuntu-latest
-    container: wch1/r-debug
+    container: wch1/r-debug  # zizmor: ignore[unpinned-images]
     env:
       GITHUB_TOKEN: ${{ github.token }}
+    permissions:
+      actions: write
+      checks: write
+      contents: read
+      id-token: write
+      pull-requests: write
+      statuses: write
     steps:
       - name: Install essential software before checkout
         shell: bash
@@ -66,33 +68,39 @@ jobs:
         run: |
           git config --global --add safe.directory "${GITHUB_WORKSPACE}"
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 5
           submodules: true
           persist-credentials: false
-          repository: microsoft/LightGBM
+          repository: lightgbm-org/LightGBM
           ref: "refs/pull/${{ inputs.pr-number }}/merge"
       - name: Run tests with valgrind
         shell: bash
         run: ./.ci/test-r-package-valgrind.sh
       - name: Send final status
         if: ${{ always() }}
+        env:
+          GITHUB__WORKFLOW: ${{ github.workflow }}
+          INPUTS__PR_NUMBER: ${{ inputs.pr-number }}
+          JOB__STATUS: ${{ job.status }}
         run: |
           $GITHUB_WORKSPACE/.ci/set-commit-status.sh \
-            "${{ github.workflow }}" \
-            "${{ job.status }}" \
+            "${GITHUB_WORKFLOW}" \
+            "${JOB__STATUS}" \
             "${{ github.sha }}"
-          comment="Workflow **${{ github.workflow }}** has been triggered! 🚀\r\n"
-          comment="${comment}\r\n${GITHUB_SERVER_URL}/microsoft/LightGBM/actions/runs/${GITHUB_RUN_ID} \r\n"
-          comment="${comment}\r\nStatus: ${{ job.status }}"
+          comment="Workflow **${GITHUB__WORKFLOW}** has been triggered! 🚀\r\n"
+          comment="${comment}\r\n${GITHUB_SERVER_URL}/lightgbm-org/LightGBM/actions/runs/${GITHUB_RUN_ID} \r\n"
+          comment="${comment}\r\nStatus: ${JOB__STATUS}"
           $GITHUB_WORKSPACE/.ci/append-comment.sh \
-            "${{ inputs.pr-number }}" \
+            "${INPUTS__PR_NUMBER}" \
             "${comment}"
       - name: Rerun workflow-indicator
         if: ${{ always() }}
+        env:
+          INPUTS__PR_BRANCH: ${{ inputs.pr-branch }}
         run: |
           bash $GITHUB_WORKSPACE/.ci/rerun-workflow.sh \
             "optional_checks.yml" \
-            "${{ inputs.pr-branch }}" \
+            "${INPUTS__PR_BRANCH}" \
             || true

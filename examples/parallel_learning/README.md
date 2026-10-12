@@ -19,4 +19,4 @@ Here is an example for LightGBM to perform distributed learning for 2 machines.
 
 This distributed learning example is based on socket. LightGBM also supports distributed learning based on MPI.
 
-For more details about the usage of distributed learning, please refer to [this](https://github.com/microsoft/LightGBM/blob/master/docs/Parallel-Learning-Guide.rst).
+For more details about the usage of distributed learning, please refer to [this](https://github.com/lightgbm-org/LightGBM/blob/main/docs/Parallel-Learning-Guide.rst).

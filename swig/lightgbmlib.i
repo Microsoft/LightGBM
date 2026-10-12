@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2018 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2018-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2018-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 /* lightgbmlib.i */
@@ -53,6 +54,7 @@
       result = LGBM_BoosterSaveModelToString(handle, start_iteration, num_iteration, feature_importance_type, realloc_len, out_len, dst);
     }
     if (result != 0) {
+      delete [] dst;
       return nullptr;
     }
     return dst;
@@ -74,6 +76,7 @@
       result = LGBM_BoosterDumpModel(handle, start_iteration, num_iteration, feature_importance_type, realloc_len, out_len, dst);
     }
     if (result != 0) {
+      delete [] dst;
       return nullptr;
     }
     return dst;

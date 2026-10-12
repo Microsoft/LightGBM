@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #include <LightGBM/tree.h>
@@ -998,7 +999,10 @@ void Tree::TreeSHAPByMap(const std::unordered_map<int, double>& feature_values, 
     for (int i = 1; i <= unique_depth; ++i) {
       const double w = UnwoundPathSum(unique_path, unique_depth, i);
       const PathElement &el = unique_path[i];
-      (*phi)[el.feature_index] += w*(el.one_fraction - el.zero_fraction)*leaf_value_[~node];
+      // Complete the hash-table lookup before arithmetic to let the compiler
+      // fuse the final multiplication with the accumulation.
+      double& contribution = (*phi)[el.feature_index];
+      contribution += w*(el.one_fraction - el.zero_fraction)*leaf_value_[~node];
     }
 
   // internal node

@@ -1,7 +1,7 @@
 #' @name lgb.plot.interpretation
 #' @title Plot feature contribution as a bar graph
 #' @description Plot previously calculated feature contribution as a bar graph.
-#' @param tree_interpretation_dt a \code{data.table} returned by \code{\link{lgb.interprete}}.
+#' @param tree_interpretation_dt a \code{data.table} returned by \code{\link{lgb.interpret}}.
 #' @param top_n maximal number of top features to include into the plot.
 #' @param cols the column numbers of layout, will be used only for multiclass classification feature contribution.
 #' @param left_margin (base R barplot) allows to adjust the left margin size to fit feature names.
@@ -49,7 +49,7 @@
 #'   , nrounds = 5L
 #' )
 #'
-#' tree_interpretation <- lgb.interprete(
+#' tree_interpretation <- lgb.interpret(
 #'   model = model
 #'   , data = agaricus.test$data
 #'   , idxset = 1L:5L

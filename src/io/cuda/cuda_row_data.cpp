@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 
@@ -37,37 +38,9 @@ gpu_use_dp_(gpu_use_dp) {
   } else {
     SetCUDADevice(0, __FILE__, __LINE__);
   }
-  cuda_data_uint8_t_ = nullptr;
-  cuda_data_uint16_t_ = nullptr;
-  cuda_data_uint32_t_ = nullptr;
-  cuda_row_ptr_uint16_t_ = nullptr;
-  cuda_row_ptr_uint32_t_ = nullptr;
-  cuda_row_ptr_uint64_t_ = nullptr;
-  cuda_partition_ptr_uint16_t_ = nullptr;
-  cuda_partition_ptr_uint32_t_ = nullptr;
-  cuda_partition_ptr_uint64_t_ = nullptr;
-  cuda_feature_partition_column_index_offsets_ = nullptr;
-  cuda_column_hist_offsets_ = nullptr;
-  cuda_partition_hist_offsets_ = nullptr;
-  cuda_block_buffer_uint16_t_ = nullptr;
-  cuda_block_buffer_uint32_t_ = nullptr;
-  cuda_block_buffer_uint64_t_ = nullptr;
 }
 
-CUDARowData::~CUDARowData() {
-  DeallocateCUDAMemory<uint8_t>(&cuda_data_uint8_t_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<uint16_t>(&cuda_data_uint16_t_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<uint32_t>(&cuda_data_uint32_t_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<uint16_t>(&cuda_row_ptr_uint16_t_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<uint32_t>(&cuda_row_ptr_uint32_t_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<uint64_t>(&cuda_row_ptr_uint64_t_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<int>(&cuda_feature_partition_column_index_offsets_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<uint32_t>(&cuda_column_hist_offsets_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<uint32_t>(&cuda_partition_hist_offsets_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<uint16_t>(&cuda_block_buffer_uint16_t_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<uint32_t>(&cuda_block_buffer_uint32_t_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<uint64_t>(&cuda_block_buffer_uint64_t_, __FILE__, __LINE__);
-}
+CUDARowData::~CUDARowData() {}
 
 void CUDARowData::Init(const Dataset* train_data, TrainingShareStates* train_share_state) {
   if (num_feature_ == 0) {
@@ -83,7 +56,7 @@ void CUDARowData::Init(const Dataset* train_data, TrainingShareStates* train_sha
     if (!is_sparse_) {
       std::vector<uint8_t> partitioned_data;
       GetDenseDataPartitioned<uint8_t>(reinterpret_cast<const uint8_t*>(host_data), &partitioned_data);
-      InitCUDAMemoryFromHostMemory<uint8_t>(&cuda_data_uint8_t_, partitioned_data.data(), total_size, __FILE__, __LINE__);
+      cuda_data_uint8_t_.InitFromHostVector(partitioned_data);
     } else {
       if (row_ptr_bit_type_ == 16) {
         InitSparseData<uint8_t, uint16_t>(
@@ -114,7 +87,7 @@ void CUDARowData::Init(const Dataset* train_data, TrainingShareStates* train_sha
     if (!is_sparse_) {
       std::vector<uint16_t> partitioned_data;
       GetDenseDataPartitioned<uint16_t>(reinterpret_cast<const uint16_t*>(host_data), &partitioned_data);
-      InitCUDAMemoryFromHostMemory<uint16_t>(&cuda_data_uint16_t_, partitioned_data.data(), total_size, __FILE__, __LINE__);
+      cuda_data_uint16_t_.InitFromHostVector(partitioned_data);
     } else {
       if (row_ptr_bit_type_ == 16) {
         InitSparseData<uint16_t, uint16_t>(
@@ -145,7 +118,7 @@ void CUDARowData::Init(const Dataset* train_data, TrainingShareStates* train_sha
     if (!is_sparse_) {
       std::vector<uint32_t> partitioned_data;
       GetDenseDataPartitioned<uint32_t>(reinterpret_cast<const uint32_t*>(host_data), &partitioned_data);
-      InitCUDAMemoryFromHostMemory<uint32_t>(&cuda_data_uint32_t_, partitioned_data.data(), total_size, __FILE__, __LINE__);
+      cuda_data_uint32_t_.InitFromHostVector(partitioned_data);
     } else {
       if (row_ptr_bit_type_ == 16) {
         InitSparseData<uint32_t, uint16_t>(
@@ -292,23 +265,9 @@ void CUDARowData::DivideCUDAFeatureGroups(const Dataset* train_data, TrainingSha
     }
   }
 
-  InitCUDAMemoryFromHostMemory<int>(&cuda_feature_partition_column_index_offsets_,
-    feature_partition_column_index_offsets_.data(),
-    feature_partition_column_index_offsets_.size(),
-    __FILE__,
-    __LINE__);
-
-  InitCUDAMemoryFromHostMemory<uint32_t>(&cuda_column_hist_offsets_,
-    column_hist_offsets_.data(),
-    column_hist_offsets_.size(),
-    __FILE__,
-    __LINE__);
-
-  InitCUDAMemoryFromHostMemory<uint32_t>(&cuda_partition_hist_offsets_,
-    partition_hist_offsets_.data(),
-    partition_hist_offsets_.size(),
-    __FILE__,
-    __LINE__);
+  cuda_feature_partition_column_index_offsets_.InitFromHostVector(feature_partition_column_index_offsets_);
+  cuda_column_hist_offsets_.InitFromHostVector(column_hist_offsets_);
+  cuda_partition_hist_offsets_.InitFromHostVector(partition_hist_offsets_);
 }
 
 template <typename BIN_TYPE>
@@ -399,32 +358,32 @@ void CUDARowData::GetSparseDataPartitioned(
 template <typename BIN_TYPE, typename ROW_PTR_TYPE>
 void CUDARowData::InitSparseData(const BIN_TYPE* host_data,
                                  const ROW_PTR_TYPE* host_row_ptr,
-                                 BIN_TYPE** cuda_data,
-                                 ROW_PTR_TYPE** cuda_row_ptr,
-                                 ROW_PTR_TYPE** cuda_partition_ptr) {
+                                 CUDAVector<BIN_TYPE>* cuda_data,
+                                 CUDAVector<ROW_PTR_TYPE>* cuda_row_ptr,
+                                 CUDAVector<ROW_PTR_TYPE>* cuda_partition_ptr) {
   std::vector<std::vector<BIN_TYPE>> partitioned_data;
   std::vector<std::vector<ROW_PTR_TYPE>> partitioned_data_ptr;
   std::vector<ROW_PTR_TYPE> partition_ptr;
   GetSparseDataPartitioned<BIN_TYPE, ROW_PTR_TYPE>(host_data, host_row_ptr, &partitioned_data, &partitioned_data_ptr, &partition_ptr);
-  InitCUDAMemoryFromHostMemory<ROW_PTR_TYPE>(cuda_partition_ptr, partition_ptr.data(), partition_ptr.size(), __FILE__, __LINE__);
-  AllocateCUDAMemory<BIN_TYPE>(cuda_data, partition_ptr.back(), __FILE__, __LINE__);
-  AllocateCUDAMemory<ROW_PTR_TYPE>(cuda_row_ptr, (num_data_ + 1) * partitioned_data_ptr.size(),  __FILE__, __LINE__);
+  cuda_partition_ptr->InitFromHostVector(partition_ptr);
+  cuda_data->Resize(partition_ptr.back());
+  cuda_row_ptr->Resize((num_data_ + 1) * partitioned_data_ptr.size());
   for (size_t i = 0; i < partitioned_data.size(); ++i) {
     const std::vector<ROW_PTR_TYPE>& data_ptr_for_this_partition = partitioned_data_ptr[i];
     const std::vector<BIN_TYPE>& data_for_this_partition = partitioned_data[i];
-    CopyFromHostToCUDADevice<BIN_TYPE>((*cuda_data) + partition_ptr[i], data_for_this_partition.data(), data_for_this_partition.size(), __FILE__, __LINE__);
-    CopyFromHostToCUDADevice<ROW_PTR_TYPE>((*cuda_row_ptr) + i * (num_data_ + 1), data_ptr_for_this_partition.data(), data_ptr_for_this_partition.size(), __FILE__, __LINE__);
+    CopyFromHostToCUDADevice<BIN_TYPE>(cuda_data->RawData() + partition_ptr[i], data_for_this_partition.data(), data_for_this_partition.size(), __FILE__, __LINE__);
+    CopyFromHostToCUDADevice<ROW_PTR_TYPE>(cuda_row_ptr->RawData() + i * (num_data_ + 1), data_ptr_for_this_partition.data(), data_ptr_for_this_partition.size(), __FILE__, __LINE__);
   }
 }
 
 template <typename BIN_TYPE>
 const BIN_TYPE* CUDARowData::GetBin() const {
   if (bit_type_ == 8) {
-    return reinterpret_cast<const BIN_TYPE*>(cuda_data_uint8_t_);
+    return reinterpret_cast<const BIN_TYPE*>(cuda_data_uint8_t_.RawData());
   } else if (bit_type_ == 16) {
-    return reinterpret_cast<const BIN_TYPE*>(cuda_data_uint16_t_);
+    return reinterpret_cast<const BIN_TYPE*>(cuda_data_uint16_t_.RawData());
   } else if (bit_type_ == 32) {
-    return reinterpret_cast<const BIN_TYPE*>(cuda_data_uint32_t_);
+    return reinterpret_cast<const BIN_TYPE*>(cuda_data_uint32_t_.RawData());
   } else {
     Log::Fatal("Unknown bit_type %d for GetBin.", bit_type_);
   }
@@ -439,11 +398,11 @@ template const uint32_t* CUDARowData::GetBin<uint32_t>() const;
 template <typename PTR_TYPE>
 const PTR_TYPE* CUDARowData::GetRowPtr() const {
   if (row_ptr_bit_type_ == 16) {
-    return reinterpret_cast<const PTR_TYPE*>(cuda_row_ptr_uint16_t_);
+    return reinterpret_cast<const PTR_TYPE*>(cuda_row_ptr_uint16_t_.RawData());
   } else if (row_ptr_bit_type_ == 32) {
-    return reinterpret_cast<const PTR_TYPE*>(cuda_row_ptr_uint32_t_);
+    return reinterpret_cast<const PTR_TYPE*>(cuda_row_ptr_uint32_t_.RawData());
   } else if (row_ptr_bit_type_ == 64) {
-    return reinterpret_cast<const PTR_TYPE*>(cuda_row_ptr_uint64_t_);
+    return reinterpret_cast<const PTR_TYPE*>(cuda_row_ptr_uint64_t_.RawData());
   } else {
     Log::Fatal("Unknown row_ptr_bit_type = %d for GetRowPtr.", row_ptr_bit_type_);
   }
@@ -458,11 +417,11 @@ template const uint64_t* CUDARowData::GetRowPtr<uint64_t>() const;
 template <typename PTR_TYPE>
 const PTR_TYPE* CUDARowData::GetPartitionPtr() const {
   if (row_ptr_bit_type_ == 16) {
-    return reinterpret_cast<const PTR_TYPE*>(cuda_partition_ptr_uint16_t_);
+    return reinterpret_cast<const PTR_TYPE*>(cuda_partition_ptr_uint16_t_.RawData());
   } else if (row_ptr_bit_type_ == 32) {
-    return reinterpret_cast<const PTR_TYPE*>(cuda_partition_ptr_uint32_t_);
+    return reinterpret_cast<const PTR_TYPE*>(cuda_partition_ptr_uint32_t_.RawData());
   } else if (row_ptr_bit_type_ == 64) {
-    return reinterpret_cast<const PTR_TYPE*>(cuda_partition_ptr_uint64_t_);
+    return reinterpret_cast<const PTR_TYPE*>(cuda_partition_ptr_uint64_t_.RawData());
   } else {
     Log::Fatal("Unknown row_ptr_bit_type = %d for GetPartitionPtr.", row_ptr_bit_type_);
   }

@@ -5,7 +5,7 @@ $(() => {
     });
 
     /* List each class property item on a new line
-       https://github.com/microsoft/LightGBM/issues/5073 */
+       https://github.com/lightgbm-org/LightGBM/issues/5073 */
     if (window.location.pathname.toLocaleLowerCase().indexOf("pythonapi") !== -1) {
         $(".py.property").each(function () {
             this.style.setProperty("display", "inline", "important");
@@ -22,6 +22,7 @@ $(() => {
             "#build-mpi-version",
             "#build-gpu-version",
             "#build-cuda-version",
+            "#build-rocm-version",
             "#build-java-wrapper",
             "#build-python-package",
             "#build-r-package",

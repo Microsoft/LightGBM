@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #ifndef LIGHTGBM_SRC_NETWORK_SOCKET_WRAPPER_HPP_
@@ -36,6 +37,7 @@
 #include <unistd.h>
 
 #include <ifaddrs.h>
+#include <sys/time.h>
 
 #endif  // defined(_WIN32)
 
@@ -55,6 +57,10 @@ const int INVALID_SOCKET = -1;
 #endif
 
 #ifdef _WIN32
+
+#define MALLOC(x) HeapAlloc(GetProcessHeap(), 0, (x))
+#define FREE(x) HeapFree(GetProcessHeap(), 0, (x))
+
 // existence of inet_pton is checked in CMakeLists.txt and configure.win, then stored in WIN_HAS_INET_PTON
 #ifndef WIN_HAS_INET_PTON
 inline int inet_pton(int af, const char *src, void *dst) {
@@ -81,9 +87,6 @@ inline int inet_pton(int af, const char *src, void *dst) {
 }
 #endif
 #endif
-
-#define MALLOC(x) HeapAlloc(GetProcessHeap(), 0, (x))
-#define FREE(x) HeapFree(GetProcessHeap(), 0, (x))
 
 namespace SocketConfig {
 const int kSocketBufferSize = 100 * 1000;
@@ -117,8 +120,16 @@ class TcpSocket {
   }
   ~TcpSocket() {
   }
-  inline void SetTimeout(int timeout) {
-    setsockopt(sockfd_, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<char*>(&timeout), sizeof(timeout));
+  inline void SetTimeout(int timeout_ms) {
+#if defined(_WIN32)
+    DWORD timeout = static_cast<DWORD>(timeout_ms);
+    setsockopt(sockfd_, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+#else
+    struct timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    setsockopt(sockfd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
   }
   inline void ConfigSocket() {
     if (sockfd_ == INVALID_SOCKET) {

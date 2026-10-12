@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for
  * license information.
  */
@@ -837,9 +838,8 @@ void Dataset::ReSize(data_size_t num_data) {
   }
 }
 
-void Dataset::CopySubrow(const Dataset* fullset,
-                         const data_size_t* used_indices,
-                         data_size_t num_used_indices, bool need_meta_data) {
+
+void Dataset::CopySubrowHostPart(const Dataset* fullset, const data_size_t* used_indices, data_size_t num_used_indices, bool need_meta_data) {
   CHECK_EQ(num_used_indices, num_data_);
 
   std::vector<int> group_ids, subfeature_ids;
@@ -886,6 +886,13 @@ void Dataset::CopySubrow(const Dataset* fullset,
       }
     }
   }
+}
+
+void Dataset::CopySubrow(const Dataset* fullset,
+                         const data_size_t* used_indices,
+                         data_size_t num_used_indices, bool need_meta_data) {
+  CopySubrowHostPart(fullset, used_indices, num_used_indices, need_meta_data);
+
   // update CUDA storage for column data and metadata
   device_type_ = fullset->device_type_;
   gpu_device_id_ = fullset->gpu_device_id_;
@@ -893,7 +900,7 @@ void Dataset::CopySubrow(const Dataset* fullset,
   #ifdef USE_CUDA
   if (device_type_ == std::string("cuda")) {
     if (cuda_column_data_ == nullptr) {
-      cuda_column_data_.reset(new CUDAColumnData(fullset->num_data(), gpu_device_id_));
+      cuda_column_data_.reset(new CUDAColumnData(num_used_indices, gpu_device_id_));
       metadata_.CreateCUDAMetadata(gpu_device_id_);
     }
     cuda_column_data_->CopySubrow(fullset->cuda_column_data(), used_indices, num_used_indices);
@@ -901,22 +908,67 @@ void Dataset::CopySubrow(const Dataset* fullset,
   #endif  // USE_CUDA
 }
 
-bool Dataset::SetFieldFromArrow(const char* field_name, const ArrowChunkedArray &ca) {
+void Dataset::CopySubrowToDevice(const Dataset* fullset,
+                                 const data_size_t* used_indices,
+                                 data_size_t num_used_indices, bool need_meta_data,
+                                 int gpu_device_id) {
+  CopySubrowHostPart(fullset, used_indices, num_used_indices, need_meta_data);
+
+  // update CUDA storage for column data and metadata
+  device_type_ = fullset->device_type_;
+  gpu_device_id_ = gpu_device_id;
+
+  #ifdef USE_CUDA
+  if (device_type_ == std::string("cuda")) {
+    if (cuda_column_data_ == nullptr) {
+      cuda_column_data_.reset(new CUDAColumnData(num_used_indices, gpu_device_id_));
+      metadata_.CreateCUDAMetadata(gpu_device_id_);
+    }
+    cuda_column_data_->CopySubrow(fullset->cuda_column_data(), used_indices, num_used_indices);
+  }
+  #endif  // USE_CUDA
+}
+
+#ifndef LGB_R_BUILD
+bool Dataset::SetFieldFromArrow(const char* field_name, struct ArrowArrayStream* stream) {
   std::string name(field_name);
   name = Common::Trim(name);
   if (name == std::string("label") || name == std::string("target")) {
-    metadata_.SetLabel(ca);
+    metadata_.SetLabel(stream);
   } else if (name == std::string("weight") || name == std::string("weights")) {
-    metadata_.SetWeights(ca);
+    metadata_.SetWeights(stream);
   } else if (name == std::string("init_score")) {
-    metadata_.SetInitScore(ca);
+    metadata_.SetInitScore(stream);
   } else if (name == std::string("query") || name == std::string("group")) {
-    metadata_.SetQuery(ca);
+    metadata_.SetQuery(stream);
+  } else if (name == std::string("position")) {
+    metadata_.SetPosition(stream);
   } else {
     return false;
   }
   return true;
 }
+
+bool Dataset::SetFieldFromArrow(const char* field_name, int64_t n_chunks,
+                                struct ArrowArray* chunks, struct ArrowSchema* schema) {
+  std::string name(field_name);
+  name = Common::Trim(name);
+  if (name == std::string("label") || name == std::string("target")) {
+    metadata_.SetLabel(n_chunks, chunks, schema);
+  } else if (name == std::string("weight") || name == std::string("weights")) {
+    metadata_.SetWeights(n_chunks, chunks, schema);
+  } else if (name == std::string("init_score")) {
+    metadata_.SetInitScore(n_chunks, chunks, schema);
+  } else if (name == std::string("query") || name == std::string("group")) {
+    metadata_.SetQuery(n_chunks, chunks, schema);
+  } else if (name == std::string("position")) {
+    metadata_.SetPosition(n_chunks, chunks, schema);
+  } else {
+    return false;
+  }
+  return true;
+}
+#endif  // LGB_R_BUILD
 
 bool Dataset::SetFloatField(const char* field_name, const float* field_data,
                             data_size_t num_element) {

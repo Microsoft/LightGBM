@@ -212,7 +212,7 @@ def gen_parameter_description(
     """
     params_to_write = []
     lvl_mapper = {1: "-", 2: "~"}
-    for (section_name, section_lvl), section_params in zip(sections, descriptions):
+    for (section_name, section_lvl), section_params in zip(sections, descriptions, strict=True):
         heading_sign = lvl_mapper[section_lvl]
         params_to_write.append(f"{section_name}\n{heading_sign * len(section_name)}")
         for param_desc in section_params:
@@ -282,7 +282,8 @@ def gen_parameter_code(
     alias = get_alias(infos)
     names_with_aliases = defaultdict(list)
     str_to_write = r"""/*!
- * Copyright (c) 2018 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2018-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2018-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  *
  * \note

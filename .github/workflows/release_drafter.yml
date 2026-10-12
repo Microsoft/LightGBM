@@ -1,12 +1,18 @@
 name: Release Drafter
 
-permissions:
-  contents: read
-
 on:
   push:
     branches:
-      - master
+      - main
+
+# only 1 job running in the repo at any time
+concurrency:
+  group: lock
+
+# default to 0 permissions
+# (job-level overrides add the minimal permissions needed)
+permissions:
+  contents: none
 
 jobs:
   updateReleaseDraft:
@@ -15,7 +21,7 @@ jobs:
       pull-requests: read
     runs-on: ubuntu-latest
     steps:
-      - uses: release-drafter/release-drafter@v6.1.0
+      - uses: release-drafter/release-drafter@34d80673e067bdc0c24568d3af899c216adcfaa9  # v7.7.0
         with:
           config-name: release-drafter.yml
           disable-autolabeler: true

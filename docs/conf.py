@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # LightGBM documentation build configuration file, created by
@@ -82,6 +81,7 @@ if needs_sphinx > sphinx.__version__:
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    "myst_parser",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.todo",
@@ -89,6 +89,13 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.intersphinx",
 ]
+
+# override default list of supported extensions
+# ref: https://www.sphinx-doc.org/en/master/usage/markdown.html
+source_suffix = {
+    ".md": "markdown",
+    ".rst": "restructuredtext",
+}
 
 autodoc_default_flags = ["members", "inherited-members", "show-inheritance"]
 autodoc_default_options = {
@@ -102,6 +109,7 @@ autodoc_mock_imports = [
     "dask.distributed",
     "graphviz",
     "matplotlib",
+    "narwhals",
     "numpy",
     "pandas",
     "scipy",
@@ -162,6 +170,15 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = "default"
+
+# -- myst configuration ---------------------------------------------------
+# ref: https://myst-parser.readthedocs.io/en/latest/configuration.html
+
+# use "GitHub-flavored markdown"
+myst_gfm_only = True
+
+# generate hyperlinks that open new tabs
+myst_links_external_new_tab = True
 
 # -- Configuration for C API docs generation ------------------------------
 
@@ -273,23 +290,7 @@ def generate_r_docs(app: Sphinx) -> None:
     export R_LIBS="$CONDA_PREFIX/lib/R/library"
     sh build-cran-package.sh || exit 1
     R CMD INSTALL --with-keep.source lightgbm_*.tar.gz || exit 1
-    cp -R \
-        {CURR_PATH.parent / "R-package" / "pkgdown"} \
-        {CURR_PATH.parent / "lightgbm_r" / "pkgdown"}
-    cd {CURR_PATH.parent / "lightgbm_r"}
-    Rscript -e "roxygen2::roxygenize(load = 'installed')" || exit 1
-    Rscript -e "pkgdown::build_site( \
-            lazy = FALSE \
-            , install = FALSE \
-            , devel = FALSE \
-            , examples = TRUE \
-            , run_dont_run = TRUE \
-            , seed = 42L \
-            , preview = FALSE \
-            , new_process = TRUE \
-        )
-        " || exit 1
-    cd {CURR_PATH.parent}
+    Rscript .ci/build-docs.R || exit 1
     """
     try:
         print("Building R-package documentation")
@@ -339,12 +340,11 @@ def setup(app: Sphinx) -> None:
         app.connect("builder-inited", generate_doxygen_xml)
     else:
         app.add_directive("doxygenfile", IgnoredDirective)
-    if RTD:  # build R docs only on Read the Docs site
-        if first_run:
-            app.connect("builder-inited", generate_r_docs)
-        app.connect(
-            "build-finished", lambda app, _: copytree(CURR_PATH.parent / "lightgbm_r" / "docs", Path(app.outdir) / "R")
-        )
+    if first_run:
+        app.connect("builder-inited", generate_r_docs)
+    app.connect(
+        "build-finished", lambda app, _: copytree(CURR_PATH.parent / "R-package" / "docs", Path(app.outdir) / "R")
+    )
     app.connect("builder-inited", replace_reference_to_r_docs)
     app.add_transform(InternalRefTransform)
     add_js_file = getattr(app, "add_js_file", False) or app.add_javascript

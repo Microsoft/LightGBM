@@ -22,7 +22,7 @@ This data set is originally from the Mushroom data set,
              }
 }
 \references{
-https://archive.ics.uci.edu/ml/datasets/Mushroom
+https://archive.ics.uci.edu/dataset/73/mushroom
 
 Bache, K. & Lichman, M. (2013). UCI Machine Learning Repository
 [https://archive.ics.uci.edu/ml]. Irvine, CA: University of California,

@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  * Modifications Copyright(C) 2023 Advanced Micro Devices, Inc. All rights reserved.
  */
@@ -9,8 +10,10 @@
 
 #ifdef USE_CUDA
 
+#ifndef USE_ROCM
 #include <cuda.h>
 #include <cuda_runtime.h>
+#endif
 #include <stdio.h>
 
 #include <LightGBM/bin.h>

@@ -44,18 +44,9 @@ CUDABestSplitFinder::CUDABestSplitFinder(
   if (has_categorical_feature_ && config->use_quantized_grad) {
     Log::Fatal("Quantized training on GPU with categorical features is not supported yet.");
   }
-  cuda_leaf_best_split_info_ = nullptr;
-  cuda_best_split_info_ = nullptr;
-  cuda_best_split_info_buffer_ = nullptr;
-  cuda_is_feature_used_bytree_ = nullptr;
 }
 
 CUDABestSplitFinder::~CUDABestSplitFinder() {
-  DeallocateCUDAMemory<CUDASplitInfo>(&cuda_leaf_best_split_info_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<CUDASplitInfo>(&cuda_best_split_info_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<int>(&cuda_best_split_info_buffer_, __FILE__, __LINE__);
-  cuda_split_find_tasks_.Clear();
-  DeallocateCUDAMemory<int8_t>(&cuda_is_feature_used_bytree_, __FILE__, __LINE__);
   gpuAssert(cudaStreamDestroy(cuda_streams_[0]), __FILE__, __LINE__);
   gpuAssert(cudaStreamDestroy(cuda_streams_[1]), __FILE__, __LINE__);
   cuda_streams_.clear();
@@ -102,13 +93,13 @@ void CUDABestSplitFinder::Init() {
   cuda_streams_.resize(2);
   CUDASUCCESS_OR_FATAL(cudaStreamCreate(&cuda_streams_[0]));
   CUDASUCCESS_OR_FATAL(cudaStreamCreate(&cuda_streams_[1]));
-  AllocateCUDAMemory<int>(&cuda_best_split_info_buffer_, 8, __FILE__, __LINE__);
+  cuda_best_split_info_buffer_.Resize(8);
   if (use_global_memory_) {
-    AllocateCUDAMemory<hist_t>(&cuda_feature_hist_grad_buffer_, static_cast<size_t>(num_total_bin_), __FILE__, __LINE__);
-    AllocateCUDAMemory<hist_t>(&cuda_feature_hist_hess_buffer_, static_cast<size_t>(num_total_bin_), __FILE__, __LINE__);
+    cuda_feature_hist_grad_buffer_.Resize(static_cast<size_t>(num_total_bin_));
+    cuda_feature_hist_hess_buffer_.Resize(static_cast<size_t>(num_total_bin_));
     if (has_categorical_feature_) {
-      AllocateCUDAMemory<hist_t>(&cuda_feature_hist_stat_buffer_, static_cast<size_t>(num_total_bin_), __FILE__, __LINE__);
-      AllocateCUDAMemory<data_size_t>(&cuda_feature_hist_index_buffer_, static_cast<size_t>(num_total_bin_), __FILE__, __LINE__);
+      cuda_feature_hist_stat_buffer_.Resize(static_cast<size_t>(num_total_bin_));
+      cuda_feature_hist_index_buffer_.Resize(static_cast<size_t>(num_total_bin_));
     }
   }
 
@@ -119,7 +110,7 @@ void CUDABestSplitFinder::Init() {
 }
 
 void CUDABestSplitFinder::InitCUDAFeatureMetaInfo() {
-  AllocateCUDAMemory<int8_t>(&cuda_is_feature_used_bytree_, static_cast<size_t>(num_features_), __FILE__, __LINE__);
+  cuda_is_feature_used_bytree_.Resize(static_cast<size_t>(num_features_));
 
   // initialize split find task information (a split find task is one pass through the histogram of a feature)
   num_tasks_ = 0;
@@ -237,10 +228,7 @@ void CUDABestSplitFinder::InitCUDAFeatureMetaInfo() {
   const int num_task_blocks = (num_tasks_ + NUM_TASKS_PER_SYNC_BLOCK - 1) / NUM_TASKS_PER_SYNC_BLOCK;
   const size_t cuda_best_leaf_split_info_buffer_size = static_cast<size_t>(num_task_blocks) * static_cast<size_t>(num_leaves_);
 
-  AllocateCUDAMemory<CUDASplitInfo>(&cuda_leaf_best_split_info_,
-                                    cuda_best_leaf_split_info_buffer_size,
-                                    __FILE__,
-                                    __LINE__);
+  cuda_leaf_best_split_info_.Resize(cuda_best_leaf_split_info_buffer_size);
 
   cuda_split_find_tasks_.Resize(num_tasks_);
   CopyFromHostToCUDADevice<SplitFindTask>(cuda_split_find_tasks_.RawData(),
@@ -250,15 +238,15 @@ void CUDABestSplitFinder::InitCUDAFeatureMetaInfo() {
                                           __LINE__);
 
   const size_t output_buffer_size = 2 * static_cast<size_t>(num_tasks_);
-  AllocateCUDAMemory<CUDASplitInfo>(&cuda_best_split_info_, output_buffer_size, __FILE__, __LINE__);
+  cuda_best_split_info_.Resize(output_buffer_size);
 
   max_num_categories_in_split_ = std::min(max_cat_threshold_, max_num_categorical_bin_ / 2);
-  AllocateCUDAMemory<uint32_t>(&cuda_cat_threshold_feature_, max_num_categories_in_split_ * output_buffer_size, __FILE__, __LINE__);
-  AllocateCUDAMemory<int>(&cuda_cat_threshold_real_feature_, max_num_categories_in_split_ * output_buffer_size, __FILE__, __LINE__);
-  AllocateCUDAMemory<uint32_t>(&cuda_cat_threshold_leaf_, max_num_categories_in_split_ * cuda_best_leaf_split_info_buffer_size, __FILE__, __LINE__);
-  AllocateCUDAMemory<int>(&cuda_cat_threshold_real_leaf_, max_num_categories_in_split_ * cuda_best_leaf_split_info_buffer_size, __FILE__, __LINE__);
-  AllocateCatVectors(cuda_leaf_best_split_info_, cuda_cat_threshold_leaf_, cuda_cat_threshold_real_leaf_, cuda_best_leaf_split_info_buffer_size);
-  AllocateCatVectors(cuda_best_split_info_, cuda_cat_threshold_feature_, cuda_cat_threshold_real_feature_, output_buffer_size);
+  cuda_cat_threshold_feature_.Resize(max_num_categories_in_split_ * output_buffer_size);
+  cuda_cat_threshold_real_feature_.Resize(max_num_categories_in_split_ * output_buffer_size);
+  cuda_cat_threshold_leaf_.Resize(max_num_categories_in_split_ * cuda_best_leaf_split_info_buffer_size);
+  cuda_cat_threshold_real_leaf_.Resize(max_num_categories_in_split_ * cuda_best_leaf_split_info_buffer_size);
+  AllocateCatVectors(cuda_leaf_best_split_info_.RawData(), cuda_cat_threshold_leaf_.RawData(), cuda_cat_threshold_real_leaf_.RawData(), cuda_best_leaf_split_info_buffer_size);
+  AllocateCatVectors(cuda_best_split_info_.RawData(), cuda_cat_threshold_feature_.RawData(), cuda_cat_threshold_real_feature_.RawData(), output_buffer_size);
 }
 
 void CUDABestSplitFinder::ResetTrainingData(
@@ -269,8 +257,8 @@ void CUDABestSplitFinder::ResetTrainingData(
   num_features_ = train_data->num_features();
   feature_hist_offsets_ = feature_hist_offsets;
   InitFeatureMetaInfo(train_data);
-  DeallocateCUDAMemory<int8_t>(&cuda_is_feature_used_bytree_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<CUDASplitInfo>(&cuda_best_split_info_, __FILE__, __LINE__);
+  cuda_is_feature_used_bytree_.Clear();
+  cuda_best_split_info_.Clear();
   InitCUDAFeatureMetaInfo();
 }
 
@@ -294,30 +282,22 @@ void CUDABestSplitFinder::ResetConfig(const Config* config, const hist_t* cuda_h
 
   const int num_task_blocks = (num_tasks_ + NUM_TASKS_PER_SYNC_BLOCK - 1) / NUM_TASKS_PER_SYNC_BLOCK;
   size_t cuda_best_leaf_split_info_buffer_size = static_cast<size_t>(num_task_blocks) * static_cast<size_t>(num_leaves_);
-  DeallocateCUDAMemory<CUDASplitInfo>(&cuda_leaf_best_split_info_, __FILE__, __LINE__);
-  AllocateCUDAMemory<CUDASplitInfo>(&cuda_leaf_best_split_info_,
-                                    cuda_best_leaf_split_info_buffer_size,
-                                    __FILE__,
-                                    __LINE__);
+  cuda_leaf_best_split_info_.Resize(cuda_best_leaf_split_info_buffer_size);
   max_num_categories_in_split_ = std::min(max_cat_threshold_, max_num_categorical_bin_ / 2);
   size_t total_cat_threshold_size = max_num_categories_in_split_ * cuda_best_leaf_split_info_buffer_size;
-  DeallocateCUDAMemory<uint32_t>(&cuda_cat_threshold_leaf_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<int>(&cuda_cat_threshold_real_leaf_, __FILE__, __LINE__);
-  AllocateCUDAMemory<uint32_t>(&cuda_cat_threshold_leaf_, total_cat_threshold_size, __FILE__, __LINE__);
-  AllocateCUDAMemory<int>(&cuda_cat_threshold_real_leaf_, total_cat_threshold_size, __FILE__, __LINE__);
-  AllocateCatVectors(cuda_leaf_best_split_info_, cuda_cat_threshold_leaf_, cuda_cat_threshold_real_leaf_, cuda_best_leaf_split_info_buffer_size);
+  cuda_cat_threshold_leaf_.Resize(total_cat_threshold_size);
+  cuda_cat_threshold_real_leaf_.Resize(total_cat_threshold_size);
+  AllocateCatVectors(cuda_leaf_best_split_info_.RawData(), cuda_cat_threshold_leaf_.RawData(), cuda_cat_threshold_real_leaf_.RawData(), cuda_best_leaf_split_info_buffer_size);
 
   cuda_best_leaf_split_info_buffer_size = 2 * static_cast<size_t>(num_tasks_);
   total_cat_threshold_size = max_num_categories_in_split_ * cuda_best_leaf_split_info_buffer_size;
-  DeallocateCUDAMemory<uint32_t>(&cuda_cat_threshold_feature_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<int>(&cuda_cat_threshold_real_feature_, __FILE__, __LINE__);
-  AllocateCUDAMemory<uint32_t>(&cuda_cat_threshold_feature_, total_cat_threshold_size, __FILE__, __LINE__);
-  AllocateCUDAMemory<int>(&cuda_cat_threshold_real_feature_, total_cat_threshold_size, __FILE__, __LINE__);
-  AllocateCatVectors(cuda_best_split_info_, cuda_cat_threshold_feature_, cuda_cat_threshold_real_feature_, cuda_best_leaf_split_info_buffer_size);
+  cuda_cat_threshold_feature_.Resize(total_cat_threshold_size);
+  cuda_cat_threshold_real_feature_.Resize(total_cat_threshold_size);
+  AllocateCatVectors(cuda_best_split_info_.RawData(), cuda_cat_threshold_feature_.RawData(), cuda_cat_threshold_real_feature_.RawData(), cuda_best_leaf_split_info_buffer_size);
 }
 
 void CUDABestSplitFinder::BeforeTrain(const std::vector<int8_t>& is_feature_used_bytree) {
-  CopyFromHostToCUDADevice<int8_t>(cuda_is_feature_used_bytree_,
+  CopyFromHostToCUDADevice<int8_t>(cuda_is_feature_used_bytree_.RawData(),
                                    is_feature_used_bytree.data(),
                                    is_feature_used_bytree.size(), __FILE__, __LINE__);
 }
@@ -342,10 +322,10 @@ void CUDABestSplitFinder::FindBestSplitsForLeaf(
   if (grad_scale != nullptr && hess_scale != nullptr) {
     LaunchFindBestSplitsDiscretizedForLeafKernel(smaller_leaf_splits, larger_leaf_splits,
       smaller_leaf_index, larger_leaf_index, is_smaller_leaf_valid, is_larger_leaf_valid,
-      grad_scale, hess_scale, smaller_num_bits_in_histogram_bins, larger_num_bits_in_histogram_bins);
+      grad_scale, hess_scale, smaller_num_bits_in_histogram_bins, larger_num_bits_in_histogram_bins, num_data_in_smaller_leaf, num_data_in_larger_leaf);
   } else {
     LaunchFindBestSplitsForLeafKernel(smaller_leaf_splits, larger_leaf_splits,
-      smaller_leaf_index, larger_leaf_index, is_smaller_leaf_valid, is_larger_leaf_valid);
+      smaller_leaf_index, larger_leaf_index, is_smaller_leaf_valid, is_larger_leaf_valid, num_data_in_smaller_leaf, num_data_in_larger_leaf);
   }
   global_timer.Start("CUDABestSplitFinder::LaunchSyncBestSplitForLeafKernel");
   LaunchSyncBestSplitForLeafKernel(smaller_leaf_index, larger_leaf_index, is_smaller_leaf_valid, is_larger_leaf_valid);
@@ -378,7 +358,7 @@ const CUDASplitInfo* CUDABestSplitFinder::FindBestFromAllSplits(
     best_leaf_index,
     num_cat_threshold);
   SynchronizeCUDADevice(__FILE__, __LINE__);
-  return cuda_leaf_best_split_info_ + (*best_leaf_index);
+  return cuda_leaf_best_split_info_.RawData() + (*best_leaf_index);
 }
 
 void CUDABestSplitFinder::AllocateCatVectors(CUDASplitInfo* cuda_split_infos, uint32_t* cat_threshold_vec, int* cat_threshold_real_vec, size_t len) {

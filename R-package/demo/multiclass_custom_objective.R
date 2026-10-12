@@ -19,7 +19,7 @@ valids <- list(train = dtrain, test = dtest)
 
 # Method 1 of training with built-in multiclass objective
 # Note: need to turn off boost from average to match custom objective
-# (https://github.com/microsoft/LightGBM/issues/1846)
+# (https://github.com/lightgbm-org/LightGBM/issues/1846)
 params <- list(
     min_data = 1L
     , learning_rate = 1.0

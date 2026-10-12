@@ -12,10 +12,21 @@ mkdir -p $R_LIB_PATH
 export R_LIBS=$R_LIB_PATH
 export PATH="$R_LIB_PATH/R/bin:$PATH"
 
+# reference for configuring 'R CMD check' via environment variables:
+# https://cran.r-project.org/doc/manuals/r-devel/R-ints.html
+
 # don't fail builds for long-running examples unless they're very long.
-# See https://github.com/microsoft/LightGBM/issues/4049#issuecomment-793412254.
-if [[ $R_BUILD_TYPE != "cran" ]]; then
-    export _R_CHECK_EXAMPLE_TIMING_THRESHOLD_=30
+# See https://github.com/lightgbm-org/LightGBM/issues/4049#issuecomment-793412254.
+export _R_CHECK_EXAMPLE_TIMING_THRESHOLD_=30
+
+if [[ "${OS_NAME}" == "macos" ]] && [[ "${ARCH}" == "x86_64" ]]; then
+    # suppress 'R CMD check --as-cran' notes like this:
+    #
+    #    * checking compilation flags used ... NOTE
+    #    Compilation used the following non-portable flag(s):
+    #    ‘-march=core2’ ‘-mssse3’
+    #
+    export _R_CHECK_COMPILATION_FLAGS_KNOWN_="-march=core2 -mssse3"
 fi
 
 # Get details needed for installing R components
@@ -49,6 +60,7 @@ if [[ $OS_NAME == "linux" ]]; then
         --no-install-recommends \
         -y \
             devscripts \
+            libuv1-dev \
             r-base-core=${R_LINUX_VERSION} \
             r-base-dev=${R_LINUX_VERSION} \
             texinfo \
@@ -72,23 +84,46 @@ fi
 
 # Installing R precompiled for Mac OS 10.11 or higher
 if [[ $OS_NAME == "macos" ]]; then
-    brew update-reset --auto-update
-    brew update --auto-update
-    if [[ $R_BUILD_TYPE == "cran" ]]; then
-        brew install automake || exit 1
-    fi
-    brew install \
-        checkbashisms \
-        qpdf || exit 1
-    brew install basictex || exit 1
+
+    # install BasicTeX
+    curl -sL "https://mirror.ctan.org/systems/mac/mactex/BasicTeX.pkg" -o BasicTeX.pkg || exit 1
+    sudo installer \
+        -pkg "$(pwd)/BasicTeX.pkg" \
+        -target / || exit 1
+
     export PATH="/Library/TeX/texbin:$PATH"
     sudo tlmgr --verify-repo=none update --self || exit 1
     sudo tlmgr --verify-repo=none install inconsolata helvetic rsfs || exit 1
 
-    curl -sL "${R_MAC_PKG_URL}" -o R.pkg || exit 1
-    sudo installer \
-        -pkg "$(pwd)/R.pkg" \
-        -target / || exit 1
+    if [[ "${ARCH}" == "arm64" ]]; then
+        brew_packages+=(
+            checkbashisms
+            qpdf
+        )
+        if [[ $R_BUILD_TYPE == "cran" ]]; then
+            brew_packages+=(automake)
+        fi
+
+        # install Homebrew packages
+        brew update-reset --auto-update
+        brew update --auto-update
+        brew install "${brew_packages[@]}" || exit 1
+
+        # install R
+        curl -sL "${R_MAC_PKG_URL}" -o R.pkg || exit 1
+        sudo installer \
+            -pkg "$(pwd)/R.pkg" \
+            -target / || exit 1
+    else
+        echo "setting up 'pixi' environment"
+        # conda-forge's activation scripts rely on being able to reference shell
+        # variables that may not be defined, which can result in errors like
+        # 'AR: unbound variable' when run in bash with 'set -u'.
+        set +u
+        eval "$(pixi shell-hook --locked -e 'r-macos-intel')"
+        set -u
+        echo "done setting up 'pixi' environment"
+    fi
 
     # install tidy v5.8.0
     # ref: https://groups.google.com/g/r-sig-mac/c/7u_ivEj4zhM
@@ -103,17 +138,20 @@ if [[ $OS_NAME == "macos" ]]; then
     export R_TIDYCMD=/usr/local/bin/tidy
 fi
 
-# {Matrix} needs {lattice}, so this needs to run before manually installing {Matrix}.
-# This should be unnecessary on R >=4.4.0
-# ref: https://github.com/microsoft/LightGBM/issues/6433
-Rscript --vanilla -e "install.packages('lattice', repos = '${CRAN_MIRROR}', lib = '${R_LIB_PATH}')"
+# install dependencies, unless in an activated 'pixi' environment (which should already have them)
+if [[ -z "${PIXI_IN_SHELL:-}" ]]; then
+    # {Matrix} needs {lattice}, so this needs to run before manually installing {Matrix}.
+    # This should be unnecessary on R >=4.4.0
+    # ref: https://github.com/lightgbm-org/LightGBM/issues/6433
+    Rscript --vanilla -e "install.packages('lattice', repos = '${CRAN_MIRROR}', lib = '${R_LIB_PATH}')"
 
-# manually install {Matrix}, as {Matrix}=1.7-0 raised its R floor all the way to R 4.4.0
-# ref: https://github.com/microsoft/LightGBM/issues/6433
-Rscript --vanilla -e "install.packages('https://cran.r-project.org/src/contrib/Archive/Matrix/Matrix_1.6-5.tar.gz', repos = NULL, lib = '${R_LIB_PATH}')"
+    # manually install {Matrix}, as {Matrix}=1.7-0 raised its R floor all the way to R 4.4.0
+    # ref: https://github.com/lightgbm-org/LightGBM/issues/6433
+    Rscript --vanilla -e "install.packages('https://cran.r-project.org/src/contrib/Archive/Matrix/Matrix_1.6-5.tar.gz', repos = NULL, lib = '${R_LIB_PATH}')"
 
-# Manually install dependencies to avoid a CI-time dependency on devtools (for devtools::install_deps())
-Rscript --vanilla ./.ci/install-r-deps.R --build --test --exclude=Matrix || exit 1
+    # Manually install dependencies to avoid a CI-time dependency on devtools (for devtools::install_deps())
+    Rscript --vanilla ./.ci/install-r-deps.R --build --test --exclude=Matrix || exit 1
+fi
 
 cd "${BUILD_DIRECTORY}"
 PKG_TARBALL="lightgbm_$(head -1 VERSION.txt).tar.gz"
@@ -208,7 +246,7 @@ fi
 # actually use MM_PREFETCH preprocessor definition
 #
 # _mm_prefetch will not work on arm64 architecture
-# ref: https://github.com/microsoft/LightGBM/issues/4124
+# ref: https://github.com/lightgbm-org/LightGBM/issues/4124
 if [[ $ARCH != "arm64" ]]; then
     if [[ $R_BUILD_TYPE == "cran" ]]; then
         mm_prefetch_working=$(

@@ -9,7 +9,7 @@ export PATH="${CONDA}/bin:${PATH}"
 curl \
     -sL \
     -o "${HOME}/miniforge.sh" \
-    https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+    "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-$(arch).sh"
 
 /bin/bash "${HOME}/miniforge.sh" -b -p "${CONDA}"
 

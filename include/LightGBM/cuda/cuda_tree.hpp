@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 
@@ -79,25 +80,25 @@ class CUDATree : public Tree {
 
   inline void AsConstantTree(double val, int count) override;
 
-  const int* cuda_leaf_parent() const { return cuda_leaf_parent_; }
+  const int* cuda_leaf_parent() const { return cuda_leaf_parent_.RawData(); }
 
-  const int* cuda_left_child() const { return cuda_left_child_; }
+  const int* cuda_left_child() const { return cuda_left_child_.RawData(); }
 
-  const int* cuda_right_child() const { return cuda_right_child_; }
+  const int* cuda_right_child() const { return cuda_right_child_.RawData(); }
 
-  const int* cuda_split_feature_inner() const { return cuda_split_feature_inner_; }
+  const int* cuda_split_feature_inner() const { return cuda_split_feature_inner_.RawData(); }
 
-  const int* cuda_split_feature() const { return cuda_split_feature_; }
+  const int* cuda_split_feature() const { return cuda_split_feature_.RawData(); }
 
-  const uint32_t* cuda_threshold_in_bin() const { return cuda_threshold_in_bin_; }
+  const uint32_t* cuda_threshold_in_bin() const { return cuda_threshold_in_bin_.RawData(); }
 
-  const double* cuda_threshold() const { return cuda_threshold_; }
+  const double* cuda_threshold() const { return cuda_threshold_.RawData(); }
 
-  const int8_t* cuda_decision_type() const { return cuda_decision_type_; }
+  const int8_t* cuda_decision_type() const { return cuda_decision_type_.RawData(); }
 
-  const double* cuda_leaf_value() const { return cuda_leaf_value_; }
+  const double* cuda_leaf_value() const { return cuda_leaf_value_.RawData(); }
 
-  double* cuda_leaf_value_ref() { return cuda_leaf_value_; }
+  double* cuda_leaf_value_ref() { return cuda_leaf_value_.RawData(); }
 
   inline void Shrinkage(double rate) override;
 
@@ -140,22 +141,22 @@ class CUDATree : public Tree {
                             const int right_leaf_index,
                             const int real_feature_index);
 
-  int* cuda_left_child_;
-  int* cuda_right_child_;
-  int* cuda_split_feature_inner_;
-  int* cuda_split_feature_;
-  int* cuda_leaf_depth_;
-  int* cuda_leaf_parent_;
-  uint32_t* cuda_threshold_in_bin_;
-  double* cuda_threshold_;
-  double* cuda_internal_weight_;
-  double* cuda_internal_value_;
-  int8_t* cuda_decision_type_;
-  double* cuda_leaf_value_;
-  data_size_t* cuda_leaf_count_;
-  double* cuda_leaf_weight_;
-  data_size_t* cuda_internal_count_;
-  float* cuda_split_gain_;
+  CUDAVector<int> cuda_left_child_;
+  CUDAVector<int> cuda_right_child_;
+  CUDAVector<int> cuda_split_feature_inner_;
+  CUDAVector<int> cuda_split_feature_;
+  CUDAVector<int> cuda_leaf_depth_;
+  CUDAVector<int> cuda_leaf_parent_;
+  CUDAVector<uint32_t> cuda_threshold_in_bin_;
+  CUDAVector<double> cuda_threshold_;
+  CUDAVector<double> cuda_internal_weight_;
+  CUDAVector<double> cuda_internal_value_;
+  CUDAVector<int8_t> cuda_decision_type_;
+  CUDAVector<double> cuda_leaf_value_;
+  CUDAVector<data_size_t> cuda_leaf_count_;
+  CUDAVector<double> cuda_leaf_weight_;
+  CUDAVector<data_size_t> cuda_internal_count_;
+  CUDAVector<float> cuda_split_gain_;
   CUDAVector<uint32_t> cuda_bitset_;
   CUDAVector<uint32_t> cuda_bitset_inner_;
   CUDAVector<int> cuda_cat_boundaries_;

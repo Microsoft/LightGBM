@@ -1,12 +1,15 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <vector>
 
 #include "../include/LightGBM/utils/common.h"
+#include "../include/LightGBM/utils/threading.h"
 
 
 // This is a basic test for floating number parsing.
@@ -150,4 +153,23 @@ TEST_F(AtofPreciseTest, Inf) {
     EXPECT_EQ(memcmp(&got, &test.expected, sizeof(test.expected)), 0)
               << "parsed infinite is not the same for every bit: " << test.data;
   }
+}
+
+TEST(ParallelPartitionRunnerTest, EmptyInputReturnsZero) {
+  LightGBM::ParallelPartitionRunner<LightGBM::data_size_t, false> runner(8, 1);
+  bool callback_called = false;
+  std::vector<LightGBM::data_size_t> output(1, -1);
+
+  const auto left_count = runner.Run<false>(
+      0,
+      [&](int, LightGBM::data_size_t, LightGBM::data_size_t,
+          LightGBM::data_size_t*, LightGBM::data_size_t*) {
+        callback_called = true;
+        return 0;
+      },
+      output.data());
+
+  EXPECT_EQ(left_count, 0);
+  EXPECT_FALSE(callback_called);
+  EXPECT_EQ(output[0], -1);
 }

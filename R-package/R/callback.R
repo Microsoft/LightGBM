@@ -186,11 +186,12 @@ cb_record_evaluation <- function() {
 
 cb_early_stop <- function(stopping_rounds, first_metric_only, verbose) {
 
-  factor_to_bigger_better <- NULL
-  best_iter <- NULL
-  best_score <- NULL
-  best_msg <- NULL
-  eval_len <- NULL
+  cb_state <- new.env()
+  cb_state[["best_iter"]] <- NULL
+  cb_state[["best_msg"]] <- NULL
+  cb_state[["best_score"]] <- NULL
+  cb_state[["eval_len"]] <- NULL
+  cb_state[["factor_to_bigger_better"]] <- NULL
 
   # Initialization function
   init <- function(env) {
@@ -201,7 +202,7 @@ cb_early_stop <- function(stopping_rounds, first_metric_only, verbose) {
     }
 
     # Store evaluation length
-    eval_len <<- length(env$eval_list)
+    cb_state[["eval_len"]] <- length(env$eval_list)
 
     # Check if verbose or not
     if (isTRUE(verbose)) {
@@ -214,20 +215,20 @@ cb_early_stop <- function(stopping_rounds, first_metric_only, verbose) {
     }
 
     # Internally treat everything as a maximization task
-    factor_to_bigger_better <<- rep.int(1.0, eval_len)
-    best_iter <<- rep.int(-1L, eval_len)
-    best_score <<- rep.int(-Inf, eval_len)
-    best_msg <<- list()
+    cb_state[["factor_to_bigger_better"]] <- rep.int(1.0, cb_state[["eval_len"]])
+    cb_state[["best_iter"]] <- rep.int(-1L, cb_state[["eval_len"]])
+    cb_state[["best_score"]] <- rep.int(-Inf, cb_state[["eval_len"]])
+    cb_state[["best_msg"]] <- list()
 
     # Loop through evaluation elements
-    for (i in seq_len(eval_len)) {
+    for (i in seq_len(cb_state[["eval_len"]])) {
 
       # Prepend message
-      best_msg <<- c(best_msg, "")
+      cb_state[["best_msg"]] <- c(cb_state[["best_msg"]], "")
 
       # Internally treat everything as a maximization task
       if (!isTRUE(env$eval_list[[i]]$higher_better)) {
-        factor_to_bigger_better[i] <<- -1.0
+        cb_state[["factor_to_bigger_better"]][i] <- -1.0
       }
 
     }
@@ -240,7 +241,7 @@ cb_early_stop <- function(stopping_rounds, first_metric_only, verbose) {
   callback <- function(env) {
 
     # Check for empty evaluation
-    if (is.null(eval_len)) {
+    if (is.null(cb_state[["eval_len"]])) {
       init(env = env)
     }
 
@@ -252,43 +253,43 @@ cb_early_stop <- function(stopping_rounds, first_metric_only, verbose) {
     if (isTRUE(first_metric_only)) {
       evals_to_check <- 1L
     } else {
-      evals_to_check <- seq_len(eval_len)
+      evals_to_check <- seq_len(cb_state[["eval_len"]])
     }
 
     # Loop through evaluation
     for (i in evals_to_check) {
 
       # Store score
-      score <- env$eval_list[[i]]$value * factor_to_bigger_better[i]
+      score <- env$eval_list[[i]]$value * cb_state[["factor_to_bigger_better"]][i]
 
         # Check if score is better
-        if (score > best_score[i]) {
+        if (score > cb_state[["best_score"]][i]) {
 
           # Store new scores
-          best_score[i] <<- score
-          best_iter[i] <<- cur_iter
+          cb_state[["best_score"]][i] <- score
+          cb_state[["best_iter"]][i] <- cur_iter
 
           # Prepare to print if verbose
           if (verbose) {
-            best_msg[[i]] <<- as.character(.merge_eval_string(env = env))
+              cb_state[["best_msg"]][[i]] <- as.character(.merge_eval_string(env = env))
           }
 
         } else {
 
           # Check if early stopping is required
-          if (cur_iter - best_iter[i] >= stopping_rounds) {
+          if (cur_iter - cb_state[["best_iter"]][i] >= stopping_rounds) {
 
             if (!is.null(env$model)) {
-              env$model$best_score <- best_score[i]
-              env$model$best_iter <- best_iter[i]
+              env$model$best_score <- cb_state[["best_score"]][i]
+              env$model$best_iter <- cb_state[["best_iter"]][i]
             }
 
             if (isTRUE(verbose)) {
-              cat(paste0("Early stopping, best iteration is: ", best_msg[[i]], "\n"))
+              cat(paste0("Early stopping, best iteration is: ", cb_state[["best_msg"]][[i]], "\n"))
             }
 
             # Store best iteration and stop
-            env$best_iter <- best_iter[i]
+            env$best_iter <- cb_state[["best_iter"]][i]
             env$met_early_stop <- TRUE
           }
 
@@ -297,16 +298,16 @@ cb_early_stop <- function(stopping_rounds, first_metric_only, verbose) {
       if (!isTRUE(env$met_early_stop) && cur_iter == env$end_iteration) {
 
         if (!is.null(env$model)) {
-          env$model$best_score <- best_score[i]
-          env$model$best_iter <- best_iter[i]
+          env$model$best_score <- cb_state[["best_score"]][i]
+          env$model$best_iter <- cb_state[["best_iter"]][i]
         }
 
         if (isTRUE(verbose)) {
-          cat(paste0("Did not meet early stopping, best iteration is: ", best_msg[[i]], "\n"))
+          cat(paste0("Did not meet early stopping, best iteration is: ", cb_state[["best_msg"]][[i]], "\n"))
         }
 
         # Store best iteration and stop
-        env$best_iter <- best_iter[i]
+        env$best_iter <- cb_state[["best_iter"]][i]
         env$met_early_stop <- TRUE
       }
     }

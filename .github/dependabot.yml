@@ -8,6 +8,9 @@ updates:
       ci-dependencies:
         patterns:
           - "*"
+    cooldown:
+      # only accept releases that have been out for at least 15 days
+      default-days: 15
     commit-message:
       prefix: "[ci]"
     labels:

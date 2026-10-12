@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2017 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2017-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2017-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for
  * license information.
  */
@@ -565,7 +566,7 @@ class FeatureGroup {
     }
   }
 
-  uint32_t feature_max_bin(const int sub_feature_index) {
+  uint32_t feature_max_bin(const int sub_feature_index) const {
     if (!is_multi_val_) {
       return bin_offsets_[sub_feature_index + 1] - 1;
     } else {
@@ -574,7 +575,7 @@ class FeatureGroup {
     }
   }
 
-  uint32_t feature_min_bin(const int sub_feature_index) {
+  uint32_t feature_min_bin(const int sub_feature_index) const {
     if (!is_multi_val_) {
       return bin_offsets_[sub_feature_index];
     } else {

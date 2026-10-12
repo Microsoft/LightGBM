@@ -14,7 +14,7 @@ OUTPUT_DIR="./release-artifacts"
 
 get-latest-run-id() {
      gh run list                      \
-        --repo "microsoft/LightGBM"   \
+        --repo "lightgbm-org/LightGBM"   \
         --commit "${1}"               \
         --workflow "${2}"             \
         --json 'createdAt,databaseId' \
@@ -28,7 +28,7 @@ mkdir -p "${OUTPUT_DIR}"
 # get core artifacts
 echo "downloading core artifacts"
 gh run download \
-    --repo "microsoft/LightGBM" \
+    --repo "lightgbm-org/LightGBM" \
     --dir "${OUTPUT_DIR}" \
     "$(get-latest-run-id "${COMMIT_ID}" 'build.yml')"
 echo "done downloading core artifacts"
@@ -36,7 +36,7 @@ echo "done downloading core artifacts"
 # get python-package artifacts
 echo "downloading python-package artifacts and NuGet package"
 gh run download \
-    --repo "microsoft/LightGBM" \
+    --repo "lightgbm-org/LightGBM" \
     --dir "${OUTPUT_DIR}" \
     "$(get-latest-run-id "${COMMIT_ID}" 'python_package.yml')"
 echo "done downloading python-package artifacts and NuGet package"
@@ -44,7 +44,7 @@ echo "done downloading python-package artifacts and NuGet package"
 # get R-package artifacts
 echo "downloading R-package artifacts"
 gh run download \
-    --repo "microsoft/LightGBM" \
+    --repo "lightgbm-org/LightGBM" \
     --dir "${OUTPUT_DIR}" \
     "$(get-latest-run-id "${COMMIT_ID}" 'r_package.yml')"
 echo "done downloading R-package artifacts"
@@ -52,7 +52,7 @@ echo "done downloading R-package artifacts"
 # get SWIG artifacts
 echo "downloading SWIG artifacts"
 gh run download \
-    --repo "microsoft/LightGBM" \
+    --repo "lightgbm-org/LightGBM" \
     --dir "${OUTPUT_DIR}" \
     "$(get-latest-run-id "${COMMIT_ID}" 'swig.yml')"
 echo "done downloading SWIG artifacts"

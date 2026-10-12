@@ -59,8 +59,6 @@ if test -d "${TEMP_R_DIR}"; then
 fi
 mkdir -p "${TEMP_R_DIR}"
 
-CURRENT_DATE=$(date +'%Y-%m-%d')
-
 # R packages cannot have versions like 3.0.0rc1, but
 # 3.0.0-1 is acceptable
 LGB_VERSION=$(head -1 ./VERSION.txt | sed "s/rc/-/g")
@@ -121,12 +119,6 @@ cd "${TEMP_R_DIR}"
     rm src/include/LightGBM/application.h
     rm src/main.cpp
 
-    # configure.ac and DESCRIPTION have placeholders for version
-    # and date so they don't have to be updated manually
-    sed -i.bak -e "s/~~VERSION~~/${LGB_VERSION}/" configure.ac
-    sed -i.bak -e "s/~~VERSION~~/${LGB_VERSION}/" DESCRIPTION
-    sed -i.bak -e "s/~~DATE~~/${CURRENT_DATE}/" DESCRIPTION
-
     # Remove 'region', 'endregion', and 'warning' pragmas.
     # This won't change the correctness of the code. CRAN does
     # not allow you to use compiler flag '-Wno-unknown-pragmas' or
@@ -179,7 +171,7 @@ if ${BUILD_VIGNETTES} ; then
         #
         # Removing them manually here removes the need to use tar --exclude.
         #
-        # For background, see https://github.com/microsoft/LightGBM/pull/3946#pullrequestreview-799415812.
+        # For background, see https://github.com/lightgbm-org/LightGBM/pull/3946#pullrequestreview-799415812.
         rm -f ./lightgbm/src/*.o
         rm -f ./lightgbm/src/boosting/*.o
         rm -f ./lightgbm/src/io/*.o

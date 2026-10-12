@@ -1,4 +1,4 @@
-﻿# Using LightGBM via Docker
+# Using LightGBM via Docker
 
 This directory contains `Dockerfile`s to make it easy to build and run LightGBM via [Docker](https://www.docker.com/).
 
@@ -6,11 +6,11 @@ These builds of LightGBM all train on the CPU. For GPU-enabled builds, see [the 
 
 ## Installing Docker
 
-Follow the general installation instructions [on the Docker site](https://docs.docker.com/install/):
+Follow the general installation instructions [on the Docker site](https://docs.docker.com/get-started/get-docker/):
 
-* [macOS](https://docs.docker.com/docker-for-mac/install/)
-* [Ubuntu](https://docs.docker.com/install/linux/docker-ce/ubuntu/)
-* [Windows](https://docs.docker.com/docker-for-windows/install/)
+* [macOS](https://docs.docker.com/desktop/setup/install/mac-install/)
+* [Ubuntu](https://docs.docker.com/engine/install/ubuntu/)
+* [Windows](https://docs.docker.com/desktop/setup/install/windows-install/)
 
 ## Using CLI Version of LightGBM via Docker
 
@@ -19,7 +19,7 @@ Build an image with the LightGBM CLI.
 ```shell
 mkdir lightgbm-docker
 cd lightgbm-docker
-wget https://raw.githubusercontent.com/Microsoft/LightGBM/master/docker/dockerfile-cli
+wget https://raw.githubusercontent.com/lightgbm-org/LightGBM/main/docker/dockerfile-cli
 docker build \
     -t lightgbm-cli \
     -f dockerfile-cli \
@@ -40,7 +40,7 @@ output_model = LightGBM-CLI-model.txt
 EOF
 
 # get training data
-curl -O https://raw.githubusercontent.com/Microsoft/LightGBM/master/examples/binary_classification/binary.train
+curl -O https://raw.githubusercontent.com/lightgbm-org/LightGBM/main/examples/binary_classification/binary.train
 
 # train, and save model to a text file
 docker run \
@@ -62,7 +62,7 @@ Build an image with the LightGBM Python-package installed.
 ```shell
 mkdir lightgbm-docker
 cd lightgbm-docker
-wget https://raw.githubusercontent.com/Microsoft/LightGBM/master/docker/dockerfile-python
+wget https://raw.githubusercontent.com/lightgbm-org/LightGBM/main/docker/dockerfile-python
 docker build \
     -t lightgbm-python \
     -f dockerfile-python \
@@ -74,7 +74,7 @@ Run the following to produce a model using the Python-package.
 
 ```shell
 # get training data
-curl -O https://raw.githubusercontent.com/Microsoft/LightGBM/master/examples/binary_classification/binary.train
+curl -O https://raw.githubusercontent.com/lightgbm-org/LightGBM/main/examples/binary_classification/binary.train
 
 # create training script
 cat << EOF > train.py
@@ -121,7 +121,7 @@ Build an image with the LightGBM R-package installed.
 ```shell
 mkdir lightgbm-docker
 cd lightgbm-docker
-wget https://raw.githubusercontent.com/Microsoft/LightGBM/master/docker/dockerfile-r
+wget https://raw.githubusercontent.com/lightgbm-org/LightGBM/main/docker/dockerfile-r
 
 docker build \
     -t lightgbm-r \
@@ -134,7 +134,7 @@ Run the following to produce a model using the R-package.
 
 ```shell
 # get training data
-curl -O https://raw.githubusercontent.com/Microsoft/LightGBM/master/examples/binary_classification/binary.train
+curl -O https://raw.githubusercontent.com/lightgbm-org/LightGBM/main/examples/binary_classification/binary.train
 
 # create training script
 cat << EOF > train.R
@@ -171,7 +171,7 @@ docker run \
     R
 ```
 
-To use [RStudio](https://www.rstudio.com/products/rstudio/), an interactive development environment, run the following.
+To use [RStudio](https://posit.co/products/open-source/rstudio), an interactive development environment, run the following.
 
 ```shell
 docker run \

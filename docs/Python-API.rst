@@ -12,6 +12,7 @@ Data Structure API
     Dataset
     Booster
     CVBooster
+    EvalResult
     Sequence
 
 Training API

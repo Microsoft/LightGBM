@@ -3,9 +3,12 @@ import inspect
 import itertools
 import math
 import re
+import sys
+import textwrap
+import warnings
 from functools import partial
-from os import getenv
 from pathlib import Path
+from unittest import mock
 
 import joblib
 import numpy as np
@@ -13,6 +16,7 @@ import pytest
 import scipy.sparse
 from scipy.stats import spearmanr
 from sklearn.base import clone
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.datasets import load_svmlight_file, make_blobs, make_multilabel_classification
 from sklearn.ensemble import StackingClassifier, StackingRegressor
 from sklearn.metrics import accuracy_score, log_loss, mean_squared_error, r2_score
@@ -22,24 +26,23 @@ from sklearn.utils.estimator_checks import parametrize_with_checks as sklearn_pa
 from sklearn.utils.validation import check_is_fitted
 
 import lightgbm as lgb
+from lightgbm.basic import LGBMDeprecationWarning
 from lightgbm.compat import (
-    DASK_INSTALLED,
     PANDAS_INSTALLED,
-    PYARROW_INSTALLED,
     _sklearn_version,
-    pa_array,
-    pa_chunked_array,
-    pa_Table,
     pd_DataFrame,
     pd_Series,
 )
 
 from .utils import (
+    BuildInfo,
+    assert_docstrings_equal,
     assert_silent,
     load_breast_cancer,
     load_digits,
     load_iris,
     load_linnerud,
+    logistic_sigmoid,
     make_ranking,
     make_synthetic_regression,
     np_assert_array_equal,
@@ -49,6 +52,7 @@ from .utils import (
 
 SKLEARN_MAJOR, SKLEARN_MINOR, *_ = _sklearn_version.split(".")
 SKLEARN_VERSION_GTE_1_6 = (int(SKLEARN_MAJOR), int(SKLEARN_MINOR)) >= (1, 6)
+SKLEARN_VERSION_GTE_1_7 = (int(SKLEARN_MAJOR), int(SKLEARN_MINOR)) >= (1, 7)
 
 decreasing_generator = itertools.count(0, -1)
 estimator_classes = (lgb.LGBMModel, lgb.LGBMClassifier, lgb.LGBMRegressor, lgb.LGBMRanker)
@@ -59,9 +63,9 @@ task_to_model_factory = {
     "regression": lgb.LGBMRegressor,
 }
 all_tasks = tuple(task_to_model_factory.keys())
-all_x_types = ("list2d", "numpy", "pd_DataFrame", "pa_Table", "scipy_csc", "scipy_csr")
-all_y_types = ("list1d", "numpy", "pd_Series", "pd_DataFrame", "pa_Array", "pa_ChunkedArray")
-all_group_types = ("list1d_float", "list1d_int", "numpy", "pd_Series", "pa_Array", "pa_ChunkedArray")
+all_x_types = ("list2d", "numpy", "pd_DataFrame", "pa_Table", "pl_DataFrame", "scipy_csc", "scipy_csr")
+all_y_types = ("list1d", "numpy", "pd_Series", "pd_DataFrame", "pa_ChunkedArray", "pl_Series")
+all_group_types = ("list1d_float", "list1d_int", "numpy", "pd_Series", "pa_ChunkedArray", "pl_Series")
 
 
 def _create_data(task, n_samples=100, n_features=4):
@@ -183,9 +187,7 @@ def test_regression():
     assert gbm.evals_result_["valid_0"]["l2"][gbm.best_iteration_ - 1] == pytest.approx(ret)
 
 
-@pytest.mark.skipif(
-    getenv("TASK", "") == "cuda", reason="Skip due to differences in implementation details of CUDA version"
-)
+@pytest.mark.skipif(BuildInfo.has_cuda, reason="Skip due to differences in implementation details of CUDA version")
 def test_multiclass():
     X, y = load_digits(n_class=10, return_X_y=True)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
@@ -198,9 +200,7 @@ def test_multiclass():
     assert gbm.evals_result_["valid_0"]["multi_logloss"][gbm.best_iteration_ - 1] == pytest.approx(ret)
 
 
-@pytest.mark.skipif(
-    getenv("TASK", "") == "cuda", reason="Skip due to differences in implementation details of CUDA version"
-)
+@pytest.mark.skipif(BuildInfo.has_cuda, reason="Skip due to differences in implementation details of CUDA version")
 def test_lambdarank():
     rank_example_dir = Path(__file__).absolute().parents[2] / "examples" / "lambdarank"
     X_train, y_train = load_svmlight_file(str(rank_example_dir / "rank.train"))
@@ -450,7 +450,15 @@ def test_classifier_chain():
     X, y = make_multilabel_classification(n_samples=100, n_features=20, n_classes=n_outputs, random_state=0)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
     order = [2, 0, 1]
-    clf = ClassifierChain(base_estimator=lgb.LGBMClassifier(n_estimators=10), order=order, random_state=42)
+    # 'base_estimator' parameter was deprecated in scikit-learn 1.7 and removed in 1.9
+    #
+    #  * https://github.com/scikit-learn/scikit-learn/pull/30152
+    #  * https://github.com/scikit-learn/scikit-learn/pull/33750
+    #
+    if SKLEARN_VERSION_GTE_1_7:
+        clf = ClassifierChain(estimator=lgb.LGBMClassifier(n_estimators=10), order=order, random_state=42)
+    else:
+        clf = ClassifierChain(base_estimator=lgb.LGBMClassifier(n_estimators=10), order=order, random_state=42)
     clf.fit(X_train, y_train)
     score = clf.score(X_test, y_test)
     assert score >= 0.2
@@ -467,7 +475,15 @@ def test_regressor_chain():
     X, y = bunch["data"], bunch["target"]
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
     order = [2, 0, 1]
-    reg = RegressorChain(base_estimator=lgb.LGBMRegressor(n_estimators=10), order=order, random_state=42)
+    # 'base_estimator' parameter was deprecated in scikit-learn 1.7 and removed in 1.9
+    #
+    #  * https://github.com/scikit-learn/scikit-learn/pull/30152
+    #  * https://github.com/scikit-learn/scikit-learn/pull/33750
+    #
+    if SKLEARN_VERSION_GTE_1_7:
+        reg = RegressorChain(estimator=lgb.LGBMRegressor(n_estimators=10), order=order, random_state=42)
+    else:
+        reg = RegressorChain(base_estimator=lgb.LGBMRegressor(n_estimators=10), order=order, random_state=42)
     reg.fit(X_train, y_train)
     y_pred = reg.predict(X_test)
     _, score, _ = mse(y_test, y_pred)
@@ -576,7 +592,12 @@ def test_subclassing_get_params_works():
             "learning_rate": 0.1,
         }
 
-    if DASK_INSTALLED:
+    try:
+        import dask  # noqa: F401,PLC0415
+    except lgb.dask._DaskImportErrorTypes:
+        pass
+
+    if "dask" in sys.modules:
         for est in [lgb.DaskLGBMClassifier, lgb.DaskLGBMRanker, lgb.DaskLGBMRegressor]:
             assert est().get_params() == {
                 **expected_params,
@@ -972,6 +993,67 @@ def test_predict():
     np.testing.assert_allclose(res_class_sklearn, y_train)
 
 
+def test_decision_function_and_predict_proba_consistency():
+    # binary
+    X, y = load_breast_cancer(return_X_y=True)
+    X_train, X_test, y_train, _ = train_test_split(X, y, test_size=0.2, random_state=42)
+    clf = lgb.LGBMClassifier(n_estimators=10, random_state=42, verbose=-1).fit(X_train, y_train)
+    preds_raw = clf.decision_function(X_test)
+    np.testing.assert_allclose(preds_raw, clf.predict(X_test, raw_score=True))
+    np.testing.assert_allclose(logistic_sigmoid(preds_raw), clf.predict_proba(X_test)[:, 1])
+
+    # multiclass
+    X, y = load_iris(return_X_y=True)
+    X_train, X_test, y_train, _ = train_test_split(X, y, test_size=0.2, random_state=42)
+    clf = lgb.LGBMClassifier(n_estimators=10, random_state=42, verbose=-1).fit(X_train, y_train)
+    preds_raw = clf.decision_function(X_test)
+    np.testing.assert_allclose(preds_raw, clf.predict(X_test, raw_score=True))
+    np.testing.assert_allclose(softmax(preds_raw), clf.predict_proba(X_test))
+
+
+@pytest.mark.parametrize("method", ["sigmoid", "isotonic"])
+def test_calibrated_classifier_cv(method):
+    # binary
+    X, y = load_breast_cancer(return_X_y=True)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    deterministic_params = {
+        "deterministic": True,
+        "force_col_wise": True,
+        "n_jobs": 1,
+        "seed": 312,
+    }
+    clf = CalibratedClassifierCV(
+        lgb.LGBMClassifier(n_estimators=10, verbose=-1, **deterministic_params),
+        method=method,
+        cv=3,
+    )
+    clf.fit(X_train, y_train)
+    proba = clf.predict_proba(X_test)
+    assert proba.shape == (X_test.shape[0], 2)
+    np.testing.assert_array_less(proba, 1.0 + 1e-9)
+    np.testing.assert_array_less(-1e-9, proba)
+    np.testing.assert_allclose(proba.sum(axis=1), 1.0)
+    score = accuracy_score(y_test, clf.predict(X_test))
+    assert 0.8 <= score <= 1.0
+
+    # multiclass
+    X, y = load_iris(return_X_y=True)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    clf = CalibratedClassifierCV(
+        lgb.LGBMClassifier(n_estimators=10, verbose=-1, **deterministic_params),
+        method=method,
+        cv=3,
+    )
+    clf.fit(X_train, y_train)
+    proba = clf.predict_proba(X_test)
+    assert proba.shape == (X_test.shape[0], 3)
+    np.testing.assert_array_less(proba, 1.0 + 1e-9)
+    np.testing.assert_array_less(-1e-9, proba)
+    np.testing.assert_allclose(proba.sum(axis=1), 1.0)
+    score = accuracy_score(y_test, clf.predict(X_test))
+    assert 0.8 <= score <= 1.0
+
+
 def test_predict_with_params_from_init():
     X, y = load_iris(return_X_y=True)
     X_train, X_test, y_train, _ = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -1351,9 +1433,7 @@ def test_nan_handle(rng):
     np.testing.assert_allclose(gbm.evals_result_["training"]["l2"], np.nan)
 
 
-@pytest.mark.skipif(
-    getenv("TASK", "") == "cuda", reason="Skip due to differences in implementation details of CUDA version"
-)
+@pytest.mark.skipif(BuildInfo.has_cuda, reason="Skip due to differences in implementation details of CUDA version")
 def test_first_metric_only():
     def fit_and_check(eval_set_names, metric_names, assumed_iteration, first_metric_only):
         params["first_metric_only"] = first_metric_only
@@ -1513,6 +1593,15 @@ def test_continue_training_with_model():
     assert gbm.evals_result_["valid_0"]["multi_logloss"][-1] < init_gbm.evals_result_["valid_0"]["multi_logloss"][-1]
 
 
+def test_booster_does_not_hold_datasets():
+    """fit() should clear the Dataset objects stored on the Booster"""
+    data = load_iris(return_X_y=False)
+    clf = lgb.LGBMClassifier(n_estimators=2, max_depth=2)
+    clf.fit(data.data, data.target)
+    assert not hasattr(clf.booster_, "train_set")
+    assert not hasattr(clf.booster_, "valid_sets")
+
+
 def test_actual_number_of_trees():
     X = [[1, 2, 3], [1, 2, 3]]
     y = [1.0, 1.0]
@@ -1623,47 +1712,146 @@ def test_fit_only_raises_num_rounds_warning_when_expected(capsys):
 
 
 @pytest.mark.parametrize("estimator_class", estimator_classes)
-def test_getting_feature_names_in_np_input(estimator_class):
-    # input is a numpy array, which doesn't have feature names. LightGBM adds
-    # feature names to the fitted model, which is inconsistent with sklearn's behavior
-    X, y = load_digits(n_class=2, return_X_y=True)
-    params = {"n_estimators": 2, "num_leaves": 7}
-    if estimator_class is lgb.LGBMModel:
-        model = estimator_class(**{**params, "objective": "binary"})
-    else:
-        model = estimator_class(**params)
-    err_msg = f"This {estimator_class.__name__} instance is not fitted yet. Call 'fit' with appropriate arguments before using this estimator."
-    with pytest.raises(lgb.compat.LGBMNotFittedError, match=err_msg):
-        check_is_fitted(model)
-    if isinstance(model, lgb.LGBMRanker):
-        model.fit(X, y, group=[X.shape[0]])
-    else:
-        model.fit(X, y)
-    np_assert_array_equal(model.feature_names_in_, np.array([f"Column_{i}" for i in range(X.shape[1])]), strict=True)
+def test_cannot_access_feature_names_before_fitting(estimator_class):
+    model = estimator_class()
+    with pytest.raises(lgb.compat.LGBMNotFittedError):  # noqa: PT011
+        model.feature_name_
+    with pytest.raises(lgb.compat.LGBMNotFittedError):  # noqa: PT011
+        model.feature_names_in_
+    with pytest.raises(lgb.compat.LGBMNotFittedError):  # noqa: PT011
+        model.n_features_
+    with pytest.raises(lgb.compat.LGBMNotFittedError):  # noqa: PT011
+        model.n_features_in_
 
 
-@pytest.mark.parametrize("estimator_class", estimator_classes)
-def test_getting_feature_names_in_pd_input(estimator_class):
-    X, y = load_digits(n_class=2, return_X_y=True, as_frame=True)
-    col_names = X.columns.to_list()
-    assert isinstance(col_names, list)
-    assert all(isinstance(c, str) for c in col_names), (
-        "input data must have feature names for this test to cover the expected functionality"
-    )
-    params = {"n_estimators": 2, "num_leaves": 7}
-    if estimator_class is lgb.LGBMModel:
-        model = estimator_class(**{**params, "objective": "binary"})
+@pytest.mark.parametrize(
+    "predict_X_type",
+    [
+        pytest.param("numpy", id="predict=numpy"),
+        pytest.param("pd_DataFrame", id="predict=pd_DataFrame"),
+        pytest.param("pa_Table", id="predict=pa_Table"),
+        pytest.param("pl_DataFrame", id="predict=pl_DataFrame"),
+    ],
+)
+@pytest.mark.parametrize(
+    "fit_X_type",
+    [
+        pytest.param("numpy", id="fit=numpy"),
+        pytest.param("pd_DataFrame", id="fit=pd_DataFrame"),
+        pytest.param("pa_Table", id="fit=pa_Table"),
+        pytest.param("pl_DataFrame", id="fit=pl_DataFrame"),
+    ],
+)
+@pytest.mark.filterwarnings("error:.*feature name.*:UserWarning:sklearn")
+def test_feature_names_in_and_predict_warning(
+    predict_X_type,
+    fit_X_type,
+):
+    """Test feature_names_in_ behavior and predict()-time feature name warnings.
+
+    Should cover all combinations of fit X type, feature_name argument, and predict X type.
+    Regression test for https://github.com/lightgbm-org/LightGBM/issues/6798.
+    """
+    if fit_X_type.startswith("pa_") or predict_X_type.startswith("pa_"):
+        pa = pytest.importorskip("pyarrow")
+        pd = pytest.importorskip("pandas")
+    if fit_X_type.startswith("pd_") or predict_X_type.startswith("pd_"):
+        pd = pytest.importorskip("pandas")
+    if fit_X_type.startswith("pl_") or predict_X_type.startswith("pl_"):
+        pl = pytest.importorskip("polars")
+
+    X_np = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]])
+    y = np.array([0, 1, 0, 1])
+    n_features = X_np.shape[1]
+    col_names = ["feat_0", "feat_1"]
+    default_names = ["Column_0", "Column_1"]
+
+    if fit_X_type == "numpy":
+        X_fit = X_np
+    elif fit_X_type == "pd_DataFrame":
+        X_fit = pd.DataFrame(X_np, columns=col_names)
+    elif fit_X_type == "pl_DataFrame":
+        X_fit = pl.DataFrame(X_np, schema=col_names)
     else:
-        model = estimator_class(**params)
-    err_msg = f"This {estimator_class.__name__} instance is not fitted yet. Call 'fit' with appropriate arguments before using this estimator."
-    with pytest.raises(lgb.compat.LGBMNotFittedError, match=err_msg):
-        check_is_fitted(model)
-    if isinstance(model, lgb.LGBMRanker):
-        model.fit(X, y, group=[X.shape[0]])
+        X_fit = pa.Table.from_pandas(pd.DataFrame(X_np, columns=col_names))
+
+    if predict_X_type == "numpy":
+        X_predict = X_np[:2]
+    elif predict_X_type == "pd_DataFrame":
+        X_predict = pd.DataFrame(X_np[:2], columns=col_names)
+    elif predict_X_type == "pl_DataFrame":
+        X_predict = pl.DataFrame(X_np[:2], schema=col_names)
     else:
-        model.fit(X, y)
-    # strict=False due to dtype mismatch: '<U9' and 'object'
-    np_assert_array_equal(model.feature_names_in_, X.columns, strict=False)
+        X_predict = pa.Table.from_pandas(pd.DataFrame(X_np[:2], columns=col_names))
+
+    # arguments to warnings.filterwarnings() that match scikit-learn's warning
+    warning_kwargs = {
+        "category": UserWarning,
+        "module": "sklearn",
+        "message": ".*feature names.*",
+    }
+
+    # input types where LightGBM supports 'feature_name="auto"'
+    types_with_feat_names = {"pa_Table", "pd_DataFrame", "pl_DataFrame"}
+
+    # case 1: no 'feature_names' passed to fit() and "feature_name='auto'" should have identical behavior
+    for fit_kwargs in ({}, {"feature_name": "auto"}):
+        model = lgb.LGBMClassifier(n_estimators=2, num_leaves=3).fit(X_fit, y, **fit_kwargs)
+
+        # n_features_in_: always set after fit
+        assert model.n_features_in_ == n_features
+
+        # feature_name_: always accessible, reflects actual names used internally
+        # feature_names_in_: absent when no named features, present otherwise
+        if fit_X_type in types_with_feat_names:
+            np_assert_array_equal(model.feature_names_in_, np.array(col_names), strict=True)
+            assert model.feature_name_ == col_names
+        else:
+            assert model.feature_name_ == default_names
+            with pytest.raises(AttributeError, match="The training data did not have feature names"):
+                model.feature_names_in_
+
+        # predict() should not raise a warning if the input did not have feature names
+        if SKLEARN_VERSION_GTE_1_6:
+            # fmt:off
+            if (
+                fit_X_type in types_with_feat_names
+                and
+                predict_X_type not in types_with_feat_names
+            ):
+            # fmt:on
+                # warning may be raised (and was from at least scikit-learn 1.6)
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", **warning_kwargs)
+                    model.predict(X_predict)
+            else:
+                # expect no warning
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("error", **warning_kwargs)
+                    model.predict(X_predict)
+
+    # case 2: 'feature_names=custom_names' (different from column names) passed to fit()
+    custom_names = ["custom_0", "custom_1"]
+    model = lgb.LGBMClassifier(n_estimators=2, num_leaves=3).fit(X_fit, y, feature_name=custom_names)
+
+    # feature names from keyword arg should be used, not any from the input data
+    np_assert_array_equal(model.feature_names_in_, np.array(custom_names), strict=True)
+    assert model.feature_name_ == custom_names
+    np_assert_array_equal(model.feature_names_in_, np.array(custom_names), strict=True)
+    assert model.n_features_in_ == n_features
+
+    # predict() should not raise a warning if input has feature names
+    if SKLEARN_VERSION_GTE_1_6:
+        if predict_X_type in types_with_feat_names:
+            # expect no warning
+            with warnings.catch_warnings():
+                warnings.filterwarnings("error", **warning_kwargs)
+                model.predict(X_predict)
+        else:
+            # warning may be raised (and was from at least scikit-learn 1.6)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", **warning_kwargs)
+                model.predict(X_predict)
 
 
 # Starting with scikit-learn 1.6 (https://github.com/scikit-learn/scikit-learn/pull/30149),
@@ -1675,12 +1863,28 @@ def test_getting_feature_names_in_pd_input(estimator_class):
 # can be compatible with scikit-learn <1.6 and >=1.6.
 #
 # This should be removed once minimum supported scikit-learn version is at least 1.6.
-if SKLEARN_VERSION_GTE_1_6:
-    parametrize_with_checks = sklearn_parametrize_with_checks
-else:
+def parametrize_with_checks(estimator, *args, **kwargs):
+    if SKLEARN_VERSION_GTE_1_6:
+        mark_decorator = sklearn_parametrize_with_checks(estimator, *args, **kwargs)
+    else:
+        mark_decorator = sklearn_parametrize_with_checks(estimator)
 
-    def parametrize_with_checks(estimator, *args, **kwargs):
-        return sklearn_parametrize_with_checks(estimator)
+    # Some time around pytest 9.1, 'pytest' started raising a deprecation warning
+    # when 'pytest.parametrize()` inputs used generators.
+    #
+    # see: https://github.com/scikit-learn/scikit-learn/issues/34738
+    #
+    # scikit-learn's `sklearn.utils.estimator_checks.parametrize_with_checks()`
+    # returns a generator of checks.
+    #
+    # This make's LightGBM's use of `sklearn.utils.estimator_checks.parametrize_with_checks()`
+    # compatible with newer and older versions of 'pytest', so tests won't be broken
+    # when pytest '10.x' starts raising an exception for those inputs.
+    #
+    # This workaround can be removed if LightGBM drops its use of parametrize_with_checks()
+    # or its minimum scikit-learn version contains https://github.com/scikit-learn/scikit-learn/pull/34448
+    argnames, argvalues = mark_decorator.args
+    return pytest.mark.parametrize(argnames, list(argvalues), **mark_decorator.kwargs)
 
 
 def _get_expected_failed_tests(estimator):
@@ -1694,6 +1898,143 @@ def _get_expected_failed_tests(estimator):
 def test_sklearn_integration(estimator, check):
     estimator.set_params(min_child_samples=1, min_data_in_bin=1)
     check(estimator)
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "__init__",
+        "get_params",
+        "predict",
+        "set_params",
+    ],
+)
+def test_estimator_docstrings_that_should_be_identical(method):
+    assert_docstrings_equal(lgb.LGBMModel, method, lgb.LGBMClassifier, method)
+    assert_docstrings_equal(lgb.LGBMClassifier, method, lgb.LGBMRanker, method)
+    assert_docstrings_equal(lgb.LGBMRanker, method, lgb.LGBMRegressor, method)
+
+
+def test_estimator_fit_docstrings_are_consistent():
+    # fit()
+    assert_docstrings_equal(
+        lgb.LGBMModel,
+        "fit",
+        lgb.LGBMClassifier,
+        "fit",
+        expected_diff=textwrap.dedent("""\
+            --- LGBMModel.fit
+            +++ LGBMClassifier.fit
+            @@ -41,13 +40,0 @@
+            -group : numpy array, pandas Series, pyarrow ChunkedArray, polars Series, list of int or float, or None, optional (default=None)
+            -    Group/query data.
+            -    Only used in the learning-to-rank task.
+            -    sum(group) = n_samples.
+            -    For example, if you have a 100-document dataset with ``group = [10, 20, 40, 10, 10, 10]``, that means that you have 6 groups,
+            -    where the first 10 records are in the first group, records 11-30 are in the second group, records 31-70 are in the third group, etc.
+            -
+            -    .. versionadded:: 4.2.0
+            -        Support for ``pyarrow`` inputs
+            -
+            -    .. versionadded:: 4.7.0
+            -        Support for ``polars`` inputs
+            -
+            @@ -67,2 +53,0 @@
+            -eval_group : list of array (same types as ``group`` supports), or None, optional (default=None)
+            -    Group data of eval data.
+            @@ -105 +90 @@
+            -self : LGBMModel
+            +self : LGBMClassifier
+        """),
+    )
+    assert_docstrings_equal(
+        lgb.LGBMClassifier,
+        "fit",
+        lgb.LGBMRanker,
+        "fit",
+        expected_diff=textwrap.dedent("""\
+            --- LGBMClassifier.fit
+            +++ LGBMRanker.fit
+            @@ -40,0 +41,13 @@
+            +group : numpy array, pandas Series, pyarrow ChunkedArray, polars Series, list of int or float, or None, optional (default=None)
+            +    Group/query data.
+            +    Only used in the learning-to-rank task.
+            +    sum(group) = n_samples.
+            +    For example, if you have a 100-document dataset with ``group = [10, 20, 40, 10, 10, 10]``, that means that you have 6 groups,
+            +    where the first 10 records are in the first group, records 11-30 are in the second group, records 31-70 are in the third group, etc.
+            +
+            +    .. versionadded:: 4.2.0
+            +        Support for ``pyarrow`` inputs
+            +
+            +    .. versionadded:: 4.7.0
+            +        Support for ``polars`` inputs
+            +
+            @@ -50,2 +62,0 @@
+            -eval_class_weight : list or None, optional (default=None)
+            -    Class weights of eval data.
+            @@ -53,0 +65,2 @@
+            +eval_group : list of array (same types as ``group`` supports), or None, optional (default=None)
+            +    Group data of eval data.
+            @@ -59,0 +73,2 @@
+            +eval_at : list or tuple of int, optional (default=(1, 2, 3, 4, 5))
+            +    The evaluation positions of the specified metric.
+            @@ -90 +105 @@
+            -self : LGBMClassifier
+            +self : LGBMRanker
+        """),
+    )
+    assert_docstrings_equal(
+        lgb.LGBMRanker,
+        "fit",
+        lgb.LGBMRegressor,
+        "fit",
+        expected_diff=textwrap.dedent("""\
+            --- LGBMRanker.fit
+            +++ LGBMRegressor.fit
+            @@ -41,13 +40,0 @@
+            -group : numpy array, pandas Series, pyarrow ChunkedArray, polars Series, list of int or float, or None, optional (default=None)
+            -    Group/query data.
+            -    Only used in the learning-to-rank task.
+            -    sum(group) = n_samples.
+            -    For example, if you have a 100-document dataset with ``group = [10, 20, 40, 10, 10, 10]``, that means that you have 6 groups,
+            -    where the first 10 records are in the first group, records 11-30 are in the second group, records 31-70 are in the third group, etc.
+            -
+            -    .. versionadded:: 4.2.0
+            -        Support for ``pyarrow`` inputs
+            -
+            -    .. versionadded:: 4.7.0
+            -        Support for ``polars`` inputs
+            -
+            @@ -65,2 +51,0 @@
+            -eval_group : list of array (same types as ``group`` supports), or None, optional (default=None)
+            -    Group data of eval data.
+            @@ -73,2 +57,0 @@
+            -eval_at : list or tuple of int, optional (default=(1, 2, 3, 4, 5))
+            -    The evaluation positions of the specified metric.
+            @@ -105 +88 @@
+            -self : LGBMRanker
+            +self : LGBMRegressor
+        """),
+    )
+
+
+def test_classifier_predict_and_predict_proba_docstrings_are_consistent():
+    assert_docstrings_equal(
+        lgb.LGBMClassifier,
+        "predict",
+        lgb.LGBMClassifier,
+        "predict_proba",
+        expected_diff=textwrap.dedent("""\
+            --- LGBMClassifier.predict
+            +++ LGBMClassifier.predict_proba
+            @@ -1 +1 @@
+            -Return the predicted value for each sample.
+            +Return the predicted probability for each class for each sample.
+            @@ -38 +38 @@
+            -predicted_result : array-like of shape = [n_samples] or shape = [n_samples, n_classes]
+            +predicted_probability : array-like of shape = [n_samples] or shape = [n_samples, n_classes]
+        """),
+    )
 
 
 @pytest.mark.parametrize("estimator_class", estimator_classes)
@@ -1795,7 +2136,7 @@ def test_multiclass_custom_eval(use_weight):
     eval_result = model.evals_result_
     train_ds = (X_train, y_train, weight_train)
     valid_ds = (X_valid, y_valid, weight_valid)
-    for key, (X, y_true, weight) in zip(["train", "valid"], [train_ds, valid_ds]):
+    for key, (X, y_true, weight) in zip(["train", "valid"], [train_ds, valid_ds], strict=True):
         np.testing.assert_allclose(eval_result[key]["multi_logloss"], eval_result[key]["custom_logloss"])
         y_pred = model.predict_proba(X)
         _, metric_value, _ = custom_eval(y_true, y_pred, weight)
@@ -1896,7 +2237,12 @@ def test_predict_rejects_inputs_with_incorrect_number_of_features(predict_disabl
         assert preds.shape[0] == y.shape[0]
 
 
-def run_minimal_test(X_type, y_type, g_type, task, rng):
+def _run_minimal_test(*, X_type, y_type, g_type, task, rng):
+    if any(t.startswith("pa_") for t in [X_type, y_type, g_type]):
+        pa = pytest.importorskip("pyarrow")
+    if any(t.startswith("pl_") for t in [X_type, y_type, g_type]):
+        pl = pytest.importorskip("polars")
+
     X, y, g = _create_data(task, n_samples=2_000)
     weights = np.abs(rng.standard_normal(size=(y.shape[0],)))
 
@@ -1917,7 +2263,9 @@ def run_minimal_test(X_type, y_type, g_type, task, rng):
     elif X_type == "pd_DataFrame":
         X = pd_DataFrame(X)
     elif X_type == "pa_Table":
-        X = pa_Table.from_pandas(pd_DataFrame(X))
+        X = pa.Table.from_pandas(pd_DataFrame(X))
+    elif X_type == "pl_DataFrame":
+        X = pl.DataFrame(X)
     elif X_type != "numpy":
         raise ValueError(f"Unrecognized X_type: '{X_type}'")
 
@@ -1941,20 +2289,20 @@ def run_minimal_test(X_type, y_type, g_type, task, rng):
             init_score = pd_DataFrame(init_score)
         else:
             init_score = pd_Series(init_score)
-    elif y_type == "pa_Array":
-        y = pa_array(y)
-        weights = pa_array(weights)
-        if task == "multiclass-classification":
-            init_score = pa_Table.from_pandas(pd_DataFrame(init_score))
-        else:
-            init_score = pa_array(init_score)
     elif y_type == "pa_ChunkedArray":
-        y = pa_chunked_array([y])
-        weights = pa_chunked_array([weights])
+        y = pa.chunked_array([y])
+        weights = pa.chunked_array([weights])
         if task == "multiclass-classification":
-            init_score = pa_Table.from_pandas(pd_DataFrame(init_score))
+            init_score = pa.Table.from_pandas(pd_DataFrame(init_score))
         else:
-            init_score = pa_chunked_array([init_score])
+            init_score = pa.chunked_array([init_score])
+    elif y_type == "pl_Series":
+        y = pl.Series(y)
+        weights = pl.Series(weights)
+        if task == "multiclass-classification":
+            init_score = pl.DataFrame(init_score)
+        else:
+            init_score = pl.Series(init_score)
     elif y_type != "numpy":
         raise ValueError(f"Unrecognized y_type: '{y_type}'")
 
@@ -1964,10 +2312,10 @@ def run_minimal_test(X_type, y_type, g_type, task, rng):
         g = g.astype("int").tolist()
     elif g_type == "pd_Series":
         g = pd_Series(g)
-    elif g_type == "pa_Array":
-        g = pa_array(g)
     elif g_type == "pa_ChunkedArray":
-        g = pa_chunked_array([g])
+        g = pa.chunked_array([g])
+    elif g_type == "pl_Series":
+        g = pl.Series(g)
     elif g_type != "numpy":
         raise ValueError(f"Unrecognized g_type: '{g_type}'")
 
@@ -1986,6 +2334,7 @@ def run_minimal_test(X_type, y_type, g_type, task, rng):
         params_fit["eval_group"] = [g]
     model.fit(**params_fit)
 
+    # --- prediction accuracy --#
     preds = model.predict(X)
     if task == "binary-classification":
         assert accuracy_score(y, preds) >= 0.99
@@ -1997,6 +2346,38 @@ def run_minimal_test(X_type, y_type, g_type, task, rng):
         assert spearmanr(preds, y).correlation >= 0.99
     else:
         raise ValueError(f"Unrecognized task: '{task}'")
+
+    # --- prediction dtypes ---#
+
+    # default predictions:
+    #
+    #  * classification: int32 or int64
+    #  * ranking: float64
+    #  * regression: float64
+    #
+    if task.endswith("classification"):
+        # preds go through LabelEncoder.inverse_transform() and have the same
+        # dtype as model.classes_ (expected to be an integer type, but exact size
+        # varies across numpy versions and operating systems)
+        assert preds.dtype == model.classes_.dtype
+        assert preds.dtype in (np.int32, np.int64)
+    else:
+        assert preds.dtype == np.float64
+
+    # raw predictions: always float64
+    preds_raw = model.predict(X, raw_score=True)
+    assert preds_raw.dtype == np.float64
+
+    # pred_contrib: always float64
+    if X_type.startswith("scipy"):
+        assert all(arr.dtype == np.float64 for arr in model.predict(X, pred_contrib=True))
+    else:
+        preds_contrib = model.predict(X, pred_contrib=True)
+        assert preds_contrib.dtype == np.float64
+
+    # pred_leavs: always int32
+    preds_leaves = model.predict(X, pred_leaf=True)
+    assert preds_leaves.dtype == np.int32
 
 
 @pytest.mark.parametrize("X_type", all_x_types)
@@ -2010,10 +2391,7 @@ def test_classification_and_regression_minimally_work_with_all_accepted_data_typ
 ):
     if any(t.startswith("pd_") for t in [X_type, y_type]) and not PANDAS_INSTALLED:
         pytest.skip("pandas is not installed")
-    if any(t.startswith("pa_") for t in [X_type, y_type]) and not PYARROW_INSTALLED:
-        pytest.skip("pyarrow is not installed")
-
-    run_minimal_test(X_type=X_type, y_type=y_type, g_type="numpy", task=task, rng=rng)
+    _run_minimal_test(X_type=X_type, y_type=y_type, g_type="numpy", task=task, rng=rng)
 
 
 @pytest.mark.parametrize("X_type", all_x_types)
@@ -2027,10 +2405,7 @@ def test_ranking_minimally_works_with_all_accepted_data_types(
 ):
     if any(t.startswith("pd_") for t in [X_type, y_type, g_type]) and not PANDAS_INSTALLED:
         pytest.skip("pandas is not installed")
-    if any(t.startswith("pa_") for t in [X_type, y_type, g_type]) and not PYARROW_INSTALLED:
-        pytest.skip("pyarrow is not installed")
-
-    run_minimal_test(X_type=X_type, y_type=y_type, g_type=g_type, task="ranking", rng=rng)
+    _run_minimal_test(X_type=X_type, y_type=y_type, g_type=g_type, task="ranking", rng=rng)
 
 
 def test_classifier_fit_detects_classes_every_time():
@@ -2048,3 +2423,142 @@ def test_classifier_fit_detects_classes_every_time():
         assert model.objective_ == "multiclass"
         model.fit(X, y_bin)
         assert model.objective_ == "binary"
+
+
+def test_eval_set_deprecation():
+    """Test use of eval_set raises deprecation warning."""
+    X, y = make_synthetic_regression(n_samples=10)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=42)
+    gbm = lgb.LGBMRegressor()
+    msg = "The argument 'eval_set' is deprecated.*"
+    with pytest.warns(LGBMDeprecationWarning, match=msg):
+        gbm.fit(X_train, y_train, eval_set=[(X_test, y_test)])
+
+
+def test_eval_set_raises():
+    """Test that eval_set and eval_X raise errors where appropriate."""
+    X, y = make_synthetic_regression(n_samples=10)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=42)
+    gbm = lgb.LGBMRegressor()
+
+    msg = "Specify either 'eval_set' or 'eval_X'.*"
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X_train, y_train, eval_set=[(X_test, y_test)], eval_X=X_test)
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X_train, y_train, eval_set=[(X_test, y_test)], eval_y=y_test)
+
+    msg = "You must specify eval_X and eval_y, not just one of them."
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X_train, y_train, eval_X=X_test)
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X_train, y_train, eval_y=y_test)
+
+    msg = "If eval_X is a tuple, y_val must be a tuple of same length, and vice versa."
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X_train, y_train, eval_X=(X_test, X_test), eval_y=y_test)
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X_train, y_train, eval_X=X_test, eval_y=(y_test, y_test))
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X_train, y_train, eval_X=(X_test,) * 3, eval_y=(y_test,) * 2)
+
+
+def test_ranker_eval_set_raises():
+    """Test that LGBMRanker raises expected errors from validating eval_group."""
+    X, y, g = _create_data(task="ranking", n_samples=1_000)
+    X_test, y_test, g_test = _create_data(task="ranking", n_samples=100)
+    gbm = lgb.LGBMRanker()
+
+    msg = "eval_group cannot be None if any of eval_set, eval_X, or eval_y are provided"
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X, y, group=g, eval_set=[(X_test, y_test)])
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X, y, group=g, eval_X=(X_test,))
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X, y, group=g, eval_y=(y_test,))
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X, y, group=g, eval_X=(X_test,), eval_y=(y_test,))
+
+    msg = re.escape("Length of eval_group (1) not equal to length of eval_set (2)")
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X, y, group=g, eval_X=(X_test, X_test), eval_y=(y_test, y_test), eval_group=[g_test])
+    with pytest.raises(ValueError, match=msg):
+        gbm.fit(X, y, group=g, eval_set=[(X_test, y_test), (X_test, y_test)], eval_group=[g_test])
+
+
+def test_eval_X_eval_y_eval_set_equivalence():
+    """Test that eval_X and eval_y are equivalent to eval_set."""
+    X, y = make_synthetic_regression()
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
+    params = {
+        "deterministic": True,
+        "force_row_wise": True,
+        "n_jobs": 1,
+        "seed": 708,
+    }
+    cbs = [lgb.early_stopping(2)]
+    gbm1 = lgb.LGBMRegressor(**params)
+    with pytest.warns(LGBMDeprecationWarning, match="The argument 'eval_set' is deprecated.*"):
+        gbm1.fit(X_train, y_train, eval_set=[(X_test, y_test)], callbacks=cbs)
+    gbm2 = lgb.LGBMRegressor(**params)
+    gbm2.fit(X_train, y_train, eval_X=X_test, eval_y=y_test, callbacks=cbs)
+    np.testing.assert_allclose(gbm1.predict(X), gbm2.predict(X))
+    assert gbm1.evals_result_["valid_0"]["l2"][0] == pytest.approx(gbm2.evals_result_["valid_0"]["l2"][0])
+    # 2 evaluation sets
+    n = X_test.shape[0]
+    X_test1, X_test2 = X_test[: n // 2], X_test[n // 2 :]
+    y_test1, y_test2 = y_test[: n // 2], y_test[n // 2 :]
+    gbm1 = lgb.LGBMRegressor(**params)
+    with pytest.warns(LGBMDeprecationWarning, match="The argument 'eval_set' is deprecated.*"):
+        gbm1.fit(X_train, y_train, eval_set=[(X_test1, y_test1), (X_test2, y_test2)], callbacks=cbs)
+    gbm2 = lgb.LGBMRegressor(**params)
+    gbm2.fit(X_train, y_train, eval_X=(X_test1, X_test2), eval_y=(y_test1, y_test2), callbacks=cbs)
+    np.testing.assert_allclose(gbm1.predict(X), gbm2.predict(X))
+    assert set(gbm2.evals_result_.keys()) == {"valid_0", "valid_1"}, (
+        f"expected 2 validation sets, 'valid_0' and 'valid_1', in evals_result_, got {gbm2.evals_result_.keys()}"
+    )
+    assert gbm1.evals_result_["valid_0"]["l2"][0] == pytest.approx(gbm2.evals_result_["valid_0"]["l2"][0])
+    assert gbm1.evals_result_["valid_1"]["l2"][0] == pytest.approx(gbm2.evals_result_["valid_1"]["l2"][0])
+    assert gbm2.evals_result_["valid_0"]["l2"] != gbm2.evals_result_["valid_1"]["l2"], (
+        "Evaluation results for the 2 validation sets are not different. This might mean they weren't both used."
+    )
+
+
+@pytest.mark.parametrize(
+    "classes",
+    [
+        pytest.param(np.array(["down", "up"]), id="string-labels"),
+        pytest.param(np.array([1, 2]), id="non-zero-based-integer-labels"),
+        pytest.param(np.array([0, 2, 7, 10]), id="non-contiguous-integer-labels"),
+    ],
+)
+@pytest.mark.parametrize("pass_as_tuples", [False, True])
+def test_classifier_eval_X_eval_y_encodes_labels(classes, pass_as_tuples, rng):
+    """Test that eval_y labels use the classifier's label encoding."""
+    X = rng.uniform(low=0.01, high=0.06, size=(1_000, 3))
+    y = rng.choice(classes, size=(X.shape[0],))
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
+
+    if pass_as_tuples:
+        eval_X = (X_test,)
+        eval_y = (y_test,)
+    else:
+        eval_X = X_test
+        eval_y = y_test
+
+    with mock.patch.object(lgb.LGBMModel, "fit") as mock_fit:
+        model = lgb.LGBMClassifier().fit(
+            X_train,
+            y_train,
+            eval_X=eval_X,
+            eval_y=eval_y,
+        )
+
+    mock_fit.assert_called_once()
+    forwarded_eval_y = mock_fit.call_args.kwargs["eval_y"]
+    expected_eval_y = model._le.transform(y_test)
+    if pass_as_tuples:
+        assert isinstance(forwarded_eval_y, tuple)
+        assert len(forwarded_eval_y) == 1
+        np.testing.assert_array_equal(forwarded_eval_y[0], expected_eval_y)
+    else:
+        np.testing.assert_array_equal(forwarded_eval_y, expected_eval_y)

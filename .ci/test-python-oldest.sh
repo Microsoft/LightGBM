@@ -6,8 +6,8 @@ echo "installing lightgbm and its dependencies"
 pip install \
     --prefer-binary \
     --upgrade \
-    -r ./.ci/pip-envs/requirements-oldest.txt \
-    dist/*.whl
+    --constraint ./.ci/pip-envs/requirements-oldest.txt \
+    "$(echo dist/*.whl)[arrow,pandas,scikit-learn]"
 
 echo "installed package versions:"
 pip freeze
@@ -35,6 +35,22 @@ echo ""
 echo "--- sklearn_example.py ---"
 echo ""
 python ./examples/python-guide/sklearn_example.py || exit 1
+echo ""
+
+echo "checking that imports work without any optional dependencies"
+pip uninstall --yes \
+    cffi \
+    dask \
+    distributed \
+    graphviz \
+    joblib \
+    matplotlib \
+    pandas \
+    psutil \
+    pyarrow \
+    scikit-learn
+
+python -c "import lightgbm"
 
 echo ""
 echo "done testing on oldest supported Python version"

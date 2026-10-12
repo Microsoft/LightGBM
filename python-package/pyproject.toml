@@ -3,64 +3,73 @@
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Natural Language :: English",
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX",
     "Operating System :: Unix",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence"
 ]
 dependencies = [
-    "numpy>=1.17.0",
+    "narwhals>=1.15",
+    "numpy>=1.21.3",
     "scipy"
 ]
 description = "LightGBM Python-package"
-license = {file = "LICENSE"}
+license = "MIT"
+license-files = [
+    "LICENSE"
+]
 maintainers = [
   {name = "Yu Shi", email = "yushi@microsoft.com"}
 ]
 name = "lightgbm"
 readme = "README.rst"
-requires-python = ">=3.9"
-version = "4.6.0.99"
+requires-python = ">=3.10"
+version = "4.7.0.99"
 
 [project.optional-dependencies]
 arrow = [
-    "cffi>=1.15.1",
-    "pyarrow>=6.0.1"
+    "narwhals[pyarrow]",
+    "pyarrow>=16.0.0"
 ]
 dask = [
     "dask[array,dataframe,distributed]>=2.0.0",
-    "pandas>=0.24.0"
+    "narwhals[pandas]",
+    "pandas>=1.3.4"
 ]
 pandas = [
-    "pandas>=0.24.0"
+    "narwhals[pandas]",
+    "pandas>=1.3.4"
 ]
 plotting = [
     "graphviz",
     "matplotlib"
 ]
+polars = [
+    "narwhals[polars]",
+    "polars>=1.0.0"
+]
 scikit-learn = [
-    "scikit-learn>=0.24.2"
+    "scikit-learn>=1.0.2"
 ]
 
 [project.urls]
-homepage = "https://github.com/microsoft/LightGBM"
+homepage = "https://github.com/lightgbm-org/LightGBM"
 documentation = "https://lightgbm.readthedocs.io/en/latest/"
-repository = "https://github.com/microsoft/LightGBM.git"
-changelog = "https://github.com/microsoft/LightGBM/releases"
+repository = "https://github.com/lightgbm-org/LightGBM.git"
+changelog = "https://github.com/lightgbm-org/LightGBM/releases"
 
 # start:build-system
 [build-system]
 
-requires = ["scikit-build-core>=0.10.1"]
+requires = ["scikit-build-core>=0.11.0"]
 build-backend = "scikit_build_core.build"
 
 # based on https://github.com/scikit-build/scikit-build-core#configuration
@@ -88,7 +97,7 @@ __BUILD_FOR_PYTHON = "ON"
 
 [tool.mypy]
 disallow_untyped_defs = true
-exclude = 'build/*|compile/*|docs/*|examples/*|external_libs/*|lightgbm-python/*|tests/*'
+exclude = 'build/*|compile/*|docs/*|examples/*|external_libs/*|lightgbm-python/*|.pixi/*|tests/*'
 ignore_missing_imports = true
 
 [tool.rstcheck]
@@ -110,7 +119,7 @@ exclude = [
 line-length = 120
 
 # this should be set to the oldest version of python LightGBM supports
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.format]
 docstring-code-format = false
@@ -205,6 +214,8 @@ raises-extend-require-match-for = ["*Exception", "*Error"]
 "tests/*" = [
     # (flake8-bugbear) Found useless expression
     "B018",
+    # (pycodestyle) Module level import not at top of file
+    "E402",
     # pydocstyle
     "D",
     # flake8-print

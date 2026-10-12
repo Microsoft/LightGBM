@@ -765,6 +765,52 @@ test_that("lgb.train() raises an informative error for unrecognized objectives",
   }, regexp = "Unknown objective type name: not_a_real_objective")
 })
 
+test_that("lgb.train() raises an informative error for unrecognized metrics", {
+  dtrain <- lgb.Dataset(
+    data = train$data
+    , label = train$label
+    , params = list(num_threads = .LGB_MAX_THREADS)
+  )
+  expect_error({
+    capture.output({
+      bst <- lgb.train(
+        data = dtrain
+        , valids = list(valid = dtrain)
+        , params = list(
+          objective = "binary"
+          , metric = "nonsense"
+          , verbosity = .LGB_VERBOSITY
+          , num_threads = .LGB_MAX_THREADS
+          , num_iterations = 2L
+        )
+      )
+    }, type = "message")
+  }, regexp = "Unknown metric 'nonsense'")
+})
+
+test_that("lgb.cv() raises an informative error for unrecognized metrics", {
+  dtrain <- lgb.Dataset(
+    data = train$data
+    , label = train$label
+    , params = list(num_threads = .LGB_MAX_THREADS)
+  )
+  expect_error({
+    capture.output({
+      bst <- lgb.cv(
+        data = dtrain
+        , params = list(
+          objective = "binary"
+          , metric = "nonsense"
+          , verbosity = .LGB_VERBOSITY
+          , num_threads = .LGB_MAX_THREADS
+        )
+        , nfold = 2L
+        , nrounds = 2L
+      )
+    }, type = "message")
+  }, regexp = "Unknown metric 'nonsense'")
+})
+
 test_that("lgb.train() respects parameter aliases for objective", {
   nrounds <- 3L
   dtrain <- lgb.Dataset(

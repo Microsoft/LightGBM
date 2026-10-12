@@ -23,6 +23,7 @@ export(lgb.drop_serialized)
 export(lgb.dump)
 export(lgb.get.eval.result)
 export(lgb.importance)
+export(lgb.interpret)
 export(lgb.interprete)
 export(lgb.load)
 export(lgb.make_serializable)
@@ -45,21 +46,29 @@ importClassesFrom(Matrix,dsparseMatrix)
 importClassesFrom(Matrix,dsparseVector)
 importFrom(Matrix,Matrix)
 importFrom(R6,R6Class)
-importFrom(data.table,":=")
-importFrom(data.table,as.data.table)
-importFrom(data.table,data.table)
-importFrom(data.table,rbindlist)
-importFrom(data.table,set)
-importFrom(data.table,setnames)
-importFrom(data.table,setorder)
-importFrom(data.table,setorderv)
-importFrom(graphics,barplot)
-importFrom(graphics,par)
+importFrom(data.table,
+  ":=",
+  as.data.table,
+  data.table,
+  rbindlist,
+  set,
+  setnames,
+  setorder,
+  setorderv
+)
+importFrom(graphics,
+  barplot,
+  par
+)
 importFrom(jsonlite,fromJSON)
-importFrom(methods,is)
-importFrom(methods,new)
+importFrom(methods,
+  is,
+  new
+)
 importFrom(parallel,detectCores)
 importFrom(stats,quantile)
-importFrom(utils,modifyList)
-importFrom(utils,read.delim)
+importFrom(utils,
+  modifyList,
+  read.delim
+)
 useDynLib(lightgbm , .registration = TRUE)

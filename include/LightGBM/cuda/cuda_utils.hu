@@ -1,5 +1,7 @@
 /*!
  * Copyright (c) 2020-2021 IBM Corporation, Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2020-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2020-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 
@@ -8,11 +10,18 @@
 
 #ifdef USE_CUDA
 
+#if defined(USE_ROCM)
+#include <LightGBM/cuda/cuda_rocm_interop.h>
+#include <rccl/rccl.h>
+#else
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <nccl.h>
+#endif
 #include <stdio.h>
 
 #include <LightGBM/utils/log.h>
+#include <LightGBM/meta.h>
 
 #include <algorithm>
 #include <vector>
@@ -31,6 +40,15 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort =
 }
 
 #define CUDASUCCESS_OR_FATAL_OUTER(ans) { gpuAssert((ans), file, line); }
+
+#define NCCLCHECK(cmd) do {                         \
+  ncclResult_t r = cmd;                             \
+  if (r!= ncclSuccess) {                            \
+    printf("Failed, NCCL error %s:%d '%s'\n",             \
+        __FILE__,__LINE__,ncclGetErrorString(r));   \
+    exit(EXIT_FAILURE);                             \
+  }                                                 \
+} while(0)
 
 void SetCUDADevice(int gpu_device_id, const char* file, int line);
 
@@ -91,6 +109,8 @@ void CopyFromCUDADeviceToCUDADeviceAsync(T* dst_ptr, const T* src_ptr, size_t si
 
 void SynchronizeCUDADevice(const char* file, const int line);
 
+void SynchronizeCUDAStream(cudaStream_t cuda_stream, const char* file, const int line);
+
 template <typename T>
 void SetCUDAMemory(T* dst_ptr, int value, size_t size, const char* file, const int line) {
   CUDASUCCESS_OR_FATAL_OUTER(cudaMemset(reinterpret_cast<void*>(dst_ptr), value, size * sizeof(T)));
@@ -144,6 +164,11 @@ class CUDAVector {
     CopyFromHostToCUDADevice(data_, host_vector.data(), host_vector.size(), __FILE__, __LINE__);
   }
 
+  void InitFromHostMemory(const T* host_memory, size_t len) {
+    Resize(len);
+    CopyFromHostToCUDADevice(data_, host_memory, len, __FILE__, __LINE__);
+  }
+
   void Clear() {
     if (size_ > 0 && data_ != nullptr) {
       DeallocateCUDAMemory<T>(&data_, __FILE__, __LINE__);
@@ -163,7 +188,7 @@ class CUDAVector {
     data_ = new_data;
   }
 
-  size_t Size() {
+  size_t Size() const {
     return size_;
   }
 
@@ -191,6 +216,19 @@ class CUDAVector {
     return data_;
   }
 
+  T* MoveTo() {
+    size_ = 0;
+    T* old_data = data_;
+    data_ = nullptr;
+    return old_data;
+  }
+
+  template <typename OTHER_T>
+  void MoveFrom(CUDAVector<OTHER_T>& other, size_t new_size) {
+    data_ = reinterpret_cast<T*>(other.MoveTo());
+    size_ = new_size;
+  }
+
  private:
   T* data_;
   size_t size_;
@@ -203,6 +241,81 @@ static __device__ T SafeLog(T x) {
   } else {
     return -INFINITY;
   }
+}
+
+class NCCLInfo {
+ public:
+  NCCLInfo() {
+    nccl_communicator_ = nullptr;
+    nccl_gpu_rank_ = -1;
+    local_gpu_rank_ = -1;
+    gpu_device_id_ = -1;
+    num_gpu_in_node_ = 0;
+    global_num_data_ = 0;
+  }
+
+  virtual void SetNCCLInfo(
+    ncclComm_t nccl_communicator,
+    int nccl_gpu_rank,
+    int local_gpu_rank,
+    int gpu_device_id,
+    data_size_t global_num_data) {
+    nccl_communicator_ = nccl_communicator;
+    nccl_gpu_rank_ = nccl_gpu_rank;
+    local_gpu_rank_ = local_gpu_rank;
+    gpu_device_id_ = gpu_device_id;
+    global_num_data_ = global_num_data;
+  }
+
+ protected:
+  ncclComm_t nccl_communicator_ = nullptr;
+  int nccl_gpu_rank_ = -1;
+  int local_gpu_rank_ = -1;
+  int gpu_device_id_ = -1;
+  int num_gpu_in_node_ = 0;
+  data_size_t global_num_data_ = 0;
+};
+
+cudaStream_t CUDAStreamCreate();
+
+void CUDAStreamDestroy(cudaStream_t cuda_stream);
+
+void NCCLGroupStart();
+
+void NCCLGroupEnd();
+
+template <typename T>
+void NCCLAllReduce(const T* send_buffer, T* recv_buffer, size_t count, ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, cudaStream_t stream) {
+  NCCLCHECK(ncclAllReduce(reinterpret_cast<const void*>(send_buffer), reinterpret_cast<void*>(recv_buffer), count, datatype, op, comm, stream));
+}
+
+template <typename T>
+void NCCLAllReduce(const T* send_buffer, T* recv_buffer, size_t count, ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm) {
+  cudaStream_t nccl_stream;
+  CUDASUCCESS_OR_FATAL(cudaStreamCreate(&nccl_stream));
+  NCCLCHECK(ncclAllReduce(reinterpret_cast<const void*>(send_buffer), reinterpret_cast<void*>(recv_buffer), count, datatype, op, comm, nccl_stream));
+  CUDASUCCESS_OR_FATAL(cudaStreamSynchronize(nccl_stream));
+  CUDASUCCESS_OR_FATAL(cudaStreamDestroy(nccl_stream));
+}
+
+template <typename T>
+T NCCLAllReduce(T send_value, ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, cudaStream_t stream) {
+  CUDAVector<T> send_buffer(1);
+  CopyFromHostToCUDADevice<T>(send_buffer.RawData(), &send_value, 1, __FILE__, __LINE__);
+  NCCLAllReduce<T>(send_buffer.RawDataReadOnly(), send_buffer.RawData(), 1, datatype, op, comm, stream);
+  T recv_value = 0;
+  CopyFromCUDADeviceToHost<T>(&recv_value, send_buffer.RawDataReadOnly(), 1, __FILE__, __LINE__);
+  return recv_value;
+}
+
+template <typename T>
+T NCCLAllReduce(T send_value, ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm) {
+  CUDAVector<T> send_buffer(1);
+  CopyFromHostToCUDADevice<T>(send_buffer.RawData(), &send_value, 1, __FILE__, __LINE__);
+  NCCLAllReduce<T>(send_buffer.RawDataReadOnly(), send_buffer.RawData(), 1, datatype, op, comm);
+  T recv_value = 0;
+  CopyFromCUDADeviceToHost<T>(&recv_value, send_buffer.RawDataReadOnly(), 1, __FILE__, __LINE__);
+  return recv_value;
 }
 
 }  // namespace LightGBM

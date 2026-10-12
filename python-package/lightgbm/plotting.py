@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 
 from .basic import Booster, _data_from_pandas, _is_zero, _log_warning, _MissingType
-from .compat import GRAPHVIZ_INSTALLED, MATPLOTLIB_INSTALLED, pd_DataFrame
+from .compat import pd_DataFrame
 from .sklearn import LGBMModel
 
 __all__ = [
@@ -103,10 +103,10 @@ def plot_importance(
     ax : matplotlib.axes.Axes
         The plot with model's feature importances.
     """
-    if MATPLOTLIB_INSTALLED:
+    try:
         import matplotlib.pyplot as plt  # noqa: PLC0415
-    else:
-        raise ImportError("You must install matplotlib and restart your session to plot importance.")
+    except ImportError as err:
+        raise ImportError("You must install matplotlib and restart your session to plot importance.") from err
 
     if isinstance(booster, LGBMModel):
         if importance_type == "auto":
@@ -124,12 +124,17 @@ def plot_importance(
     if not len(importance):
         raise ValueError("Booster's feature_importance is empty.")
 
-    tuples = sorted(zip(feature_name, importance), key=lambda x: x[1])
+    tuples = sorted(zip(feature_name, importance, strict=True), key=lambda x: x[1])
     if ignore_zero:
         tuples = [x for x in tuples if x[1] > 0]
     if max_num_features is not None and max_num_features > 0:
         tuples = tuples[-max_num_features:]
-    labels, values = zip(*tuples)
+    if not tuples:
+        raise ValueError(
+            "No non-zero feature importances found. The model may have no splits. "
+            "Use ignore_zero=False to show all features."
+        )
+    labels, values = zip(*tuples, strict=True)
 
     if ax is None:
         if figsize is not None:
@@ -139,8 +144,8 @@ def plot_importance(
     ylocs = np.arange(len(values))
     ax.barh(ylocs, values, align="center", height=height, **kwargs)
 
-    for x, y in zip(values, ylocs):
-        ax.text(x + 1, y, _float2str(x, precision) if importance_type == "gain" else x, va="center")
+    for x, y in zip(values, ylocs, strict=True):
+        ax.text(x + 1, float(y), _float2str(x, precision) if importance_type == "gain" else x, va="center")
 
     ax.set_yticks(ylocs)
     ax.set_yticklabels(labels)
@@ -234,11 +239,13 @@ def plot_split_value_histogram(
     ax : matplotlib.axes.Axes
         The plot with specified model's feature split value histogram.
     """
-    if MATPLOTLIB_INSTALLED:
+    try:
         import matplotlib.pyplot as plt  # noqa: PLC0415
         from matplotlib.ticker import MaxNLocator  # noqa: PLC0415
-    else:
-        raise ImportError("You must install matplotlib and restart your session to plot split value histogram.")
+    except ImportError as err:
+        raise ImportError(
+            "You must install matplotlib and restart your session to plot split value histogram."
+        ) from err
 
     if isinstance(booster, LGBMModel):
         booster = booster.booster_
@@ -341,10 +348,10 @@ def plot_metric(
     ax : matplotlib.axes.Axes
         The plot with metric's history over the training.
     """
-    if MATPLOTLIB_INSTALLED:
+    try:
         import matplotlib.pyplot as plt  # noqa: PLC0415
-    else:
-        raise ImportError("You must install matplotlib and restart your session to plot metric.")
+    except ImportError as err:
+        raise ImportError("You must install matplotlib and restart your session to plot metric.") from err
 
     if isinstance(booster, LGBMModel):
         eval_results = deepcopy(booster.evals_result_)
@@ -467,10 +474,10 @@ def _to_graphviz(
     See:
       - https://graphviz.readthedocs.io/en/stable/api.html#digraph
     """
-    if GRAPHVIZ_INSTALLED:
+    try:
         from graphviz import Digraph  # noqa: PLC0415
-    else:
-        raise ImportError("You must install graphviz and restart your session to plot tree.")
+    except ImportError as err:
+        raise ImportError("You must install graphviz and restart your session to plot tree.") from err
 
     def add(
         root: Dict[str, Any], total_count: int, parent: Optional[str], decision: Optional[str], highlight: bool
@@ -811,11 +818,11 @@ def plot_tree(
     ax : matplotlib.axes.Axes
         The plot with single tree.
     """
-    if MATPLOTLIB_INSTALLED:
+    try:
         import matplotlib.image  # noqa: PLC0415
         import matplotlib.pyplot as plt  # noqa: PLC0415
-    else:
-        raise ImportError("You must install matplotlib and restart your session to plot tree.")
+    except ImportError as err:
+        raise ImportError("You must install matplotlib and restart your session to plot tree.") from err
 
     if ax is None:
         if figsize is not None:

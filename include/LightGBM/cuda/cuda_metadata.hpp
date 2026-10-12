@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 
@@ -35,20 +36,20 @@ class CUDAMetadata {
 
   void SetInitScore(const double* init_score, data_size_t len);
 
-  const label_t* cuda_label() const { return cuda_label_; }
+  const label_t* cuda_label() const { return cuda_label_.RawData(); }
 
-  const label_t* cuda_weights() const { return cuda_weights_; }
+  const label_t* cuda_weights() const { return cuda_weights_.RawData(); }
 
-  const data_size_t* cuda_query_boundaries() const { return cuda_query_boundaries_; }
+  const data_size_t* cuda_query_boundaries() const { return cuda_query_boundaries_.RawData(); }
 
-  const label_t* cuda_query_weights() const { return cuda_query_weights_; }
+  const label_t* cuda_query_weights() const { return cuda_query_weights_.RawData(); }
 
  private:
-  label_t* cuda_label_;
-  label_t* cuda_weights_;
-  data_size_t* cuda_query_boundaries_;
-  label_t* cuda_query_weights_;
-  double* cuda_init_score_;
+  CUDAVector<label_t> cuda_label_;
+  CUDAVector<label_t> cuda_weights_;
+  CUDAVector<data_size_t> cuda_query_boundaries_;
+  CUDAVector<label_t> cuda_query_weights_;
+  CUDAVector<double> cuda_init_score_;
 };
 
 }  // namespace LightGBM

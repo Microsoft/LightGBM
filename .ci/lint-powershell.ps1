@@ -1,3 +1,5 @@
+$ErrorActionPreference = 'Stop'
+
 $settings = @{
     Severity = @(
         'Information',
@@ -5,7 +7,13 @@ $settings = @{
         'Error'
     )
     IncludeDefaultRules = $true
-    # Additional rules that are disabled by default
+    ExcludeRules = @(
+        'PSAvoidUsingInvokeExpression'
+    )
+    # Additional rules that are disabled by default.
+    #
+    # Some of the skips could be replaced with inline comments if PSScriptAnalyzer
+    # supports that in the future (https://github.com/PowerShell/PSScriptAnalyzer/issues/849).
     Rules = @{
         PSAvoidExclaimOperator = @{
             Enable = $true
@@ -53,4 +61,27 @@ $settings = @{
     }
 }
 
-Invoke-ScriptAnalyzer -Path ./ -Recurse -EnableExit -Settings $settings
+# this pre-listing of files can be removed whenever PSScriptAnalyzer adds support for exclusions.
+#
+# see:
+#
+#  * https://github.com/PowerShell/PSScriptAnalyzer/issues/561
+#  * https://github.com/PowerShell/vscode-powershell/issues/3048
+#
+# lint-powershell.ps1 itself is included here because linting this script itself
+# sometimes fails (non-deterministically!) with an error like "Object reference not set to an instance of an object"
+#
+$files = @(
+    Get-ChildItem -Path ./ -Recurse -Force -Filter '*.ps1' |
+        Where-Object { $_.FullName -notmatch '[/\\]bin[/\\]' } |
+        Where-Object { $_.FullName -notmatch '[/\\]external_libs[/\\]' } |
+        Where-Object { $_.FullName -notmatch '[/\\]\.pixi[/\\]' } |
+        Where-Object { $_.FullName -notmatch '[/\\]venv[/\\]' } |
+        Where-Object { $_.Name -ne 'lint-powershell.ps1' } |
+        ForEach-Object { $_.FullName }
+)
+
+foreach ($file in $files) {
+    Write-Output "linting '$file'"
+    Invoke-ScriptAnalyzer -Path $file -EnableExit -Settings $settings
+}

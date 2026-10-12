@@ -6,7 +6,7 @@ Write-Output "Downloading OpenCL platform installer"
 $ProgressPreference = "SilentlyContinue"  # progress bar bug extremely slows down download speed
 $params = @{
     OutFile = "$installer"
-    Uri = "https://github.com/microsoft/LightGBM/releases/download/v2.0.12/$installer"
+    Uri = "https://github.com/lightgbm-org/LightGBM/releases/download/v2.0.12/$installer"
 }
 Invoke-WebRequest @params
 

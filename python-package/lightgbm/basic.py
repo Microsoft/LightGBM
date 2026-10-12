@@ -21,38 +21,18 @@ from os import SEEK_END, environ
 from os.path import getsize
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, NamedTuple, Optional, Set, Tuple, Union
 
+import narwhals as nw
+import narwhals.dependencies as nwd
+import narwhals.typing as nwt
 import numpy as np
 import scipy.sparse
 
-from .compat import (
-    CFFI_INSTALLED,
-    PANDAS_INSTALLED,
-    PYARROW_INSTALLED,
-    arrow_cffi,
-    arrow_is_boolean,
-    arrow_is_floating,
-    arrow_is_integer,
-    concat,
-    pa_Array,
-    pa_chunked_array,
-    pa_ChunkedArray,
-    pa_compute,
-    pa_Table,
-    pd_CategoricalDtype,
-    pd_DataFrame,
-    pd_Series,
-)
+from .compat import PANDAS_INSTALLED, concat, pd_CategoricalDtype, pd_DataFrame, pd_Series
 
 if TYPE_CHECKING:
-    from typing import Literal
-
-    # typing.TypeGuard was only introduced in Python 3.10
-    try:
-        from typing import TypeGuard
-    except ImportError:
-        from typing_extensions import TypeGuard
+    from typing import Literal, TypeGuard
 
 
 __all__ = [
@@ -84,8 +64,6 @@ _ctypes_float_array = Union[
 ]
 _LGBM_EvalFunctionResultType = Tuple[str, float, bool]
 _LGBM_BoosterBestScoreType = Dict[str, Dict[str, float]]
-_LGBM_BoosterEvalMethodResultType = Tuple[str, str, float, bool]
-_LGBM_BoosterEvalMethodResultWithStandardDeviationType = Tuple[str, str, float, bool, float]
 _LGBM_CategoricalFeatureConfiguration = Union[List[str], List[int], "Literal['auto']"]
 _LGBM_FeatureNameConfiguration = Union[List[str], "Literal['auto']"]
 _LGBM_GroupType = Union[
@@ -93,12 +71,14 @@ _LGBM_GroupType = Union[
     List[int],
     np.ndarray,
     pd_Series,
-    pa_Array,
-    pa_ChunkedArray,
+    nwt.IntoSeries,
 ]
+# 'position' intentionally does not support 'list' inputs
+# ref: https://github.com/lightgbm-org/LightGBM/pull/5929#discussion_r1262646998
 _LGBM_PositionType = Union[
     np.ndarray,
     pd_Series,
+    nwt.IntoSeries,
 ]
 _LGBM_InitScoreType = Union[
     List[float],
@@ -106,9 +86,8 @@ _LGBM_InitScoreType = Union[
     np.ndarray,
     pd_Series,
     pd_DataFrame,
-    pa_Table,
-    pa_Array,
-    pa_ChunkedArray,
+    nwt.IntoSeries,
+    nwt.IntoDataFrame,
 ]
 _LGBM_TrainDataType = Union[
     str,
@@ -119,7 +98,7 @@ _LGBM_TrainDataType = Union[
     "Sequence",
     List["Sequence"],
     List[np.ndarray],
-    pa_Table,
+    nwt.IntoDataFrame,
 ]
 _LGBM_LabelType = Union[
     List[float],
@@ -127,8 +106,8 @@ _LGBM_LabelType = Union[
     np.ndarray,
     pd_Series,
     pd_DataFrame,
-    pa_Array,
-    pa_ChunkedArray,
+    nwt.IntoSeries,
+    nwt.IntoDataFrame,
 ]
 _LGBM_PredictDataType = Union[
     str,
@@ -136,15 +115,23 @@ _LGBM_PredictDataType = Union[
     np.ndarray,
     pd_DataFrame,
     scipy.sparse.spmatrix,
-    pa_Table,
+    nwt.IntoDataFrame,
+]
+_LGBM_PredictReturnType = Union[
+    np.ndarray,
+    scipy.sparse.spmatrix,
+    List[scipy.sparse.spmatrix],
+]
+_LGBM_PredictSparseReturnType = Union[
+    scipy.sparse.spmatrix,
+    List[scipy.sparse.spmatrix],
 ]
 _LGBM_WeightType = Union[
     List[float],
     List[int],
     np.ndarray,
     pd_Series,
-    pa_Array,
-    pa_ChunkedArray,
+    nwt.IntoSeries,
 ]
 _LGBM_SetFieldType = Union[
     List[List[float]],
@@ -154,9 +141,7 @@ _LGBM_SetFieldType = Union[
     np.ndarray,
     pd_Series,
     pd_DataFrame,
-    pa_Table,
-    pa_Array,
-    pa_ChunkedArray,
+    nwt.IntoDataFrame,
 ]
 
 ZERO_THRESHOLD = 1e-35
@@ -187,10 +172,12 @@ def _get_sample_count(total_nrow: int, params: str) -> int:
 
 
 def _np2d_to_np1d(mat: np.ndarray) -> Tuple[np.ndarray, int]:
+    dtype: "np.typing.DTypeLike"
     if mat.dtype in (np.float32, np.float64):
         dtype = mat.dtype
     else:
         dtype = np.float32
+    order: "Literal['C', 'F']"
     if mat.flags["F_CONTIGUOUS"]:
         order = "F"
         layout = _C_API_IS_COL_MAJOR
@@ -360,6 +347,7 @@ def _is_1d_collection(data: Any) -> bool:
 
 
 def _list_to_1d_numpy(
+    *,
     data: Any,
     dtype: "np.typing.DTypeLike",
     name: str,
@@ -397,65 +385,14 @@ def _is_2d_collection(data: Any) -> bool:
     return _is_numpy_2d_array(data) or _is_2d_list(data) or isinstance(data, pd_DataFrame)
 
 
-def _is_pyarrow_array(data: Any) -> "TypeGuard[Union[pa_Array, pa_ChunkedArray]]":
-    """Check whether data is a PyArrow array."""
-    return isinstance(data, (pa_Array, pa_ChunkedArray))
+_pycapsule_get_pointer = ctypes.pythonapi.PyCapsule_GetPointer
+_pycapsule_get_pointer.restype = ctypes.c_void_p
+_pycapsule_get_pointer.argtypes = [ctypes.py_object, ctypes.c_char_p]
 
 
-def _is_pyarrow_table(data: Any) -> bool:
-    """Check whether data is a PyArrow table."""
-    return isinstance(data, pa_Table)
-
-
-class _ArrowCArray:
-    """Simple wrapper around the C representation of an Arrow type."""
-
-    n_chunks: int
-    chunks: arrow_cffi.CData
-    schema: arrow_cffi.CData
-
-    def __init__(self, n_chunks: int, chunks: arrow_cffi.CData, schema: arrow_cffi.CData):
-        self.n_chunks = n_chunks
-        self.chunks = chunks
-        self.schema = schema
-
-    @property
-    def chunks_ptr(self) -> int:
-        """Returns the address of the pointer to the list of chunks making up the array."""
-        return int(arrow_cffi.cast("uintptr_t", arrow_cffi.addressof(self.chunks[0])))
-
-    @property
-    def schema_ptr(self) -> int:
-        """Returns the address of the pointer to the schema of the array."""
-        return int(arrow_cffi.cast("uintptr_t", self.schema))
-
-
-def _export_arrow_to_c(data: pa_Table) -> _ArrowCArray:
-    """Export an Arrow type to its C representation."""
-    # Obtain objects to export
-    if isinstance(data, pa_Array):
-        export_objects = [data]
-    elif isinstance(data, pa_ChunkedArray):
-        export_objects = data.chunks
-    elif isinstance(data, pa_Table):
-        export_objects = data.to_batches()
-    else:
-        raise ValueError(f"data of type '{type(data)}' cannot be exported to Arrow")
-
-    # Prepare export
-    chunks = arrow_cffi.new("struct ArrowArray[]", len(export_objects))
-    schema = arrow_cffi.new("struct ArrowSchema*")
-
-    # Export all objects
-    for i, obj in enumerate(export_objects):
-        chunk_ptr = int(arrow_cffi.cast("uintptr_t", arrow_cffi.addressof(chunks[i])))
-        if i == 0:
-            schema_ptr = int(arrow_cffi.cast("uintptr_t", schema))
-            obj._export_to_c(chunk_ptr, schema_ptr)
-        else:
-            obj._export_to_c(chunk_ptr)
-
-    return _ArrowCArray(len(chunks), chunks, schema)
+def _extract_arrow_stream_capsule_pointer(pycapsule: object) -> ctypes.c_void_p:
+    """Extract the raw pointer from a PyCapsule returned by __arrow_c_stream__."""
+    return ctypes.c_void_p(_pycapsule_get_pointer(pycapsule, b"arrow_array_stream"))
 
 
 def _data_to_2d_numpy(
@@ -517,16 +454,6 @@ def _c_str(string: str) -> ctypes.c_char_p:
 def _c_array(ctype: type, values: List[Any]) -> ctypes.Array:
     """Convert a Python array to C array."""
     return (ctype * len(values))(*values)  # type: ignore[operator]
-
-
-def _json_default_with_numpy(obj: Any) -> Any:
-    """Convert numpy classes to JSON serializable objects."""
-    if isinstance(obj, (np.integer, np.floating, np.bool_)):
-        return obj.item()
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    else:
-        return obj
 
 
 def _to_string(x: Union[int, float, str, List]) -> str:
@@ -830,14 +757,19 @@ def _data_from_pandas(
         feature_name = [str(col) for col in data.columns]
 
     # determine categorical features
-    cat_cols = [col for col, dtype in zip(data.columns, data.dtypes) if isinstance(dtype, pd_CategoricalDtype)]
+    cat_cols = [
+        col for col, dtype in zip(data.columns, data.dtypes, strict=True) if isinstance(dtype, pd_CategoricalDtype)
+    ]
+    # Ordered categoricals have ordinal semantics, which means we handle them as numeric features.
+    # By excluding them from ``categorical_feature``, the C++ backend uses ``value < threshold`` splits
+    # on their integer codes. See docs/Advanced-Topics.rst#categorical-feature-support.
     cat_cols_not_ordered: List[str] = [col for col in cat_cols if not data[col].cat.ordered]
     if pandas_categorical is None:  # train dataset
         pandas_categorical = [list(data[col].cat.categories) for col in cat_cols]
     else:
         if len(cat_cols) != len(pandas_categorical):
             raise ValueError("train and valid dataset categorical_feature do not match.")
-        for col, category in zip(cat_cols, pandas_categorical):
+        for col, category in zip(cat_cols, pandas_categorical, strict=True):
             if list(data[col].cat.categories) != list(category):
                 data[col] = data[col].cat.set_categories(category)
     if cat_cols:  # cat_cols is list
@@ -864,7 +796,7 @@ def _dump_pandas_categorical(
     pandas_categorical: Optional[List[List]],
     file_name: Optional[Union[str, Path]] = None,
 ) -> str:
-    categorical_json = json.dumps(pandas_categorical, default=_json_default_with_numpy)
+    categorical_json = json.dumps(pandas_categorical)
     pandas_str = f"\npandas_categorical:{categorical_json}\n"
     if file_name is not None:
         with open(file_name, "a") as f:
@@ -1027,13 +959,6 @@ class _InnerPredictor:
         pred_parameter : dict
             Other parameters for the prediction.
         """
-        out_cur_iter = ctypes.c_int(0)
-        _safe_call(
-            _LIB.LGBM_BoosterGetCurrentIteration(
-                booster._handle,
-                ctypes.byref(out_cur_iter),
-            )
-        )
         return cls(
             booster_handle=booster._handle,
             pandas_categorical=booster.pandas_categorical,
@@ -1095,14 +1020,21 @@ class _InnerPredictor:
         pred_contrib: bool = False,
         data_has_header: bool = False,
         validate_features: bool = False,
-    ) -> Union[np.ndarray, scipy.sparse.spmatrix, List[scipy.sparse.spmatrix]]:
+    ) -> _LGBM_PredictReturnType:
         """Predict logic.
 
         Parameters
         ----------
-        data : str, pathlib.Path, numpy array, pandas DataFrame, scipy.sparse or pyarrow Table
+        data : str, pathlib.Path, numpy array, pandas DataFrame, scipy.sparse, pyarrow Table or polars DataFrame
             Data source for prediction.
             If str or pathlib.Path, it represents the path to a text file (CSV, TSV, or LibSVM).
+
+        .. versionadded:: 4.2.0
+            Support for ``pyarrow`` inputs
+
+        .. versionadded:: 4.7.0
+            Support for ``polars`` inputs
+
         start_iteration : int, optional (default=0)
             Start index of the iteration to predict.
         num_iteration : int, optional (default=-1)
@@ -1175,14 +1107,16 @@ class _InnerPredictor:
                 preds = np.loadtxt(f.name, dtype=np.float64)
                 nrow = preds.shape[0]
         elif isinstance(data, scipy.sparse.csr_matrix):
-            preds, nrow = self.__pred_for_csr(
+            # TODO: remove 'type: ignore[assignment]' when https://github.com/lightgbm-org/LightGBM/pull/6348 is resolved.
+            preds, nrow = self.__pred_for_csr(  # type: ignore[assignment]
                 csr=data,
                 start_iteration=start_iteration,
                 num_iteration=num_iteration,
                 predict_type=predict_type,
             )
         elif isinstance(data, scipy.sparse.csc_matrix):
-            preds, nrow = self.__pred_for_csc(
+            # TODO: remove 'type: ignore[assignment]' when https://github.com/lightgbm-org/LightGBM/pull/6348 is resolved.
+            preds, nrow = self.__pred_for_csc(  # type: ignore[assignment]
                 csc=data,
                 start_iteration=start_iteration,
                 num_iteration=num_iteration,
@@ -1195,9 +1129,9 @@ class _InnerPredictor:
                 num_iteration=num_iteration,
                 predict_type=predict_type,
             )
-        elif _is_pyarrow_table(data):
-            preds, nrow = self.__pred_for_pyarrow_table(
-                table=data,
+        elif nwd.is_into_dataframe(data):
+            preds, nrow = self.__pred_for_narwhals(
+                data=nw.from_native(data),
                 start_iteration=start_iteration,
                 num_iteration=num_iteration,
                 predict_type=predict_type,
@@ -1219,7 +1153,8 @@ class _InnerPredictor:
                 csr = scipy.sparse.csr_matrix(data)
             except BaseException as err:
                 raise TypeError(f"Cannot predict data for type {type(data).__name__}") from err
-            preds, nrow = self.__pred_for_csr(
+            # TODO: remove 'type: ignore[assignment]' when https://github.com/lightgbm-org/LightGBM/pull/6348 is resolved.
+            preds, nrow = self.__pred_for_csr(  # type: ignore[assignment]
                 csr=csr,
                 start_iteration=start_iteration,
                 num_iteration=num_iteration,
@@ -1237,6 +1172,7 @@ class _InnerPredictor:
 
     def __get_num_preds(
         self,
+        *,
         start_iteration: int,
         num_iteration: int,
         nrow: int,
@@ -1317,16 +1253,21 @@ class _InnerPredictor:
 
         nrow = mat.shape[0]
         if nrow > _MAX_INT32:
-            sections = np.arange(start=_MAX_INT32, stop=nrow, step=_MAX_INT32)
+            sections = np.arange(_MAX_INT32, nrow, _MAX_INT32)
             # __get_num_preds() cannot work with nrow > MAX_INT32, so calculate overall number of predictions piecemeal
             n_preds = [
-                self.__get_num_preds(start_iteration, num_iteration, i, predict_type)
+                self.__get_num_preds(
+                    start_iteration=start_iteration,
+                    num_iteration=num_iteration,
+                    nrow=int(i),
+                    predict_type=predict_type,
+                )
                 for i in np.diff([0] + list(sections) + [nrow])
             ]
             n_preds_sections = np.array([0] + n_preds, dtype=np.intp).cumsum()
             preds = np.empty(sum(n_preds), dtype=np.float64)
             for chunk, (start_idx_pred, end_idx_pred) in zip(
-                np.array_split(mat, sections), zip(n_preds_sections, n_preds_sections[1:])
+                np.array_split(mat, sections), zip(n_preds_sections, n_preds_sections[1:], strict=True), strict=True
             ):
                 # avoid memory consumption by arrays concatenation operations
                 self.__inner_predict_np2d(
@@ -1356,7 +1297,7 @@ class _InnerPredictor:
         indptr_type: int,
         data_type: int,
         is_csr: bool,
-    ) -> Union[List[scipy.sparse.csc_matrix], List[scipy.sparse.csr_matrix]]:
+    ) -> _LGBM_PredictSparseReturnType:
         # create numpy array from output arrays
         data_indices_len = out_shape[0]
         indptr_len = out_shape[1]
@@ -1464,7 +1405,7 @@ class _InnerPredictor:
         start_iteration: int,
         num_iteration: int,
         predict_type: int,
-    ) -> Tuple[Union[List[scipy.sparse.csc_matrix], List[scipy.sparse.csr_matrix]], int]:
+    ) -> Tuple[_LGBM_PredictSparseReturnType, int]:
         ptr_indptr, type_ptr_indptr, __ = _c_int_array(csr.indptr)
         ptr_data, type_ptr_data, _ = _c_float_array(csr.data)
         csr_indices = csr.indices.astype(np.int32, copy=False)
@@ -1522,7 +1463,7 @@ class _InnerPredictor:
         start_iteration: int,
         num_iteration: int,
         predict_type: int,
-    ) -> Tuple[np.ndarray, int]:
+    ) -> Tuple[_LGBM_PredictSparseReturnType, int]:
         """Predict for a CSR data."""
         if predict_type == _C_API_PREDICT_CONTRIB:
             return self.__inner_predict_csr_sparse(
@@ -1533,13 +1474,23 @@ class _InnerPredictor:
             )
         nrow = len(csr.indptr) - 1
         if nrow > _MAX_INT32:
-            sections = [0] + list(np.arange(start=_MAX_INT32, stop=nrow, step=_MAX_INT32)) + [nrow]
+            sections = [0] + list(np.arange(_MAX_INT32, nrow, _MAX_INT32)) + [nrow]
             # __get_num_preds() cannot work with nrow > MAX_INT32, so calculate overall number of predictions piecemeal
-            n_preds = [self.__get_num_preds(start_iteration, num_iteration, i, predict_type) for i in np.diff(sections)]
+            n_preds = [
+                self.__get_num_preds(
+                    start_iteration=start_iteration,
+                    num_iteration=num_iteration,
+                    nrow=int(i),
+                    predict_type=predict_type,
+                )
+                for i in np.diff(sections)
+            ]
             n_preds_sections = np.array([0] + n_preds, dtype=np.intp).cumsum()
             preds = np.empty(sum(n_preds), dtype=np.float64)
             for (start_idx, end_idx), (start_idx_pred, end_idx_pred) in zip(
-                zip(sections, sections[1:]), zip(n_preds_sections, n_preds_sections[1:])
+                zip(sections, sections[1:], strict=True),
+                zip(n_preds_sections, n_preds_sections[1:], strict=True),
+                strict=True,
             ):
                 # avoid memory consumption by arrays concatenation operations
                 self.__inner_predict_csr(
@@ -1565,7 +1516,7 @@ class _InnerPredictor:
         start_iteration: int,
         num_iteration: int,
         predict_type: int,
-    ) -> Tuple[Union[List[scipy.sparse.csc_matrix], List[scipy.sparse.csr_matrix]], int]:
+    ) -> Tuple[_LGBM_PredictSparseReturnType, int]:
         ptr_indptr, type_ptr_indptr, __ = _c_int_array(csc.indptr)
         ptr_data, type_ptr_data, _ = _c_float_array(csc.data)
         csc_indices = csc.indices.astype(np.int32, copy=False)
@@ -1623,7 +1574,7 @@ class _InnerPredictor:
         start_iteration: int,
         num_iteration: int,
         predict_type: int,
-    ) -> Tuple[np.ndarray, int]:
+    ) -> Tuple[_LGBM_PredictSparseReturnType, int]:
         """Predict for a CSC data."""
         nrow = csc.shape[0]
         if nrow > _MAX_INT32:
@@ -1678,39 +1629,30 @@ class _InnerPredictor:
             raise ValueError("Wrong length for predict results")
         return preds, nrow
 
-    def __pred_for_pyarrow_table(
+    def __pred_for_narwhals(
         self,
-        table: pa_Table,
+        data: nw.DataFrame,
         start_iteration: int,
         num_iteration: int,
         predict_type: int,
     ) -> Tuple[np.ndarray, int]:
-        """Predict for a PyArrow table."""
-        if not (PYARROW_INSTALLED and CFFI_INSTALLED):
-            raise LightGBMError("Cannot predict from Arrow without 'pyarrow' and 'cffi' installed.")
-
-        # Check that the input is valid: we only handle numbers (for now)
-        if not all(arrow_is_integer(t) or arrow_is_floating(t) or arrow_is_boolean(t) for t in table.schema.types):
-            raise ValueError("Arrow table may only have integer or floating point datatypes")
-
+        """Predict for a narwhals DataFrame."""
         # Prepare prediction output array
         n_preds = self.__get_num_preds(
             start_iteration=start_iteration,
             num_iteration=num_iteration,
-            nrow=table.num_rows,
+            nrow=data.shape[0],
             predict_type=predict_type,
         )
         preds = np.empty(n_preds, dtype=np.float64)
         out_num_preds = ctypes.c_int64(0)
 
-        # Export Arrow table to C and run prediction
-        c_array = _export_arrow_to_c(table)
+        # Export narwhals DataFrame to Arrow and run prediction
+        pycapsule = data.__arrow_c_stream__()
         _safe_call(
-            _LIB.LGBM_BoosterPredictForArrow(
+            _LIB.LGBM_BoosterPredictForArrowStream(
                 self._handle,
-                ctypes.c_int64(c_array.n_chunks),
-                ctypes.c_void_p(c_array.chunks_ptr),
-                ctypes.c_void_p(c_array.schema_ptr),
+                _extract_arrow_stream_capsule_pointer(pycapsule),
                 ctypes.c_int(predict_type),
                 ctypes.c_int(start_iteration),
                 ctypes.c_int(num_iteration),
@@ -1721,7 +1663,7 @@ class _InnerPredictor:
         )
         if n_preds != out_num_preds.value:
             raise ValueError("Wrong length for predict results")
-        return preds, table.num_rows
+        return preds, data.shape[0]
 
     def current_iteration(self) -> int:
         """Get the index of the current iteration.
@@ -1770,26 +1712,61 @@ class Dataset:
 
         Parameters
         ----------
-        data : str, pathlib.Path, numpy array, pandas DataFrame, scipy.sparse, Sequence, list of Sequence, list of numpy array or pyarrow Table
+        data : str, pathlib.Path, numpy array, pandas DataFrame, scipy.sparse, Sequence, list of Sequence, list of numpy array, pyarrow Table or polars DataFrame
             Data source of Dataset.
             If str or pathlib.Path, it represents the path to a text file (CSV, TSV, or LibSVM) or a LightGBM Dataset binary file.
-        label : list, numpy 1-D array, pandas Series / one-column DataFrame, pyarrow Array, pyarrow ChunkedArray or None, optional (default=None)
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
+        label : list, numpy 1-D array, pandas Series / one-column DataFrame, pyarrow ChunkedArray, polars Series or None, optional (default=None)
             Label of the data.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
         reference : Dataset or None, optional (default=None)
             If this is Dataset for validation, training data should be used as reference.
-        weight : list, numpy 1-D array, pandas Series, pyarrow Array, pyarrow ChunkedArray or None, optional (default=None)
+        weight : list, numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None, optional (default=None)
             Weight for each instance. Weights should be non-negative.
-        group : list, numpy 1-D array, pandas Series, pyarrow Array, pyarrow ChunkedArray or None, optional (default=None)
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
+        group : list, numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None, optional (default=None)
             Group/query data.
             Only used in the learning-to-rank task.
             sum(group) = n_samples.
             For example, if you have a 100-document dataset with ``group = [10, 20, 40, 10, 10, 10]``, that means that you have 6 groups,
             where the first 10 records are in the first group, records 11-30 are in the second group, records 31-70 are in the third group, etc.
-        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task), pyarrow Array, pyarrow ChunkedArray, pyarrow Table (for multi-class task) or None, optional (default=None)
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
+        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task), pyarrow ChunkedArray, pyarrow Table (for multi-class task), polars Series, polars DataFrame (for multi-class task) or None, optional (default=None)
             Init score for Dataset.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
         feature_name : list of str, or 'auto', optional (default="auto")
             Feature names.
-            If 'auto' and data is pandas DataFrame or pyarrow Table, data columns names are used.
+            If 'auto' and data is pandas DataFrame, pyarrow Table, or polars DataFrame, data columns names are used.
         categorical_feature : list of str or int, or 'auto', optional (default="auto")
             Categorical features.
             If list of int, interpreted as indices.
@@ -1804,7 +1781,7 @@ class Dataset:
             Other parameters for Dataset.
         free_raw_data : bool, optional (default=True)
             If True, raw data is freed after constructing inner Dataset.
-        position : numpy 1-D array, pandas Series or None, optional (default=None)
+        position : numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None, optional (default=None)
             Position of items used in unbiased learning-to-rank task.
         """
         self._handle: Optional[_DatasetHandle] = None
@@ -1826,6 +1803,13 @@ class Dataset:
         self._params_back_up: Optional[Dict[str, Any]] = None
         self.version = 0
         self._start_row = 0  # Used when pushing rows one by one.
+        # By default, LightGBM assigns features names like Column_0, Column_1, etc.
+        # These may be overridden during construction if that raw training data is in a format
+        # that includes feature names (like a pandas DataFrame) or if the 'feature_name' keyword argument
+        # is explicitly set.
+        #
+        # This is here mostly for scikit-learn's benefit, as it tracks whether input data had feature names.
+        self._has_non_default_feature_names: bool = False
 
     def __del__(self) -> None:
         try:
@@ -1833,7 +1817,7 @@ class Dataset:
         except AttributeError:
             pass
 
-    def _create_sample_indices(self, total_nrow: int) -> np.ndarray:
+    def _create_sample_indices(self, *, total_nrow: int) -> np.ndarray:
         """Get an array of randomly chosen indices from this ``Dataset``.
 
         Indices are sampled without replacement.
@@ -2106,8 +2090,13 @@ class Dataset:
                 categorical_feature=categorical_feature,
                 pandas_categorical=self.pandas_categorical,
             )
-        elif _is_pyarrow_table(data) and feature_name == "auto":
-            feature_name = data.column_names
+        if nwd.is_into_dataframe(data) and feature_name == "auto":
+            feature_name = nw.from_native(data).schema.names()
+
+        # 'feature_name == "auto"' after the block above means no feature names were provided
+        # by either the data type (DataFrame/pyarrow) or the user's 'feature_name' argument.
+        # LightGBM will assign auto-generated names like Column_0, Column_1, etc.
+        self._has_non_default_feature_names = feature_name != "auto"
 
         # process for args
         params = {} if params is None else params
@@ -2160,26 +2149,26 @@ class Dataset:
                 )
             )
         elif isinstance(data, scipy.sparse.csr_matrix):
-            self.__init_from_csr(data, params_str, ref_dataset)
+            self.__init_from_csr(csr=data, params_str=params_str, ref_dataset=ref_dataset)
         elif isinstance(data, scipy.sparse.csc_matrix):
-            self.__init_from_csc(data, params_str, ref_dataset)
+            self.__init_from_csc(csc=data, params_str=params_str, ref_dataset=ref_dataset)
         elif isinstance(data, np.ndarray):
-            self.__init_from_np2d(data, params_str, ref_dataset)
-        elif _is_pyarrow_table(data):
-            self.__init_from_pyarrow_table(data, params_str, ref_dataset)
+            self.__init_from_np2d(mat=data, params_str=params_str, ref_dataset=ref_dataset)
+        elif nwd.is_into_dataframe(data):
+            self.__init_from_narwhals(data=nw.from_native(data), params_str=params_str, ref_dataset=ref_dataset)
         elif isinstance(data, list) and len(data) > 0:
             if _is_list_of_numpy_arrays(data):
-                self.__init_from_list_np2d(data, params_str, ref_dataset)
+                self.__init_from_list_np2d(mats=data, params_str=params_str, ref_dataset=ref_dataset)
             elif _is_list_of_sequences(data):
-                self.__init_from_seqs(data, ref_dataset)
+                self.__init_from_seqs(seqs=data, ref_dataset=ref_dataset)
             else:
                 raise TypeError("Data list can only be of ndarray or Sequence")
         elif isinstance(data, Sequence):
-            self.__init_from_seqs([data], ref_dataset)
+            self.__init_from_seqs(seqs=[data], ref_dataset=ref_dataset)
         else:
             try:
                 csr = scipy.sparse.csr_matrix(data)
-                self.__init_from_csr(csr, params_str, ref_dataset)
+                self.__init_from_csr(csr=csr, params_str=params_str, ref_dataset=ref_dataset)
             except BaseException as err:
                 raise TypeError(f"Cannot initialize Dataset from {type(data).__name__}") from err
         if label is not None:
@@ -2218,7 +2207,7 @@ class Dataset:
             row = seq[id_in_seq]
             yield row if row.flags["OWNDATA"] else row.copy()
 
-    def __sample(self, seqs: List[Sequence], total_nrow: int) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+    def __sample(self, *, seqs: List[Sequence], total_nrow: int) -> Tuple[List[np.ndarray], List[np.ndarray]]:
         """Sample data from seqs.
 
         Mimics behavior in c_api.cpp:LGBM_DatasetCreateFromMats()
@@ -2227,7 +2216,7 @@ class Dataset:
         -------
             sampled_rows, sampled_row_indices
         """
-        indices = self._create_sample_indices(total_nrow)
+        indices = self._create_sample_indices(total_nrow=total_nrow)
 
         # Select sampled rows, transpose to column order.
         sampled = np.array(list(self._yield_row_from_seqlist(seqs, indices)))
@@ -2248,6 +2237,7 @@ class Dataset:
 
     def __init_from_seqs(
         self,
+        *,
         seqs: List[Sequence],
         ref_dataset: Optional[_DatasetHandle],
     ) -> "Dataset":
@@ -2268,7 +2258,7 @@ class Dataset:
             param_str = _param_dict_to_str(self.get_params())
             sample_cnt = _get_sample_count(total_nrow, param_str)
 
-            sample_data, col_indices = self.__sample(seqs, total_nrow)
+            sample_data, col_indices = self.__sample(seqs=seqs, total_nrow=total_nrow)
             self._init_from_sample(sample_data, col_indices, sample_cnt, total_nrow)
 
         for seq in seqs:
@@ -2281,6 +2271,7 @@ class Dataset:
 
     def __init_from_np2d(
         self,
+        *,
         mat: np.ndarray,
         params_str: str,
         ref_dataset: Optional[_DatasetHandle],
@@ -2308,6 +2299,7 @@ class Dataset:
 
     def __init_from_list_np2d(
         self,
+        *,
         mats: List[np.ndarray],
         params_str: str,
         ref_dataset: Optional[_DatasetHandle],
@@ -2362,6 +2354,7 @@ class Dataset:
 
     def __init_from_csr(
         self,
+        *,
         csr: scipy.sparse.csr_matrix,
         params_str: str,
         ref_dataset: Optional[_DatasetHandle],
@@ -2396,6 +2389,7 @@ class Dataset:
 
     def __init_from_csc(
         self,
+        *,
         csc: scipy.sparse.csc_matrix,
         params_str: str,
         ref_dataset: Optional[_DatasetHandle],
@@ -2428,28 +2422,22 @@ class Dataset:
         )
         return self
 
-    def __init_from_pyarrow_table(
+    def __init_from_narwhals(
         self,
-        table: pa_Table,
+        *,
+        data: nw.DataFrame,
         params_str: str,
         ref_dataset: Optional[_DatasetHandle],
     ) -> "Dataset":
-        """Initialize data from a PyArrow table."""
-        if not (PYARROW_INSTALLED and CFFI_INSTALLED):
-            raise LightGBMError("Cannot init Dataset from Arrow without 'pyarrow' and 'cffi' installed.")
+        """Initialize data from a narwhals DataFrame."""
+        # Export narwhals DataFrame to Arrow
+        pycapsule = data.__arrow_c_stream__()
 
-        # Check that the input is valid: we only handle numbers (for now)
-        if not all(arrow_is_integer(t) or arrow_is_floating(t) or arrow_is_boolean(t) for t in table.schema.types):
-            raise ValueError("Arrow table may only have integer or floating point datatypes")
-
-        # Export Arrow table to C
-        c_array = _export_arrow_to_c(table)
+        # Create dataset
         self._handle = ctypes.c_void_p()
         _safe_call(
-            _LIB.LGBM_DatasetCreateFromArrow(
-                ctypes.c_int64(c_array.n_chunks),
-                ctypes.c_void_p(c_array.chunks_ptr),
-                ctypes.c_void_p(c_array.schema_ptr),
+            _LIB.LGBM_DatasetCreateFromArrowStream(
+                _extract_arrow_stream_capsule_pointer(pycapsule),
                 _c_str(params_str),
                 ref_dataset,
                 ctypes.byref(self._handle),
@@ -2459,6 +2447,7 @@ class Dataset:
 
     @staticmethod
     def _compare_params_for_warning(
+        *,
         params: Dict[str, Any],
         other_params: Dict[str, Any],
         ignore_keys: Set[str],
@@ -2528,7 +2517,11 @@ class Dataset:
                     )
                 else:
                     # construct subset
-                    used_indices = _list_to_1d_numpy(self.used_indices, dtype=np.int32, name="used_indices")
+                    used_indices = _list_to_1d_numpy(
+                        data=self.used_indices,
+                        dtype=np.int32,
+                        name="used_indices",
+                    )
                     assert used_indices.flags.c_contiguous
                     if self.reference.group is not None:
                         group_info = np.array(self.reference.group).astype(np.int32, copy=False)
@@ -2596,24 +2589,59 @@ class Dataset:
 
         Parameters
         ----------
-        data : str, pathlib.Path, numpy array, pandas DataFrame, scipy.sparse, Sequence, list of Sequence, list of numpy array or pyarrow Table
+        data : str, pathlib.Path, numpy array, pandas DataFrame, scipy.sparse, Sequence, list of Sequence, list of numpy array, pyarrow Table or polars DataFrame
             Data source of Dataset.
             If str or pathlib.Path, it represents the path to a text file (CSV, TSV, or LibSVM) or a LightGBM Dataset binary file.
-        label : list, numpy 1-D array, pandas Series / one-column DataFrame, pyarrow Array, pyarrow ChunkedArray or None, optional (default=None)
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
+        label : list, numpy 1-D array, pandas Series / one-column DataFrame, pyarrow ChunkedArray, polars Series or None, optional (default=None)
             Label of the data.
-        weight : list, numpy 1-D array, pandas Series, pyarrow Array, pyarrow ChunkedArray or None, optional (default=None)
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
+        weight : list, numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None, optional (default=None)
             Weight for each instance. Weights should be non-negative.
-        group : list, numpy 1-D array, pandas Series, pyarrow Array, pyarrow ChunkedArray or None, optional (default=None)
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
+        group : list, numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None, optional (default=None)
             Group/query data.
             Only used in the learning-to-rank task.
             sum(group) = n_samples.
             For example, if you have a 100-document dataset with ``group = [10, 20, 40, 10, 10, 10]``, that means that you have 6 groups,
             where the first 10 records are in the first group, records 11-30 are in the second group, records 31-70 are in the third group, etc.
-        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task), pyarrow Array, pyarrow ChunkedArray, pyarrow Table (for multi-class task) or None, optional (default=None)
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
+        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task), pyarrow ChunkedArray, pyarrow Table (for multi-class task), polars Series, polars DataFrame (for multi-class task) or None, optional (default=None)
             Init score for Dataset.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
         params : dict or None, optional (default=None)
             Other parameters for validation Dataset.
-        position : numpy 1-D array, pandas Series or None, optional (default=None)
+        position : numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None, optional (default=None)
             Position of items used in unbiased learning-to-rank task.
 
         Returns
@@ -2741,8 +2769,14 @@ class Dataset:
         ----------
         field_name : str
             The field name of the information.
-        data : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task), pyarrow Array, pyarrow ChunkedArray, pyarrow Table (for multi-class task) or None
+        data : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task), pyarrow ChunkedArray, pyarrow Table (for multi-class task), polars Series, polars DataFrame (for multi-class task) or None
             The data to be set.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
 
         Returns
         -------
@@ -2764,29 +2798,16 @@ class Dataset:
             )
             return self
 
-        # If the data is a arrow data, we can just pass it to C
-        if _is_pyarrow_array(data) or _is_pyarrow_table(data):
-            # If a table is being passed, we concatenate the columns. This is only valid for
-            # 'init_score'.
-            if _is_pyarrow_table(data):
-                if field_name != "init_score":
-                    raise ValueError(f"pyarrow tables are not supported for field '{field_name}'")
-                data = pa_chunked_array(
-                    [
-                        chunk
-                        for array in data.columns  # type: ignore
-                        for chunk in array.chunks
-                    ]
-                )
-
-            c_array = _export_arrow_to_c(data)
+        # If the data is Arrow, we can just pass it to C
+        if (nwd.is_into_dataframe(data) or nwd.is_into_series(data)) and not isinstance(
+            data, (pd_DataFrame, pd_Series)
+        ):
+            pycapsule = nw.from_native(data, allow_series=True).__arrow_c_stream__()
             _safe_call(
-                _LIB.LGBM_DatasetSetFieldFromArrow(
+                _LIB.LGBM_DatasetSetFieldFromArrowStream(
                     self._handle,
                     _c_str(field_name),
-                    ctypes.c_int64(c_array.n_chunks),
-                    ctypes.c_void_p(c_array.chunks_ptr),
-                    ctypes.c_void_p(c_array.schema_ptr),
+                    _extract_arrow_stream_capsule_pointer(pycapsule),
                 )
             )
             self.version += 1
@@ -2796,9 +2817,9 @@ class Dataset:
         if field_name == "init_score":
             dtype = np.float64
             if _is_1d_collection(data):
-                data = _list_to_1d_numpy(data, dtype=dtype, name=field_name)
+                data = _list_to_1d_numpy(data=data, dtype=dtype, name=field_name)
             elif _is_2d_collection(data):
-                data = _data_to_2d_numpy(data, dtype=dtype, name=field_name)
+                data = _data_to_2d_numpy(data=data, dtype=dtype, name=field_name)
                 data = data.ravel(order="F")
             else:
                 raise TypeError(
@@ -2810,7 +2831,7 @@ class Dataset:
                 dtype = np.int32
             else:
                 dtype = np.float32
-            data = _list_to_1d_numpy(data, dtype=dtype, name=field_name)
+            data = _list_to_1d_numpy(data=data, dtype=dtype, name=field_name)
 
         ptr_data: Union[_ctypes_float_ptr, _ctypes_int_ptr]
         if data.dtype == np.float32 or data.dtype == np.float64:
@@ -3014,6 +3035,7 @@ class Dataset:
         """
         if feature_name != "auto":
             self.feature_name = feature_name
+            self._has_non_default_feature_names = True
         if self._handle is not None and feature_name is not None and feature_name != "auto":
             if len(feature_name) != self.num_feature():
                 raise ValueError(
@@ -3034,8 +3056,14 @@ class Dataset:
 
         Parameters
         ----------
-        label : list, numpy 1-D array, pandas Series / one-column DataFrame, pyarrow Array, pyarrow ChunkedArray or None
+        label : list, numpy 1-D array, pandas Series / one-column DataFrame, pyarrow ChunkedArray, polars Series or None
             The label information to be set into Dataset.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
 
         Returns
         -------
@@ -3048,10 +3076,10 @@ class Dataset:
                 if len(label.columns) > 1:
                     raise ValueError("DataFrame for label cannot have multiple columns")
                 label_array = np.ravel(_pandas_to_numpy(label, target_dtype=np.float32))
-            elif _is_pyarrow_array(label):
+            elif (nwd.is_into_dataframe(label) or nwd.is_into_series(label)) and not isinstance(label, pd_Series):
                 label_array = label
             else:
-                label_array = _list_to_1d_numpy(label, dtype=np.float32, name="label")
+                label_array = _list_to_1d_numpy(data=label, dtype=np.float32, name="label")
             self.set_field("label", label_array)
             self.label = self.get_field("label")  # original values can be modified at cpp side
         return self
@@ -3064,8 +3092,14 @@ class Dataset:
 
         Parameters
         ----------
-        weight : list, numpy 1-D array, pandas Series, pyarrow Array, pyarrow ChunkedArray or None
+        weight : list, numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None
             Weight to be set for each data point. Weights should be non-negative.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
 
         Returns
         -------
@@ -3074,8 +3108,8 @@ class Dataset:
         """
         # Check if the weight contains values other than one
         if weight is not None:
-            if _is_pyarrow_array(weight):
-                if pa_compute.all(pa_compute.equal(weight, 1)).as_py():
+            if nwd.is_into_series(weight):
+                if (nw.from_native(weight, series_only=True) == 1).all():
                     weight = None
             elif np.all(weight == 1):
                 weight = None
@@ -3083,8 +3117,8 @@ class Dataset:
 
         # Set field
         if self._handle is not None and weight is not None:
-            if not _is_pyarrow_array(weight):
-                weight = _list_to_1d_numpy(weight, dtype=np.float32, name="weight")
+            if isinstance(weight, pd_Series) or not nwd.is_into_series(weight):
+                weight = _list_to_1d_numpy(data=weight, dtype=np.float32, name="weight")
             self.set_field("weight", weight)
             self.weight = self.get_field("weight")  # original values can be modified at cpp side
         return self
@@ -3097,8 +3131,14 @@ class Dataset:
 
         Parameters
         ----------
-        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task), pyarrow Array, pyarrow ChunkedArray, pyarrow Table (for multi-class task) or None
+        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task), pyarrow ChunkedArray, pyarrow Table (for multi-class task), polars Series, polars DataFrame (for multi-class task) or None
             Init score for Booster.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
 
         Returns
         -------
@@ -3119,12 +3159,18 @@ class Dataset:
 
         Parameters
         ----------
-        group : list, numpy 1-D array, pandas Series, pyarrow Array, pyarrow ChunkedArray or None
+        group : list, numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None
             Group/query data.
             Only used in the learning-to-rank task.
             sum(group) = n_samples.
             For example, if you have a 100-document dataset with ``group = [10, 20, 40, 10, 10, 10]``, that means that you have 6 groups,
             where the first 10 records are in the first group, records 11-30 are in the second group, records 31-70 are in the third group, etc.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
 
         Returns
         -------
@@ -3133,8 +3179,8 @@ class Dataset:
         """
         self.group = group
         if self._handle is not None and group is not None:
-            if not _is_pyarrow_array(group):
-                group = _list_to_1d_numpy(group, dtype=np.int32, name="group")
+            if isinstance(group, pd_Series) or not nwd.is_into_series(group):
+                group = _list_to_1d_numpy(data=group, dtype=np.int32, name="group")
             self.set_field("group", group)
             # original values can be modified at cpp side
             constructed_group = self.get_field("group")
@@ -3150,7 +3196,7 @@ class Dataset:
 
         Parameters
         ----------
-        position : numpy 1-D array, pandas Series or None, optional (default=None)
+        position : numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None, optional (default=None)
             Position of items used in unbiased learning-to-rank task.
 
         Returns
@@ -3160,8 +3206,10 @@ class Dataset:
         """
         self.position = position
         if self._handle is not None and position is not None:
-            position = _list_to_1d_numpy(position, dtype=np.int32, name="position")
+            if isinstance(position, pd_Series) or not nwd.is_into_series(position):
+                position = _list_to_1d_numpy(data=position, dtype=np.int32, name="position")
             self.set_field("position", position)
+            self.position = self.get_field("position")  # original values can be modified at cpp side
         return self
 
     def get_feature_name(self) -> List[str]:
@@ -3214,9 +3262,15 @@ class Dataset:
 
         Returns
         -------
-        label : list, numpy 1-D array, pandas Series / one-column DataFrame, pyarrow Array, pyarrow ChunkedArray or None
+        label : list, numpy 1-D array, pandas Series / one-column DataFrame, pyarrow ChunkedArray, polars Series or None
             The label information from the Dataset.
             For a constructed ``Dataset``, this will only return a numpy array.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
         """
         if self.label is None:
             self.label = self.get_field("label")
@@ -3227,9 +3281,15 @@ class Dataset:
 
         Returns
         -------
-        weight : list, numpy 1-D array, pandas Series, pyarrow Array, pyarrow ChunkedArray or None
+        weight : list, numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None
             Weight for each data point from the Dataset. Weights should be non-negative.
             For a constructed ``Dataset``, this will only return ``None`` or a numpy array.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
         """
         if self.weight is None:
             self.weight = self.get_field("weight")
@@ -3240,9 +3300,15 @@ class Dataset:
 
         Returns
         -------
-        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task), pyarrow Array, pyarrow ChunkedArray, pyarrow Table (for multi-class task) or None
+        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task), pyarrow ChunkedArray, pyarrow Table (for multi-class task), polars Series, polars DataFrame (for multi-class task) or None
             Init score of Booster.
             For a constructed ``Dataset``, this will only return ``None`` or a numpy array.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
         """
         if self.init_score is None:
             self.init_score = self.get_field("init_score")
@@ -3253,8 +3319,14 @@ class Dataset:
 
         Returns
         -------
-        data : str, pathlib.Path, numpy array, pandas DataFrame, scipy.sparse, Sequence, list of Sequence, list of numpy array, pyarrow Table or None
+        data : str, pathlib.Path, numpy array, pandas DataFrame, scipy.sparse, Sequence, list of Sequence, list of numpy array, pyarrow Table, polars DataFrame, or None
             Raw data used in the Dataset construction.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
         """
         if self._handle is None:
             raise Exception("Cannot get data before construct Dataset")
@@ -3267,8 +3339,9 @@ class Dataset:
                     self.data = self.data.iloc[self.used_indices].copy()
                 elif isinstance(self.data, Sequence):
                     self.data = self.data[self.used_indices]
-                elif isinstance(self.data, pa_Table):
-                    self.data = self.data.take(self.used_indices)
+                elif nwd.is_into_dataframe(self.data):
+                    indices = np.array(self.used_indices)
+                    self.data = nw.from_native(self.data)[indices].to_native()
                 elif _is_list_of_sequences(self.data) and len(self.data) > 0:
                     self.data = np.array(list(self._yield_row_from_seqlist(self.data, self.used_indices)))
                 else:
@@ -3288,13 +3361,19 @@ class Dataset:
 
         Returns
         -------
-        group : list, numpy 1-D array, pandas Series, pyarrow Array, pyarrow ChunkedArray or None
+        group : list, numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None
             Group/query data.
             Only used in the learning-to-rank task.
             sum(group) = n_samples.
             For example, if you have a 100-document dataset with ``group = [10, 20, 40, 10, 10, 10]``, that means that you have 6 groups,
             where the first 10 records are in the first group, records 11-30 are in the second group, records 31-70 are in the third group, etc.
             For a constructed ``Dataset``, this will only return ``None`` or a numpy array.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
         """
         if self.group is None:
             self.group = self.get_field("group")
@@ -3308,7 +3387,7 @@ class Dataset:
 
         Returns
         -------
-        position : numpy 1-D array, pandas Series or None
+        position : numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None
             Position of items used in unbiased learning-to-rank task.
             For a constructed ``Dataset``, this will only return ``None`` or a numpy array.
         """
@@ -3536,6 +3615,60 @@ _LGBM_CustomEvalFunction = Union[
         List[_LGBM_EvalFunctionResultType],
     ],
 ]
+
+
+class EvalResult(NamedTuple):
+    """
+    Result from computing an evaluation metric on a dataset.
+
+    In ``lightgbm<4.7.0``, evaluation results were stored in tuples like this:
+
+      * train(): ``(dataset_name, metric_name, metric_value, maximize)``
+      * cv(): ``(dataset_name, metric_name, mean(metric_value), maximize, std_dev(metric_value))``
+
+    Parameters
+    ----------
+    dataset_name : str
+        Unique identifier for the dataset this result was computed on.
+    metric_name : str
+        Unique identifier for the metric (e.g. "rmse").
+    metric_value : float
+        Value of the evaluation metric.
+    maximize : bool
+        Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
+    metric_std_dev : float or None
+        If not ``None``, the standard deviation of metric values computed over a range of results.
+        For example, used when aggregating over cross-validation folds in ``cv()``.
+    """
+
+    dataset_name: str
+    metric_name: str
+    metric_value: float
+    maximize: bool
+    metric_std_dev: Optional[float] = None
+
+    def __len__(self) -> int:
+        if not self.is_cv_result():
+            return 4
+        else:
+            return 5
+
+    def __iter__(self) -> Any:
+        i = 0
+        while i < len(self):
+            yield getattr(self, self._fields[i])
+            i += 1
+
+    def is_cv_result(self) -> bool:
+        """
+        Whether the result was created by ``cv()``.
+
+        If ``True``:
+
+          * ``metric_value`` = mean of ``metric_name`` over CV folds
+          * ``metric_std_dev`` = standard deviation of ``metric_name`` over CV folds
+        """
+        return self.metric_std_dev is not None
 
 
 class Booster:
@@ -3877,6 +4010,7 @@ class Booster:
                 return f"{tree_num}{node_type}{node_num}"
 
             def _get_split_feature(
+                *,
                 tree: Dict[str, Any],
                 feature_names: Optional[List[str]],
             ) -> Optional[str]:
@@ -3900,7 +4034,7 @@ class Booster:
             node["left_child"] = None
             node["right_child"] = None
             node["parent_index"] = parent_node
-            node["split_feature"] = _get_split_feature(tree, feature_names)
+            node["split_feature"] = _get_split_feature(tree=tree, feature_names=feature_names)
             node["split_gain"] = None
             node["threshold"] = None
             node["decision_type"] = None
@@ -4125,11 +4259,12 @@ class Booster:
         else:
             if not self.__set_objective_to_none:
                 self.reset_parameter({"objective": "none"}).__set_objective_to_none = True
-            grad, hess = fobj(self.__inner_predict(0), self.train_set)
-            return self.__boost(grad, hess)
+            grad, hess = fobj(self.__inner_predict(data_idx=0), self.train_set)
+            return self.__boost(grad=grad, hess=hess)
 
     def __boost(
         self,
+        *,
         grad: np.ndarray,
         hess: np.ndarray,
     ) -> bool:
@@ -4164,8 +4299,8 @@ class Booster:
         if self.__num_class > 1:
             grad = grad.ravel(order="F")
             hess = hess.ravel(order="F")
-        grad = _list_to_1d_numpy(grad, dtype=np.float32, name="gradient")
-        hess = _list_to_1d_numpy(hess, dtype=np.float32, name="hessian")
+        grad = _list_to_1d_numpy(data=grad, dtype=np.float32, name="gradient")
+        hess = _list_to_1d_numpy(data=hess, dtype=np.float32, name="hessian")
         assert grad.flags.c_contiguous
         assert hess.flags.c_contiguous
         if len(grad) != len(hess):
@@ -4291,7 +4426,7 @@ class Booster:
         data: Dataset,
         name: str,
         feval: Optional[Union[_LGBM_CustomEvalFunction, List[_LGBM_CustomEvalFunction]]] = None,
-    ) -> List[_LGBM_BoosterEvalMethodResultType]:
+    ) -> List[EvalResult]:
         """Evaluate for data.
 
         Parameters
@@ -4303,7 +4438,7 @@ class Booster:
         feval : callable, list of callable, or None, optional (default=None)
             Customized evaluation function.
             Each evaluation function should accept two parameters: preds, eval_data,
-            and return (eval_name, eval_result, is_higher_better) or list of such tuples.
+            and return (metric_name, metric_value, maximize) or list of such tuples.
 
                 preds : numpy 1-D array or numpy 2-D array (for multi-class task)
                     The predicted values.
@@ -4312,17 +4447,18 @@ class Booster:
                     e.g. they are raw margin instead of probability of positive class for binary task in this case.
                 eval_data : Dataset
                     A ``Dataset`` to evaluate.
-                eval_name : str
-                    The name of evaluation function (without whitespace).
-                eval_result : float
-                    The eval result.
-                is_higher_better : bool
-                    Is eval result higher better, e.g. AUC is ``is_higher_better``.
+                metric_name : str
+                    Unique identifier for the metric (e.g. "custom_adjusted_mse").
+                metric_value : float
+                    Value of the evaluation metric.
+                maximize : bool
+                    Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
 
         Returns
         -------
-        result : list
-            List with (dataset_name, eval_name, eval_result, is_higher_better) tuples.
+        result : list[EvalResult]
+            List of ``lightgbm.EvalResult`` objects, named tuples of the form
+            (dataset_name, metric_name, metric_value, maximize).
         """
         if not isinstance(data, Dataset):
             raise TypeError("Can only eval for Dataset instance")
@@ -4344,7 +4480,7 @@ class Booster:
     def eval_train(
         self,
         feval: Optional[Union[_LGBM_CustomEvalFunction, List[_LGBM_CustomEvalFunction]]] = None,
-    ) -> List[_LGBM_BoosterEvalMethodResultType]:
+    ) -> List[EvalResult]:
         """Evaluate for training data.
 
         Parameters
@@ -4352,7 +4488,7 @@ class Booster:
         feval : callable, list of callable, or None, optional (default=None)
             Customized evaluation function.
             Each evaluation function should accept two parameters: preds, eval_data,
-            and return (eval_name, eval_result, is_higher_better) or list of such tuples.
+            and return (metric_name, metric_value, maximize) or list of such tuples.
 
                 preds : numpy 1-D array or numpy 2-D array (for multi-class task)
                     The predicted values.
@@ -4361,24 +4497,25 @@ class Booster:
                     e.g. they are raw margin instead of probability of positive class for binary task in this case.
                 eval_data : Dataset
                     The training dataset.
-                eval_name : str
-                    The name of evaluation function (without whitespace).
-                eval_result : float
-                    The eval result.
-                is_higher_better : bool
-                    Is eval result higher better, e.g. AUC is ``is_higher_better``.
+                metric_name : str
+                    Unique identifier for the metric (e.g. "custom_adjusted_mse").
+                metric_value : float
+                    Value of the evaluation metric.
+                maximize : bool
+                    Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
 
         Returns
         -------
-        result : list
-            List with (train_dataset_name, eval_name, eval_result, is_higher_better) tuples.
+        result : list[EvalResult]
+            List of ``lightgbm.EvalResult`` objects, named tuples of the form
+            (dataset_name, metric_name, metric_value, maximize).
         """
         return self.__inner_eval(data_name=self._train_data_name, data_idx=0, feval=feval)
 
     def eval_valid(
         self,
         feval: Optional[Union[_LGBM_CustomEvalFunction, List[_LGBM_CustomEvalFunction]]] = None,
-    ) -> List[_LGBM_BoosterEvalMethodResultType]:
+    ) -> List[EvalResult]:
         """Evaluate for validation data.
 
         Parameters
@@ -4386,7 +4523,7 @@ class Booster:
         feval : callable, list of callable, or None, optional (default=None)
             Customized evaluation function.
             Each evaluation function should accept two parameters: preds, eval_data,
-            and return (eval_name, eval_result, is_higher_better) or list of such tuples.
+            and return (metric_name, metric_value, maximize) or list of such tuples.
 
                 preds : numpy 1-D array or numpy 2-D array (for multi-class task)
                     The predicted values.
@@ -4395,17 +4532,18 @@ class Booster:
                     e.g. they are raw margin instead of probability of positive class for binary task in this case.
                 eval_data : Dataset
                     The validation dataset.
-                eval_name : str
-                    The name of evaluation function (without whitespace).
-                eval_result : float
-                    The eval result.
-                is_higher_better : bool
-                    Is eval result higher better, e.g. AUC is ``is_higher_better``.
+                metric_name : str
+                    Unique identifier for the metric (e.g. "custom_adjusted_mse").
+                metric_value : float
+                    Value of the evaluation metric.
+                maximize : bool
+                    Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
 
         Returns
         -------
         result : list
-            List with (validation_dataset_name, eval_name, eval_result, is_higher_better) tuples.
+            List of ``lightgbm.EvalResult`` objects, named tuples of the form
+            (dataset_name, metric_name, metric_value, maximize).
         """
         return [
             item
@@ -4500,7 +4638,7 @@ class Booster:
             Loaded Booster object.
         """
         # ensure that existing Booster is freed before replacing it
-        # with a new one createdfrom file
+        # with a new one created from file
         _safe_call(_LIB.LGBM_BoosterFree(self._handle))
         self._free_buffer()
         self._handle = ctypes.c_void_p()
@@ -4658,12 +4796,7 @@ class Booster:
                 )
             )
         ret = json.loads(string_buffer.value.decode("utf-8"), object_hook=object_hook)
-        ret["pandas_categorical"] = json.loads(
-            json.dumps(
-                self.pandas_categorical,
-                default=_json_default_with_numpy,
-            )
-        )
+        ret["pandas_categorical"] = json.loads(json.dumps(self.pandas_categorical))
         return ret
 
     def predict(
@@ -4677,14 +4810,21 @@ class Booster:
         data_has_header: bool = False,
         validate_features: bool = False,
         **kwargs: Any,
-    ) -> Union[np.ndarray, scipy.sparse.spmatrix, List[scipy.sparse.spmatrix]]:
+    ) -> _LGBM_PredictReturnType:
         """Make a prediction.
 
         Parameters
         ----------
-        data : str, pathlib.Path, numpy array, pandas DataFrame, scipy.sparse or pyarrow Table
+        data : str, pathlib.Path, numpy array, pandas DataFrame, scipy.sparse, pyarrow Table or polars DataFrame
             Data source for prediction.
             If str or pathlib.Path, it represents the path to a text file (CSV, TSV, or LibSVM).
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
         start_iteration : int, optional (default=0)
             Start index of the iteration to predict.
             If <= 0, starts from the first iteration.
@@ -4763,11 +4903,25 @@ class Booster:
 
         Parameters
         ----------
-        data : str, pathlib.Path, numpy array, pandas DataFrame, scipy.sparse, Sequence, list of Sequence, list of numpy array or pyarrow Table
+        data : str, pathlib.Path, numpy array, pandas DataFrame, scipy.sparse, Sequence, list of Sequence, list of numpy array, pyarrow Table or polars DataFrame
             Data source for refit.
             If str or pathlib.Path, it represents the path to a text file (CSV, TSV, or LibSVM).
-        label : list, numpy 1-D array, pandas Series / one-column DataFrame, pyarrow Array or pyarrow ChunkedArray
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
+        label : list, numpy 1-D array, pandas Series / one-column DataFrame, pyarrow ChunkedArray, polars Series or None
             Label for refit.
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
         decay_rate : float, optional (default=0.9)
             Decay rate of refit,
             will use ``leaf_output = decay_rate * old_leaf_output + (1.0 - decay_rate) * new_leaf_output`` to refit trees.
@@ -4776,12 +4930,18 @@ class Booster:
 
             .. versionadded:: 4.0.0
 
-        weight : list, numpy 1-D array, pandas Series, pyarrow Array, pyarrow ChunkedArray or None, optional (default=None)
+        weight : list, numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None, optional (default=None)
             Weight for each ``data`` instance. Weights should be non-negative.
 
             .. versionadded:: 4.0.0
 
-        group : list, numpy 1-D array, pandas Series, pyarrow Array, pyarrow ChunkedArray or None, optional (default=None)
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
+        group : list, numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None, optional (default=None)
             Group/query size for ``data``.
             Only used in the learning-to-rank task.
             sum(group) = n_samples.
@@ -4790,10 +4950,19 @@ class Booster:
 
             .. versionadded:: 4.0.0
 
-        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task), pyarrow Array, pyarrow ChunkedArray, pyarrow Table (for multi-class task) or None, optional (default=None)
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
+
+        init_score : list, list of lists (for multi-class task), numpy array, pandas Series, pandas DataFrame (for multi-class task), pyarrow ChunkedArray, pyarrow Table (for multi-class task), polars Series, polars DataFrame (for multi-class task) or None, optional (default=None)
             Init score for ``data``.
 
             .. versionadded:: 4.0.0
+
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
+
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
 
         feature_name : list of str, or 'auto', optional (default="auto")
             Feature names for ``data``.
@@ -4865,6 +5034,31 @@ class Booster:
         )
         new_params["linear_tree"] = bool(out_is_linear.value)
         new_params.update(dataset_params)
+
+        # 'categorical_feature' can end up in self.params when a Booster
+        # is created from a model string or file... pre-process to ensure it's passed
+        # via a keyword argument to the Dataset constructor instead of 'params'.
+        new_params = _choose_param_value(
+            main_param_name="categorical_feature",
+            params=new_params,
+            default_value=None,
+        )
+        cat_features_from_params = new_params.pop("categorical_feature")
+
+        # reconcile params and keyword argument
+        if cat_features_from_params:
+            if categorical_feature == "auto":
+                categorical_feature = cat_features_from_params
+            elif cat_features_from_params != categorical_feature:
+                error_msg = (
+                    "'categorical_feature' value passed to Booster.refit() is different from  "
+                    "'categorical_feature' value found in Booster.params. "
+                    "Preferring the value passed via keyword argument. "
+                    "Using refit() to change which columns are treated as categorical is not supported. "
+                    "If you have a valid use case for this, please open an issue at https://github.com/lightgbm-org/LightGBM/issues."
+                )
+                raise LightGBMError(error_msg)
+
         train_set = Dataset(
             data=data,
             label=label,
@@ -5140,7 +5334,7 @@ class Booster:
         data_name: str,
         data_idx: int,
         feval: Optional[Union[_LGBM_CustomEvalFunction, List[_LGBM_CustomEvalFunction]]],
-    ) -> List[_LGBM_BoosterEvalMethodResultType]:
+    ) -> List[EvalResult]:
         """Evaluate training or validation data."""
         if data_idx >= self.__num_dataset:
             raise ValueError("Data_idx should be smaller than number of dataset")
@@ -5160,7 +5354,14 @@ class Booster:
             if tmp_out_len.value != self.__num_inner_eval:
                 raise ValueError("Wrong length of eval results")
             for i in range(self.__num_inner_eval):
-                ret.append((data_name, self.__name_inner_eval[i], result[i], self.__higher_better_inner_eval[i]))
+                ret.append(
+                    EvalResult(
+                        dataset_name=data_name,
+                        metric_name=self.__name_inner_eval[i],
+                        metric_value=result[i],
+                        maximize=self.__higher_better_inner_eval[i],
+                    )
+                )
         if callable(feval):
             feval = [feval]
         if feval is not None:
@@ -5171,16 +5372,29 @@ class Booster:
             for eval_function in feval:
                 if eval_function is None:
                     continue
-                feval_ret = eval_function(self.__inner_predict(data_idx), cur_data)
+                feval_ret = eval_function(self.__inner_predict(data_idx=data_idx), cur_data)
                 if isinstance(feval_ret, list):
-                    for eval_name, val, is_higher_better in feval_ret:
-                        ret.append((data_name, eval_name, val, is_higher_better))
+                    for eval_tuple in feval_ret:
+                        ret.append(
+                            EvalResult(
+                                dataset_name=data_name,
+                                metric_name=eval_tuple[0],
+                                metric_value=eval_tuple[1],
+                                maximize=eval_tuple[2],
+                            )
+                        )
                 else:
-                    eval_name, val, is_higher_better = feval_ret
-                    ret.append((data_name, eval_name, val, is_higher_better))
+                    ret.append(
+                        EvalResult(
+                            dataset_name=data_name,
+                            metric_name=feval_ret[0],
+                            metric_value=feval_ret[1],
+                            maximize=feval_ret[2],
+                        )
+                    )
         return ret
 
-    def __inner_predict(self, data_idx: int) -> np.ndarray:
+    def __inner_predict(self, *, data_idx: int) -> np.ndarray:
         """Predict for training and validation dataset."""
         if data_idx >= self.__num_dataset:
             raise ValueError("Data_idx should be smaller than number of dataset")

@@ -18,15 +18,22 @@ remap = [
     '(?P<host>^https://github\.com)/(?P<path>.*)#(?P<anchor>.*)$ $host/$path/',
 ]
 exclude = [
+    # this is what CRAN calls the "canonical" form for the package... we must keep it,
+    # even though it redirects to https://cran.r-project.org/web/packages/lightgbm/index.html
+    'https://cran\.r-project\.org/package=lightgbm',
+    # other links
     '^https://www\.swig\.org/download\.html$',
     '^https://proceedings\.neurips\.cc/.*',
     '^https://www\.amd\.com/en/support\.html$',
     '^https://www\.jstor\.org/stable/2281952$',
     '^https://dl\.acm\.org/doi/10\.1145/3298689\.3347033$',
+    '^https://.*medium\.com/.*',
+    '^https://www\.ozone3d\.net/gpu_caps_viewer/.*',
     '^https://packages\.ubuntu\.com/search.*',
     '^https://stackoverflow\.com/.*',
     '^https://.*\.stackexchange\.com/.*',
 ]
 exclude_path = [
     "(^|/)docs/.*\\.rst",
+    "(^|/)external_libs/.*",
 ]

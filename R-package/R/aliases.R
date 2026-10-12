@@ -64,7 +64,7 @@
 }
 
 # [description]
-#     Per https://github.com/microsoft/LightGBM/blob/master/docs/Parameters.rst#metric,
+#     Per https://github.com/lightgbm-org/LightGBM/blob/main/docs/Parameters.rst#metric,
 #     a few different strings can be used to indicate "no metrics".
 # [returns]
 #     A character vector

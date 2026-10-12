@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 
@@ -139,22 +140,22 @@ void CUDATree::LaunchSplitKernel(const int leaf_index,
     cuda_split_info,
     // tree structure
     num_leaves_,
-    cuda_leaf_parent_,
-    cuda_leaf_depth_,
-    cuda_left_child_,
-    cuda_right_child_,
-    cuda_split_feature_inner_,
-    cuda_split_feature_,
-    cuda_split_gain_,
-    cuda_internal_weight_,
-    cuda_internal_value_,
-    cuda_internal_count_,
-    cuda_leaf_weight_,
-    cuda_leaf_value_,
-    cuda_leaf_count_,
-    cuda_decision_type_,
-    cuda_threshold_in_bin_,
-    cuda_threshold_);
+    cuda_leaf_parent_.RawData(),
+    cuda_leaf_depth_.RawData(),
+    cuda_left_child_.RawData(),
+    cuda_right_child_.RawData(),
+    cuda_split_feature_inner_.RawData(),
+    cuda_split_feature_.RawData(),
+    cuda_split_gain_.RawData(),
+    cuda_internal_weight_.RawData(),
+    cuda_internal_value_.RawData(),
+    cuda_internal_count_.RawData(),
+    cuda_leaf_weight_.RawData(),
+    cuda_leaf_value_.RawData(),
+    cuda_leaf_count_.RawData(),
+    cuda_decision_type_.RawData(),
+    cuda_threshold_in_bin_.RawData(),
+    cuda_threshold_.RawData());
 }
 
 __global__ void SplitCategoricalKernel(  // split information
@@ -264,22 +265,22 @@ void CUDATree::LaunchSplitCategoricalKernel(const int leaf_index,
     cuda_split_info,
     // tree structure
     num_leaves_,
-    cuda_leaf_parent_,
-    cuda_leaf_depth_,
-    cuda_left_child_,
-    cuda_right_child_,
-    cuda_split_feature_inner_,
-    cuda_split_feature_,
-    cuda_split_gain_,
-    cuda_internal_weight_,
-    cuda_internal_value_,
-    cuda_internal_count_,
-    cuda_leaf_weight_,
-    cuda_leaf_value_,
-    cuda_leaf_count_,
-    cuda_decision_type_,
-    cuda_threshold_in_bin_,
-    cuda_threshold_,
+    cuda_leaf_parent_.RawData(),
+    cuda_leaf_depth_.RawData(),
+    cuda_left_child_.RawData(),
+    cuda_right_child_.RawData(),
+    cuda_split_feature_inner_.RawData(),
+    cuda_split_feature_.RawData(),
+    cuda_split_gain_.RawData(),
+    cuda_internal_weight_.RawData(),
+    cuda_internal_value_.RawData(),
+    cuda_internal_count_.RawData(),
+    cuda_leaf_weight_.RawData(),
+    cuda_leaf_value_.RawData(),
+    cuda_leaf_count_.RawData(),
+    cuda_decision_type_.RawData(),
+    cuda_threshold_in_bin_.RawData(),
+    cuda_threshold_.RawData(),
     cuda_bitset_len,
     cuda_bitset_inner_len,
     num_cat_,
@@ -297,7 +298,7 @@ __global__ void ShrinkageKernel(const double rate, double* cuda_leaf_value, cons
 void CUDATree::LaunchShrinkageKernel(const double rate) {
   const int num_threads_per_block = 1024;
   const int num_blocks = (num_leaves_ + num_threads_per_block - 1) / num_threads_per_block;
-  ShrinkageKernel<<<num_blocks, num_threads_per_block>>>(rate, cuda_leaf_value_, num_leaves_);
+  ShrinkageKernel<<<num_blocks, num_threads_per_block>>>(rate, cuda_leaf_value_.RawData(), num_leaves_);
 }
 
 __global__ void AddBiasKernel(const double val, double* cuda_leaf_value, const int num_leaves) {
@@ -310,14 +311,14 @@ __global__ void AddBiasKernel(const double val, double* cuda_leaf_value, const i
 void CUDATree::LaunchAddBiasKernel(const double val) {
   const int num_threads_per_block = 1024;
   const int num_blocks = (num_leaves_ + num_threads_per_block - 1) / num_threads_per_block;
-  AddBiasKernel<<<num_blocks, num_threads_per_block>>>(val, cuda_leaf_value_, num_leaves_);
+  AddBiasKernel<<<num_blocks, num_threads_per_block>>>(val, cuda_leaf_value_.RawData(), num_leaves_);
 }
 
 template <bool USE_INDICES>
 __global__ void AddPredictionToScoreKernel(
   // dataset information
   const data_size_t num_data,
-  void* const* cuda_data_by_column,
+  uint8_t* const* cuda_data_by_column,
   const uint8_t* cuda_column_bit_type,
   const uint32_t* cuda_feature_min_bin,
   const uint32_t* cuda_feature_max_bin,
@@ -416,12 +417,12 @@ void CUDATree::LaunchAddPredictionToScoreKernel(
       cuda_column_data->cuda_feature_to_column(),
       nullptr,
       // tree information
-      cuda_threshold_in_bin_,
-      cuda_decision_type_,
-      cuda_split_feature_inner_,
-      cuda_left_child_,
-      cuda_right_child_,
-      cuda_leaf_value_,
+      cuda_threshold_in_bin_.RawData(),
+      cuda_decision_type_.RawData(),
+      cuda_split_feature_inner_.RawData(),
+      cuda_left_child_.RawData(),
+      cuda_right_child_.RawData(),
+      cuda_leaf_value_.RawData(),
       cuda_bitset_inner_.RawDataReadOnly(),
       cuda_cat_boundaries_inner_.RawDataReadOnly(),
       // output
@@ -440,12 +441,12 @@ void CUDATree::LaunchAddPredictionToScoreKernel(
       cuda_column_data->cuda_feature_to_column(),
       used_data_indices,
       // tree information
-      cuda_threshold_in_bin_,
-      cuda_decision_type_,
-      cuda_split_feature_inner_,
-      cuda_left_child_,
-      cuda_right_child_,
-      cuda_leaf_value_,
+      cuda_threshold_in_bin_.RawData(),
+      cuda_decision_type_.RawData(),
+      cuda_split_feature_inner_.RawData(),
+      cuda_left_child_.RawData(),
+      cuda_right_child_.RawData(),
+      cuda_leaf_value_.RawData(),
       cuda_bitset_inner_.RawDataReadOnly(),
       cuda_cat_boundaries_inner_.RawDataReadOnly(),
       // output

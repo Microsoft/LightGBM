@@ -1,5 +1,26 @@
 # CRAN Submission History
 
+## v4.7.0 - Submission 1 - (July 18, 2026)
+
+### CRAN response
+
+Accepted to CRAN
+
+### Maintainer Notes
+
+This fixed the following issue reported by CRAN for several check flavors.
+
+```text
+Version: 4.6.0
+Check: whether package can be installed
+Result: WARN
+  Found the following significant warnings:
+    Warning: src/Makevars.win: Unknown C++ standard '@CXX_STD@' was ignored
+  See 'd:/Rcompile/CRANpkg/local/4.6/lightgbm.Rcheck/00install.out' for details.
+  * used C++ compiler: 'g++.exe (GCC) 14.3.0'
+Flavor: r-release-windows-x86_64
+```
+
 ## v4.6.0 - Submission 1 - (February 13, 2025)
 
 ### CRAN response
@@ -82,7 +103,7 @@ char_traits<T> for T not equal to char, wchar_t, char8_t, char16_t or char32_t i
 It will be removed in LLVM 19, so please migrate off of it. [-Wdeprecated-declarations]
 ```
 
-See https://github.com/microsoft/LightGBM/issues/6264.
+See https://github.com/lightgbm-org/LightGBM/issues/6264.
 
 ## v4.2.0 - Submission 1 - (December 7, 2023)
 
@@ -93,11 +114,11 @@ Accepted to CRAN
 ### Maintainer Notes
 
 This submission included many changes from the last 2 years, as well as fixes for a warning
-CRAN said could cause the package to be archived: https://github.com/microsoft/LightGBM/issues/6221.
+CRAN said could cause the package to be archived: https://github.com/lightgbm-org/LightGBM/issues/6221.
 
 ## v4.1.0 - not submitted
 
-v4.1.0 was not submitted to CRAN, because https://github.com/microsoft/LightGBM/issues/5987 had not been resolved.
+v4.1.0 was not submitted to CRAN, because https://github.com/lightgbm-org/LightGBM/issues/5987 had not been resolved.
 
 ## v4.0.0 - Submission 2 - (July 19, 2023)
 
@@ -106,7 +127,7 @@ v4.1.0 was not submitted to CRAN, because https://github.com/microsoft/LightGBM/
 > Dear maintainer,
 > package lightgbm_4.0.0.tar.gz does not pass the incoming checks automatically.
 
-The logs linked from those messagges showed one issue remaining on Debian (0 on Windows).
+The logs linked from those messages showed one issue remaining on Debian (0 on Windows).
 
 ```text
 * checking examples ... [7s/4s] NOTE
@@ -117,7 +138,7 @@ lgb.restore_handle 1.206  0.085   0.128 10.08
 
 ### Maintainer Notes
 
-Chose to document the issue and need for a fix in https://github.com/microsoft/LightGBM/issues/5987, but not resubmit,
+Chose to document the issue and need for a fix in https://github.com/lightgbm-org/LightGBM/issues/5987, but not resubmit,
 to avoid annoying CRAN maintainers.
 
 ## v4.0.0 - Submission 1 - (July 16, 2023)
@@ -154,7 +175,7 @@ lgb.restore_handle 1.819  0.128   0.165  11.8
 
 ### Maintainer Notes
 
-Attempted to fix these with https://github.com/microsoft/LightGBM/pull/5988 and resubmitted.
+Attempted to fix these with https://github.com/lightgbm-org/LightGBM/pull/5988 and resubmitted.
 
 ## v3.3.5 - Submission 2 - (January 16, 2023)
 
@@ -237,11 +258,11 @@ Submitted with the following comment:
 
 > This submission contains {lightgbm} 3.3.3.
 
-> Per CRAN's policies, I am submitting on it on behalf of the project's maintainer (Yu Shi), with his permission (https://github.com/microsoft/LightGBM/pull/5525).
+> Per CRAN's policies, I am submitting on it on behalf of the project's maintainer (Yu Shi), with his permission (https://github.com/lightgbm-org/LightGBM/pull/5525).
 
 > This submission includes two patches:
-> * a change to testing to avoid a failed test related to non-ASCII strings on the `r-devel-linux-x86_64-debian-clang` check flavor (https://github.com/microsoft/LightGBM/pull/5526)
-> * modifications to allow compatibility with the RTools42 build toolchain (https://github.com/microsoft/LightGBM/pull/5503)
+> * a change to testing to avoid a failed test related to non-ASCII strings on the `r-devel-linux-x86_64-debian-clang` check flavor (https://github.com/lightgbm-org/LightGBM/pull/5526)
+> * modifications to allow compatibility with the RTools42 build toolchain (https://github.com/lightgbm-org/LightGBM/pull/5503)
 
 > Thank you very much for your time and consideration.
 
@@ -374,19 +395,19 @@ CRAN completed its checks and preparation of binaries on November 6, 2021.
 
 Submitted v3.3.1 to CRAN, with the following fixes for the issues that caused CRAN to reject v3.3.0 and archive the package:
 
-* https://github.com/microsoft/LightGBM/pull/4673
-* https://github.com/microsoft/LightGBM/pull/4714
+* https://github.com/lightgbm-org/LightGBM/pull/4673
+* https://github.com/lightgbm-org/LightGBM/pull/4714
 
 Submitted with the following comment:
 
 > This submission contains {lightgbm} 3.3.1.
-> Per CRAN's policies, I am submitting on it on behalf of the project's maintainer (Yu Shi), with his permission (https://github.com/microsoft/LightGBM/pull/4715#issuecomment-952537783).
+> Per CRAN's policies, I am submitting on it on behalf of the project's maintainer (Yu Shi), with his permission (https://github.com/lightgbm-org/LightGBM/pull/4715#issuecomment-952537783).
 
-> {lightgbm} was removed from CRAN on October 25, 2021 due to issues detected in the gcc-ASAN and clang-ASAN checks. To the best of our knowledge, we believe this release fixes those issues. We have introduced automated testing that we believe faithfully reproduces CRAN's tests with sanitizers (https://github.com/microsoft/LightGBM/pull/4678).
+> {lightgbm} was removed from CRAN on October 25, 2021 due to issues detected in the gcc-ASAN and clang-ASAN checks. To the best of our knowledge, we believe this release fixes those issues. We have introduced automated testing that we believe faithfully reproduces CRAN's tests with sanitizers (https://github.com/lightgbm-org/LightGBM/pull/4678).
 
 > Thank you very much for your time and consideration.
 
-Progress on the submission was tracked in https://github.com/microsoft/LightGBM/issues/4713.
+Progress on the submission was tracked in https://github.com/lightgbm-org/LightGBM/issues/4713.
 
 ## v3.3.0 - Submission 1 - (October 8, 2021)
 
@@ -408,7 +429,7 @@ On October 12, 2021, maintainers received the following message from CRAN (riple
 
 We failed to produce a new submission prior to that date, so the package was removed entirely.
 
-See https://github.com/microsoft/LightGBM/issues/4713 for additional background and links explaining the specific failed CRAN checks.
+See https://github.com/lightgbm-org/LightGBM/issues/4713 for additional background and links explaining the specific failed CRAN checks.
 
 ### Maintainer Notes
 
@@ -455,7 +476,7 @@ Submitted a fix to 3.1.0 that skips some learning-to-rank tests on 32-bit Window
 
 Accepted to CRAN, November 18.
 
-On November 21, found out that the CRAN's `r-oldrel-windows-ix86+x86_64` check was failing, with an issue similar to the one faced on Solaris and fixed in https://github.com/microsoft/LightGBM/pull/3534.
+On November 21, found out that the CRAN's `r-oldrel-windows-ix86+x86_64` check was failing, with an issue similar to the one faced on Solaris and fixed in https://github.com/lightgbm-org/LightGBM/pull/3534.
 
 CRAN did not ask for a re-submission, but this was fixed in 3.1.1.
 
@@ -468,7 +489,7 @@ Hello,
 
 I'm submitting {lightgbm} 3.1.0 on behalf of the maintainer, Guolin Ke. I am a co-author on the package, and he has asked me to handle this submission. We saw in https://cran.r-project.org/web/packages/policies.html#Submission that this is permitted.
 
-{lightgbm} was removed from CRAN in October for issues found by valgrind checks. We have invested significant effort in addressing those issues and creating an automatic test that tries to replicate CRAN's valgrind checks: https://github.com/microsoft/LightGBM/blob/742d72f8bb051105484fd5cca11620493ffb0b2b/.github/workflows/r_valgrind.yml.
+{lightgbm} was removed from CRAN in October for issues found by valgrind checks. We have invested significant effort in addressing those issues and creating an automatic test that tries to replicate CRAN's valgrind checks: https://github.com/lightgbm-org/LightGBM/blob/742d72f8bb051105484fd5cca11620493ffb0b2b/.github/workflows/r_valgrind.yml.
 
 We see two warnings from valgrind that we believe are not problematic.
 
@@ -544,7 +565,7 @@ The content of that frustrated message was regrettable and it does not need to b
 
 The 3.0.0.x series is officially not making it to CRAN. We will wait until November, and try again.
 
-Detailed plan about what will be tried before November 2020 to increase the likelihood of success for that package: https://github.com/microsoft/LightGBM/pull/3338#issuecomment-702756840.
+Detailed plan about what will be tried before November 2020 to increase the likelihood of success for that package: https://github.com/lightgbm-org/LightGBM/pull/3338#issuecomment-702756840.
 
 ## v3.0.0.1 - Submission 1 - (September 24, 2020)
 
@@ -570,7 +591,7 @@ Please fix and resubmit.
 
 ### Maintainer Notes
 
-Ok, these are the notes from the UBSAN tests. Was able to reproduce them with https://github.com/microsoft/LightGBM/pull/3338#issuecomment-700399862, and they were fixed in https://github.com/microsoft/LightGBM/pull/3415.
+Ok, these are the notes from the UBSAN tests. Was able to reproduce them with https://github.com/lightgbm-org/LightGBM/pull/3338#issuecomment-700399862, and they were fixed in https://github.com/lightgbm-org/LightGBM/pull/3415.
 
 Struggling to replicate the valgrind result (running `R CMD check --use-valgrind` returns no issues), so trying submission again. Hoping that the fixes for mis-alignment fix the other errors too.
 
@@ -629,7 +650,7 @@ ERROR: compilation failed for package ‘lightgbm’
 
 ### Maintainer Notes
 
-Added a patch that `psutil` has used to fix missing `ifaddrs.h` on Solaris 10: https://github.com/microsoft/LightGBM/issues/629#issuecomment-665091451.
+Added a patch that `psutil` has used to fix missing `ifaddrs.h` on Solaris 10: https://github.com/lightgbm-org/LightGBM/issues/629#issuecomment-665091451.
 
 ## v3.0.0 - Submission 4 - (September 4, 2020)
 
@@ -702,7 +723,7 @@ Responded to CRAN with the following:
 
 The paper citation has been adjusted as requested. We were using 'glmnet' as a  guide on how to include the URL but maybe they are no longer in compliance with CRAN policies: https://github.com/cran/glmnet/blob/b1a4b50de01e0cd24343959d7cf86452bac17b26/DESCRIPTION
 
-All authors from the original LightGBM paper have been added to Authors@R as `"aut"`. We have also added Microsoft and DropBox, Inc. as `"cph"` (copyright holders). These roles were chosen based on the guidance in https://journal.r-project.org/archive/2012/RJ-2012-009/index.html.
+All authors from the original LightGBM paper have been added to Authors@R as `"aut"`. We have also added Microsoft and DropBox, Inc. as `"cph"` (copyright holders). These roles were chosen based on the guidance in https://journal.r-project.org/articles/RJ-2012-009/index.html.
 
 lightgbm's code does use `<<-`, but it does not modify the global environment. The uses of `<<-` in R/lgb.interprete.R and R/callback.R are in functions which are called in an environment created by the lightgbm functions that call them, and this operator is used to reach one level up into the calling function's environment.
 
@@ -870,7 +891,7 @@ Failing pre-checks.
 
 The "checking CRAN incoming feasibility" NOTE can be safely ignored. It only shows up the first time you submit a package to CRAN.
 
-So the only thing I see broken right now is the test error on 32-bit Windows. This is documented in https://github.com/microsoft/LightGBM/issues/3187.
+So the only thing I see broken right now is the test error on 32-bit Windows. This is documented in https://github.com/lightgbm-org/LightGBM/issues/3187.
 
 ## v3.0.0-1 - Submission 2 - (August 10, 2020)
 

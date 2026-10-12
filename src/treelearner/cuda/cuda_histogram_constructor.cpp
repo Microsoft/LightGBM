@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for
  * license information.
  */
@@ -118,13 +119,15 @@ void CUDAHistogramConstructor::Init(const Dataset* train_data, TrainingShareStat
 void CUDAHistogramConstructor::ConstructHistogramForLeaf(
   const CUDALeafSplitsStruct* cuda_smaller_leaf_splits,
   const CUDALeafSplitsStruct* /*cuda_larger_leaf_splits*/,
+  const data_size_t global_num_data_in_smaller_leaf,
+  const data_size_t global_num_data_in_larger_leaf,
   const data_size_t num_data_in_smaller_leaf,
-  const data_size_t num_data_in_larger_leaf,
+  const data_size_t /*num_data_in_larger_leaf*/,
   const double sum_hessians_in_smaller_leaf,
   const double sum_hessians_in_larger_leaf,
   const uint8_t num_bits_in_histogram_bins) {
-  if ((num_data_in_smaller_leaf <= min_data_in_leaf_ || sum_hessians_in_smaller_leaf <= min_sum_hessian_in_leaf_) &&
-    (num_data_in_larger_leaf <= min_data_in_leaf_ || sum_hessians_in_larger_leaf <= min_sum_hessian_in_leaf_)) {
+if ((global_num_data_in_smaller_leaf <= min_data_in_leaf_ || sum_hessians_in_smaller_leaf <= min_sum_hessian_in_leaf_) &&
+    (global_num_data_in_larger_leaf <= min_data_in_leaf_ || sum_hessians_in_larger_leaf <= min_sum_hessian_in_leaf_)) {
     return;
   }
   LaunchConstructHistogramKernel(cuda_smaller_leaf_splits, num_data_in_smaller_leaf, num_bits_in_histogram_bins);

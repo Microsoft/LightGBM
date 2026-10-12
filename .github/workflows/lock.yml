@@ -9,25 +9,30 @@ on:
   # allow manual triggering from GitHub UI
   workflow_dispatch:
 
-permissions:
-  issues: write
-  pull-requests: write
-
+# only 1 job running in the repo at any time
 concurrency:
   group: lock
+
+# default to 0 permissions
+# (job-level overrides add the minimal permissions needed)
+permissions:
+  contents: none
 
 jobs:
   action:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
     steps:
-      - uses: dessant/lock-threads@v5
+      - uses: dessant/lock-threads@89ae32b08ed1a541efecbab17912962a5e38981c  # v6.0.2
         with:
           github-token: ${{ github.token }}
           # after how many days of inactivity should a closed issue/PR be locked?
           issue-inactive-days: '365'
           pr-inactive-days: '365'
           # do not close feature request issues...
-          # we close those but track them in https://github.com/microsoft/LightGBM/issues/2302
+          # we close those but track them in https://github.com/lightgbm-org/LightGBM/issues/2302
           exclude-any-issue-labels: 'feature request'
           # what labels should be removed prior to locking?
           remove-issue-labels: 'awaiting response,awaiting review,blocking,in progress'
@@ -38,14 +43,14 @@ jobs:
             since there has not been any recent activity since it was closed.
 
             To start a new related discussion,
-            open a new issue at https://github.com/microsoft/LightGBM/issues
+            open a new issue at https://github.com/lightgbm-org/LightGBM/issues
             including a reference to this.
           pr-comment: >
             This pull request has been automatically locked
             since there has not been any recent activity since it was closed.
 
             To start a new related discussion,
-            open a new issue at https://github.com/microsoft/LightGBM/issues
+            open a new issue at https://github.com/lightgbm-org/LightGBM/issues
             including a reference to this.
           # what should the locking status be?
           issue-lock-reason: 'resolved'

@@ -71,13 +71,13 @@ For example, the following command line will keep ``num_trees=10`` and ignore th
 Examples
 --------
 
--  `Binary Classification <https://github.com/microsoft/LightGBM/tree/master/examples/binary_classification>`__
+-  `Binary Classification <https://github.com/lightgbm-org/LightGBM/tree/main/examples/binary_classification>`__
 
--  `Regression <https://github.com/microsoft/LightGBM/tree/master/examples/regression>`__
+-  `Regression <https://github.com/lightgbm-org/LightGBM/tree/main/examples/regression>`__
 
--  `Lambdarank <https://github.com/microsoft/LightGBM/tree/master/examples/lambdarank>`__
+-  `Lambdarank <https://github.com/lightgbm-org/LightGBM/tree/main/examples/lambdarank>`__
 
--  `Distributed Learning <https://github.com/microsoft/LightGBM/tree/master/examples/parallel_learning>`__
+-  `Distributed Learning <https://github.com/lightgbm-org/LightGBM/tree/main/examples/parallel_learning>`__
 
 .. _CSV: https://en.wikipedia.org/wiki/Comma-separated_values
 

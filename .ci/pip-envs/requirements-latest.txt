@@ -8,15 +8,17 @@
 #   * latest versions of lightgbm's dependencies,
 #   * including pre-releases and nightlies
 #
-cffi>=1.17.1
+cffi>=2.0.0
 matplotlib>=3.11.0.dev0
-numpy>=2.4.0.dev0
-pandas>=3.0.0.dev0
-pyarrow>=21.0.0.dev0
-scikit-learn>=1.8.dev0
-scipy>=1.17.0.dev0
+narwhals>=2.21.0.dev0
+numpy>=2.5.0.dev0
+pandas>=3.1.0.dev0
+polars>=1.40.1.dev0
+pyarrow>=24.0.0.dev0
+scikit-learn>=1.9.dev0
+scipy>=1.18.0.dev0
 
 # testing-only dependencies
-cloudpickle>=3.1.1
-psutil>=7.0
-pytest>=8.4.1
+cloudpickle>=3.1.2
+psutil>=7.2.2
+pytest>=9.0.2

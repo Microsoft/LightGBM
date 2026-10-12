@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 
@@ -34,178 +35,51 @@ CUDATree::CUDATree(const Tree* host_tree):
 }
 
 CUDATree::~CUDATree() {
-  DeallocateCUDAMemory<int>(&cuda_left_child_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<int>(&cuda_right_child_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<int>(&cuda_split_feature_inner_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<int>(&cuda_split_feature_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<int>(&cuda_leaf_depth_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<int>(&cuda_leaf_parent_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<uint32_t>(&cuda_threshold_in_bin_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<double>(&cuda_threshold_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<double>(&cuda_internal_weight_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<double>(&cuda_internal_value_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<int8_t>(&cuda_decision_type_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<double>(&cuda_leaf_value_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<data_size_t>(&cuda_leaf_count_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<double>(&cuda_leaf_weight_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<data_size_t>(&cuda_internal_count_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<float>(&cuda_split_gain_, __FILE__, __LINE__);
   gpuAssert(cudaStreamDestroy(cuda_stream_), __FILE__, __LINE__);
 }
 
 void CUDATree::InitCUDAMemory() {
-  AllocateCUDAMemory<int>(&cuda_left_child_,
-                               static_cast<size_t>(max_leaves_),
-                               __FILE__,
-                               __LINE__);
-  AllocateCUDAMemory<int>(&cuda_right_child_,
-                               static_cast<size_t>(max_leaves_),
-                               __FILE__,
-                               __LINE__);
-  AllocateCUDAMemory<int>(&cuda_split_feature_inner_,
-                               static_cast<size_t>(max_leaves_),
-                               __FILE__,
-                               __LINE__);
-  AllocateCUDAMemory<int>(&cuda_split_feature_,
-                               static_cast<size_t>(max_leaves_),
-                               __FILE__,
-                               __LINE__);
-  AllocateCUDAMemory<int>(&cuda_leaf_depth_,
-                               static_cast<size_t>(max_leaves_),
-                               __FILE__,
-                               __LINE__);
-  AllocateCUDAMemory<int>(&cuda_leaf_parent_,
-                               static_cast<size_t>(max_leaves_),
-                               __FILE__,
-                               __LINE__);
-  AllocateCUDAMemory<uint32_t>(&cuda_threshold_in_bin_,
-                                    static_cast<size_t>(max_leaves_),
-                                    __FILE__,
-                                    __LINE__);
-  AllocateCUDAMemory<double>(&cuda_threshold_,
-                                  static_cast<size_t>(max_leaves_),
-                                  __FILE__,
-                                  __LINE__);
-  AllocateCUDAMemory<int8_t>(&cuda_decision_type_,
-                                  static_cast<size_t>(max_leaves_),
-                                  __FILE__,
-                                  __LINE__);
-  AllocateCUDAMemory<double>(&cuda_leaf_value_,
-                                  static_cast<size_t>(max_leaves_),
-                                  __FILE__,
-                                  __LINE__);
-  AllocateCUDAMemory<double>(&cuda_internal_weight_,
-                                  static_cast<size_t>(max_leaves_),
-                                  __FILE__,
-                                  __LINE__);
-  AllocateCUDAMemory<double>(&cuda_internal_value_,
-                                  static_cast<size_t>(max_leaves_),
-                                  __FILE__,
-                                  __LINE__);
-  AllocateCUDAMemory<double>(&cuda_leaf_weight_,
-                             static_cast<size_t>(max_leaves_),
-                             __FILE__,
-                             __LINE__);
-  AllocateCUDAMemory<data_size_t>(&cuda_leaf_count_,
-                                  static_cast<size_t>(max_leaves_),
-                                  __FILE__,
-                                  __LINE__);
-  AllocateCUDAMemory<data_size_t>(&cuda_internal_count_,
-                                       static_cast<size_t>(max_leaves_),
-                                       __FILE__,
-                                       __LINE__);
-  AllocateCUDAMemory<float>(&cuda_split_gain_,
-                                 static_cast<size_t>(max_leaves_),
-                                 __FILE__,
-                                 __LINE__);
-  SetCUDAMemory<double>(cuda_leaf_value_, 0.0f, 1, __FILE__, __LINE__);
-  SetCUDAMemory<double>(cuda_leaf_weight_, 0.0f, 1, __FILE__, __LINE__);
-  SetCUDAMemory<int>(cuda_leaf_parent_, -1, 1, __FILE__, __LINE__);
+  cuda_left_child_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_right_child_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_split_feature_inner_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_split_feature_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_leaf_depth_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_leaf_parent_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_threshold_in_bin_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_threshold_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_decision_type_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_leaf_value_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_internal_weight_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_internal_value_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_leaf_weight_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_leaf_count_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_internal_count_.Resize(static_cast<size_t>(max_leaves_));
+  cuda_split_gain_.Resize(static_cast<size_t>(max_leaves_));
+  SetCUDAMemory<double>(cuda_leaf_value_.RawData(), 0.0f, 1, __FILE__, __LINE__);
+  SetCUDAMemory<double>(cuda_leaf_weight_.RawData(), 0.0f, 1, __FILE__, __LINE__);
+  SetCUDAMemory<int>(cuda_leaf_depth_.RawData(), 0, 1, __FILE__, __LINE__);
+  SetCUDAMemory<int>(cuda_leaf_parent_.RawData(), -1, 1, __FILE__, __LINE__);
   CUDASUCCESS_OR_FATAL(cudaStreamCreate(&cuda_stream_));
   SynchronizeCUDADevice(__FILE__, __LINE__);
 }
 
 void CUDATree::InitCUDA() {
-  InitCUDAMemoryFromHostMemory<int>(&cuda_left_child_,
-                                    left_child_.data(),
-                                    left_child_.size(),
-                                    __FILE__,
-                                    __LINE__);
-  InitCUDAMemoryFromHostMemory<int>(&cuda_right_child_,
-                                    right_child_.data(),
-                                    right_child_.size(),
-                                    __FILE__,
-                                    __LINE__);
-  InitCUDAMemoryFromHostMemory<int>(&cuda_split_feature_inner_,
-                                    split_feature_inner_.data(),
-                                    split_feature_inner_.size(),
-                                    __FILE__,
-                                    __LINE__);
-  InitCUDAMemoryFromHostMemory<int>(&cuda_split_feature_,
-                                    split_feature_.data(),
-                                    split_feature_.size(),
-                                    __FILE__,
-                                    __LINE__);
-  InitCUDAMemoryFromHostMemory<uint32_t>(&cuda_threshold_in_bin_,
-                                    threshold_in_bin_.data(),
-                                    threshold_in_bin_.size(),
-                                    __FILE__,
-                                    __LINE__);
-  InitCUDAMemoryFromHostMemory<double>(&cuda_threshold_,
-                                    threshold_.data(),
-                                    threshold_.size(),
-                                    __FILE__,
-                                    __LINE__);
-  InitCUDAMemoryFromHostMemory<int>(&cuda_leaf_depth_,
-                                    leaf_depth_.data(),
-                                    leaf_depth_.size(),
-                                    __FILE__,
-                                    __LINE__);
-  InitCUDAMemoryFromHostMemory<int8_t>(&cuda_decision_type_,
-                                       decision_type_.data(),
-                                       decision_type_.size(),
-                                       __FILE__,
-                                       __LINE__);
-  InitCUDAMemoryFromHostMemory<double>(&cuda_internal_weight_,
-                                       internal_weight_.data(),
-                                       internal_weight_.size(),
-                                       __FILE__,
-                                       __LINE__);
-  InitCUDAMemoryFromHostMemory<double>(&cuda_internal_value_,
-                                       internal_value_.data(),
-                                       internal_value_.size(),
-                                       __FILE__,
-                                       __LINE__);
-  InitCUDAMemoryFromHostMemory<data_size_t>(&cuda_internal_count_,
-                                       internal_count_.data(),
-                                       internal_count_.size(),
-                                       __FILE__,
-                                       __LINE__);
-  InitCUDAMemoryFromHostMemory<data_size_t>(&cuda_leaf_count_,
-                                       leaf_count_.data(),
-                                       leaf_count_.size(),
-                                       __FILE__,
-                                       __LINE__);
-  InitCUDAMemoryFromHostMemory<float>(&cuda_split_gain_,
-                                       split_gain_.data(),
-                                       split_gain_.size(),
-                                       __FILE__,
-                                       __LINE__);
-  InitCUDAMemoryFromHostMemory<double>(&cuda_leaf_value_,
-                                    leaf_value_.data(),
-                                    leaf_value_.size(),
-                                    __FILE__,
-                                    __LINE__);
-  InitCUDAMemoryFromHostMemory<double>(&cuda_leaf_weight_,
-                                    leaf_weight_.data(),
-                                    leaf_weight_.size(),
-                                    __FILE__,
-                                    __LINE__);
-  InitCUDAMemoryFromHostMemory<int>(&cuda_leaf_parent_,
-                                    leaf_parent_.data(),
-                                    leaf_parent_.size(),
-                                    __FILE__,
-                                    __LINE__);
+  cuda_left_child_.InitFromHostVector(left_child_);
+  cuda_right_child_.InitFromHostVector(right_child_);
+  cuda_split_feature_inner_.InitFromHostVector(split_feature_inner_);
+  cuda_split_feature_.InitFromHostVector(split_feature_);
+  cuda_threshold_in_bin_.InitFromHostVector(threshold_in_bin_);
+  cuda_threshold_.InitFromHostVector(threshold_);
+  cuda_leaf_depth_.InitFromHostVector(leaf_depth_);
+  cuda_decision_type_.InitFromHostVector(decision_type_);
+  cuda_internal_weight_.InitFromHostVector(internal_weight_);
+  cuda_internal_value_.InitFromHostVector(internal_value_);
+  cuda_internal_count_.InitFromHostVector(internal_count_);
+  cuda_leaf_count_.InitFromHostVector(leaf_count_);
+  cuda_split_gain_.InitFromHostVector(split_gain_);
+  cuda_leaf_value_.InitFromHostVector(leaf_value_);
+  cuda_leaf_weight_.InitFromHostVector(leaf_weight_);
+  cuda_leaf_parent_.InitFromHostVector(leaf_parent_);
   CUDASUCCESS_OR_FATAL(cudaStreamCreate(&cuda_stream_));
   SynchronizeCUDADevice(__FILE__, __LINE__);
 }
@@ -293,22 +167,22 @@ void CUDATree::ToHost() {
   leaf_depth_.resize(max_leaves_);
 
   const size_t num_leaves_size = static_cast<size_t>(num_leaves_);
-  CopyFromCUDADeviceToHost<int>(left_child_.data(), cuda_left_child_, num_leaves_size - 1, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<int>(right_child_.data(), cuda_right_child_, num_leaves_size - 1, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<int>(split_feature_inner_.data(), cuda_split_feature_inner_, num_leaves_size - 1, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<int>(split_feature_.data(), cuda_split_feature_, num_leaves_size - 1, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<uint32_t>(threshold_in_bin_.data(), cuda_threshold_in_bin_, num_leaves_size - 1, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<double>(threshold_.data(), cuda_threshold_, num_leaves_size - 1, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<int8_t>(decision_type_.data(), cuda_decision_type_, num_leaves_size - 1, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<float>(split_gain_.data(), cuda_split_gain_, num_leaves_size - 1, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<int>(leaf_parent_.data(), cuda_leaf_parent_, num_leaves_size - 1, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<double>(leaf_value_.data(), cuda_leaf_value_, num_leaves_size, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<double>(leaf_weight_.data(), cuda_leaf_weight_, num_leaves_size, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<data_size_t>(leaf_count_.data(), cuda_leaf_count_, num_leaves_size, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<double>(internal_value_.data(), cuda_internal_value_, num_leaves_size - 1, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<double>(internal_weight_.data(), cuda_internal_weight_, num_leaves_size - 1, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<data_size_t>(internal_count_.data(), cuda_internal_count_, num_leaves_size - 1, __FILE__, __LINE__);
-  CopyFromCUDADeviceToHost<int>(leaf_depth_.data(), cuda_leaf_depth_, num_leaves_size, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<int>(left_child_.data(), cuda_left_child_.RawData(), num_leaves_size - 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<int>(right_child_.data(), cuda_right_child_.RawData(), num_leaves_size - 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<int>(split_feature_inner_.data(), cuda_split_feature_inner_.RawData(), num_leaves_size - 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<int>(split_feature_.data(), cuda_split_feature_.RawData(), num_leaves_size - 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<uint32_t>(threshold_in_bin_.data(), cuda_threshold_in_bin_.RawData(), num_leaves_size - 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<double>(threshold_.data(), cuda_threshold_.RawData(), num_leaves_size - 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<int8_t>(decision_type_.data(), cuda_decision_type_.RawData(), num_leaves_size - 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<float>(split_gain_.data(), cuda_split_gain_.RawData(), num_leaves_size - 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<int>(leaf_parent_.data(), cuda_leaf_parent_.RawData(), num_leaves_size - 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<double>(leaf_value_.data(), cuda_leaf_value_.RawData(), num_leaves_size, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<double>(leaf_weight_.data(), cuda_leaf_weight_.RawData(), num_leaves_size, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<data_size_t>(leaf_count_.data(), cuda_leaf_count_.RawData(), num_leaves_size, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<double>(internal_value_.data(), cuda_internal_value_.RawData(), num_leaves_size - 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<double>(internal_weight_.data(), cuda_internal_weight_.RawData(), num_leaves_size - 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<data_size_t>(internal_count_.data(), cuda_internal_count_.RawData(), num_leaves_size - 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<int>(leaf_depth_.data(), cuda_leaf_depth_.RawData(), num_leaves_size, __FILE__, __LINE__);
 
   if (num_cat_ > 0) {
     cuda_cat_boundaries_inner_.Resize(num_cat_ + 1);
@@ -323,17 +197,17 @@ void CUDATree::ToHost() {
 }
 
 void CUDATree::SyncLeafOutputFromHostToCUDA() {
-  CopyFromHostToCUDADevice<double>(cuda_leaf_value_, leaf_value_.data(), leaf_value_.size(), __FILE__, __LINE__);
+  CopyFromHostToCUDADevice<double>(cuda_leaf_value_.RawData(), leaf_value_.data(), leaf_value_.size(), __FILE__, __LINE__);
 }
 
 void CUDATree::SyncLeafOutputFromCUDAToHost() {
-  CopyFromCUDADeviceToHost<double>(leaf_value_.data(), cuda_leaf_value_, leaf_value_.size(), __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<double>(leaf_value_.data(), cuda_leaf_value_.RawData(), leaf_value_.size(), __FILE__, __LINE__);
 }
 
 void CUDATree::AsConstantTree(double val, int count) {
   Tree::AsConstantTree(val, count);
-  CopyFromHostToCUDADevice<double>(cuda_leaf_value_, &val, 1, __FILE__, __LINE__);
-  CopyFromHostToCUDADevice<int>(cuda_leaf_count_, &count, 1, __FILE__, __LINE__);
+  CopyFromHostToCUDADevice<double>(cuda_leaf_value_.RawData(), &val, 1, __FILE__, __LINE__);
+  CopyFromHostToCUDADevice<int>(cuda_leaf_count_.RawData(), &count, 1, __FILE__, __LINE__);
 }
 
 }  // namespace LightGBM

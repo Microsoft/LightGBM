@@ -10,3 +10,6 @@
 [submodule "external_libs/fast_double_parser"]
 	path = external_libs/fast_double_parser
 	url = https://github.com/lemire/fast_double_parser.git
+[submodule "external_libs/nanoarrow"]
+	path = external_libs/nanoarrow
+	url = https://github.com/apache/arrow-nanoarrow.git

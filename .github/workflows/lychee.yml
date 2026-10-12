@@ -7,6 +7,15 @@ on:
   schedule:
     - cron: '0 8 * * *'
 
+# only 1 job running in the repo at any time
+concurrency:
+  group: lock
+
+# default to 0 permissions
+# (job-level overrides add the minimal permissions needed)
+permissions:
+  contents: none
+
 env:
   COMPILER: gcc
   OS_NAME: 'linux'
@@ -16,13 +25,15 @@ jobs:
   check-links:
     timeout-minutes: 60
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 5
           persist-credentials: false
-          submodules: false
+          submodules: true
       - name: Build docs
         run: |
           export CONDA=${HOME}/miniforge
@@ -30,7 +41,7 @@ jobs:
           $GITHUB_WORKSPACE/.ci/setup.sh || exit 1
           $GITHUB_WORKSPACE/.ci/build-docs.sh || exit 1
       - name: Check links
-        uses: lycheeverse/lychee-action@v2.7.0
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8  # v2.9.0
         with:
           args: >-
             --config=./docs/.lychee.toml

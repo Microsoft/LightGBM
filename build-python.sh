@@ -54,6 +54,8 @@
 #     --precompile
 #                                   Use precompiled library.
 #                                   Only used with 'install' command.
+#     --rocm
+#                                   Compile ROCm version.
 #     --time-costs
 #                                   Compile version that outputs time costs for different internal routines.
 #     --user
@@ -142,6 +144,9 @@ while [ $# -gt 0 ]; do
     --cuda)
         BUILD_ARGS="${BUILD_ARGS} --config-setting=cmake.define.USE_CUDA=ON"
         ;;
+    --rocm)
+        BUILD_ARGS="${BUILD_ARGS} --config-setting=cmake.define.USE_ROCM=ON"
+        ;;
     --gpu)
         BUILD_ARGS="${BUILD_ARGS} --config-setting=cmake.define.USE_GPU=ON"
         ;;
@@ -180,7 +185,15 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-pip install --prefer-binary 'build>=0.10.0'
+# ref: https://cmake.org/cmake/help/latest/variable/CMAKE_CUDA_ARCHITECTURES.html
+if [ -n "${CUDAARCHS:-}" ]; then
+    BUILD_ARGS="${BUILD_ARGS} --config-setting=cmake.define.CMAKE_CUDA_ARCHITECTURES=${CUDAARCHS}"
+fi
+
+if ! python -m build --version >/dev/null; then
+    echo "'build' is required to build 'lightgbm'. Install it with 'pip install build' or similar."
+    exit 1
+fi
 
 # create a new directory that just contains the files needed
 # to build the Python-package
@@ -283,18 +296,47 @@ create_isolated_source_dir() {
         -R \
         external_libs/compute/include \
         ./lightgbm-python/external_libs/compute/include/
+
+    #############
+    # nanoarrow #
+    #############
+    mkdir -p ./lightgbm-python/external_libs/nanoarrow
+    cp \
+        external_libs/nanoarrow/CMakeLists.txt \
+        external_libs/nanoarrow/LICENSE.txt \
+        external_libs/nanoarrow/NOTICE.txt \
+        ./lightgbm-python/external_libs/nanoarrow/
+    cp -R \
+        external_libs/nanoarrow/cmake \
+        ./lightgbm-python/external_libs/nanoarrow/cmake/
+    mkdir -p ./lightgbm-python/external_libs/nanoarrow/src/nanoarrow
+    cp \
+        external_libs/nanoarrow/src/nanoarrow/nanoarrow.h \
+        external_libs/nanoarrow/src/nanoarrow/nanoarrow.hpp \
+        external_libs/nanoarrow/src/nanoarrow/nanoarrow_config.h.in \
+        ./lightgbm-python/external_libs/nanoarrow/src/nanoarrow/
+    mkdir -p ./lightgbm-python/external_libs/nanoarrow/src/nanoarrow/common
+    cp -R \
+        external_libs/nanoarrow/src/nanoarrow/common/*.h \
+        ./lightgbm-python/external_libs/nanoarrow/src/nanoarrow/common
+    cp -R \
+        external_libs/nanoarrow/src/nanoarrow/common/*.c \
+        ./lightgbm-python/external_libs/nanoarrow/src/nanoarrow/common
+    mkdir -p ./lightgbm-python/external_libs/nanoarrow/src/nanoarrow/hpp
+    cp -R \
+        external_libs/nanoarrow/src/nanoarrow/hpp/*.hpp \
+        ./lightgbm-python/external_libs/nanoarrow/src/nanoarrow/hpp
 }
 
 create_isolated_source_dir
 
 cd ./lightgbm-python
 
-# installation involves building the wheel + `pip install`-ing it
+# if 'install' was passed, choose the type of package to build and install
 if test "${INSTALL}" = true; then
     if test "${PRECOMPILE}" = true; then
-        BUILD_SDIST=true
-        BUILD_WHEEL=false
-        BUILD_ARGS=""
+        BUILD_SDIST=false
+        BUILD_WHEEL=true
         rm -rf \
             ./cmake \
             ./CMakeLists.txt \
@@ -302,16 +344,22 @@ if test "${INSTALL}" = true; then
             ./include \
             ./src \
             ./swig
-        # use regular-old setuptools for these builds, to avoid
-        # trying to recompile the shared library
+        # avoid trying to recompile, just use hatchling and copy in relevant files
         sed -i.bak -e '/start:build-system/,/end:build-system/d' pyproject.toml
-        # shellcheck disable=SC2129
-        echo '[build-system]' >> ./pyproject.toml
-        echo 'requires = ["setuptools"]' >> ./pyproject.toml
-        echo 'build-backend = "setuptools.build_meta"' >> ./pyproject.toml
-        echo "" >> ./pyproject.toml
-        echo "recursive-include lightgbm *.dll *.dylib *.so" > ./MANIFEST.in
-        echo "" >> ./MANIFEST.in
+
+# replace build backend configuration
+cat >> ./pyproject.toml <<EOF
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# do not consider .gitignore when choosing files to include / exclude
+ignore-vcs = true
+packages = ["lightgbm"]
+
+EOF
         mkdir -p ./lightgbm/lib
         if test -f ../lib_lightgbm.so; then
             echo "[INFO] found pre-compiled lib_lightgbm.so"
@@ -338,7 +386,11 @@ if test "${INSTALL}" = true; then
             exit 1
         fi
         rm -f ./*.bak
-    else
+    fi
+
+    # at this point, if 'install' was passed but the package type wasn't indicated, prefer wheel
+    if test "${BUILD_SDIST}" = false && test "${BUILD_WHEEL}" = false; then
+        echo "[INFO] 'install' passed but no package type ('bdist_wheel', 'sdist') chosen. Defaulting to 'bdist_wheel'."
         BUILD_SDIST="false"
         BUILD_WHEEL="true"
     fi
@@ -366,22 +418,19 @@ fi
 
 if test "${INSTALL}" = true; then
     echo "[INFO] --- installing lightgbm ---"
-    cd ../dist
+    cd ..
     if test "${BUILD_WHEEL}" = true; then
-        PACKAGE_NAME="$(echo lightgbm*.whl)"
+        PACKAGE_FILE="$(echo dist/lightgbm*.whl)"
     else
-        PACKAGE_NAME="$(echo lightgbm*.tar.gz)"
+        PACKAGE_FILE="$(echo dist/lightgbm*.tar.gz)"
     fi
-    # ref for use of '--find-links': https://stackoverflow.com/a/52481267/3986677
     # shellcheck disable=SC2086
-    pip install \
+    python -m pip install \
         ${PIP_INSTALL_ARGS} \
         --force-reinstall \
         --no-cache-dir \
         --no-deps \
-        --find-links=. \
-        "${PACKAGE_NAME}"
-    cd ../
+        "${PACKAGE_FILE}"
 fi
 
 echo "[INFO] cleaning up"

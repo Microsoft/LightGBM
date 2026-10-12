@@ -1,9 +1,5 @@
 name: No Response Bot
 
-permissions:
-  issues: write
-  pull-requests: write
-
 on:
   issue_comment:
     types: [created]
@@ -11,11 +7,23 @@ on:
     # "every day at 04:00 UTC"
     - cron: '0 4 * * *'
 
+# only 1 job running in the repo at any time
+concurrency:
+  group: lock
+
+# default to 0 permissions
+# (job-level overrides add the minimal permissions needed)
+permissions:
+  contents: none
+
 jobs:
-  noResponse:
+  no-response:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
     steps:
-      - uses: lee-dohm/no-response@v0.5.0
+      - uses: lee-dohm/no-response@9bb0a4b5e6a45046f00353d5de7d90fb8bd773bb  # v0.5.0
         with:
           closeComment: >
               This issue has been automatically closed

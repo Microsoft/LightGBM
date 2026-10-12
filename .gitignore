@@ -146,7 +146,7 @@ publish/
 *.nupkg
 nuget/
 # The packages folder can be ignored because of Package Restore
-**/packages/*
+**/packages/
 # except build/, which is used as an MSBuild target.
 !**/packages/build/
 # Uncomment if necessary however generally it will be regenerated when needed
@@ -326,6 +326,7 @@ coverage.xml
 *.py.cover
 .hypothesis/
 .pytest_cache/
+.ruff_cache/
 cover/
 **/coverage.html
 **/coverage.html.zip
@@ -347,6 +348,7 @@ instance/
 .scrapy
 
 # Sphinx documentation
+docs/CONTRIBUTING.md
 docs/_build/
 docs/pythonapi/
 *.flag
@@ -424,7 +426,7 @@ R-package/src-x64
 R-package/src-i386
 R-package/**/VERSION.txt
 **/Makevars.win
-lightgbm_r/*
+lightgbm_r/
 lightgbm*.tar.gz
 lightgbm*.tgz
 lightgbm.Rcheck/
@@ -474,6 +476,7 @@ dask-worker-space/
 
 # pixi environments
 .pixi
+!.pixi/config.toml
 
 # mypy
 .mypy_cache/

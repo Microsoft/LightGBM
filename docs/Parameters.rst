@@ -264,7 +264,7 @@ Core Parameters
 
    -  ``cpu`` supports all LightGBM functionality and is portable across the widest range of operating systems and hardware
 
-   -  ``cuda`` offers faster training than ``gpu`` or ``cpu``, but only works on GPUs supporting CUDA
+   -  ``cuda`` offers faster training than ``gpu`` or ``cpu``, but only works on GPUs supporting CUDA or ROCm
 
    -  ``gpu`` can be faster than ``cpu`` and works on a wider range of GPUs than CUDA
 
@@ -272,7 +272,7 @@ Core Parameters
 
    -  **Note**: for the faster speed, GPU uses 32-bit float point to sum up by default, so this may affect the accuracy for some tasks. You can set ``gpu_use_dp=true`` to enable 64-bit float point, but it will slow down the training
 
-   -  **Note**: refer to `Installation Guide <./Installation-Guide.rst>`__ to build LightGBM with GPU or CUDA support
+   -  **Note**: refer to `Installation Guide <./Installation-Guide.rst>`__ to build LightGBM with GPU, CUDA, or ROCm support
 
 -  ``seed`` :raw-html:`<a id="seed" title="Permalink to this parameter" href="#seed">&#x1F517;&#xFE0E;</a>`, default = ``None``, type = int, aliases: ``random_seed``, ``random_state``
 
@@ -290,7 +290,7 @@ Core Parameters
 
    -  when you use the different seeds, different LightGBM versions, the binaries compiled by different compilers, or in different systems, the results are expected to be different
 
-   -  you can `raise issues <https://github.com/microsoft/LightGBM/issues>`__ in LightGBM GitHub repo when you meet the unstable results
+   -  you can `raise issues <https://github.com/lightgbm-org/LightGBM/issues>`__ in LightGBM GitHub repo when you meet the unstable results
 
    -  **Note**: setting this to ``true`` may slow down the training
 
@@ -631,7 +631,7 @@ Learning Control Parameters
 
    -  **Note**: the forced split logic will be ignored, if the split makes gain worse
 
-   -  see `this file <https://github.com/microsoft/LightGBM/blob/master/examples/binary_classification/forced_splits.json>`__ as an example
+   -  see `this file <https://github.com/lightgbm-org/LightGBM/blob/main/examples/binary_classification/forced_splits.json>`__ as an example
 
 -  ``refit_decay_rate`` :raw-html:`<a id="refit_decay_rate" title="Permalink to this parameter" href="#refit_decay_rate">&#x1F517;&#xFE0E;</a>`, default = ``0.9``, type = double, constraints: ``0.0 <= refit_decay_rate <= 1.0``
 
@@ -951,6 +951,8 @@ Dataset Parameters
 
    -  **Note**: all values will be cast to ``int32`` (integer codes will be extracted from pandas categoricals in the Python-package)
 
+   -  **Note**: in the Python-package, when ``categorical_feature="auto"`` and the input is a dataframe with a categorical dtype, only unordered categoricals are auto-detected. Ordered categoricals are treated as ordinal numeric features (see `Categorical Feature Support <./Advanced-Topics.rst#categorical-feature-support>`__)
+
    -  **Note**: index starts from ``0`` and it doesn't count the label column when passing type is ``int``
 
    -  **Note**: all values should be less than ``Int32.MaxValue`` (2147483647)
@@ -969,7 +971,7 @@ Dataset Parameters
 
    -  ``.json`` file should contain an array of objects, each containing the word ``feature`` (integer feature index) and ``bin_upper_bound`` (array of thresholds for binning)
 
-   -  see `this file <https://github.com/microsoft/LightGBM/blob/master/examples/regression/forced_bins.json>`__ as an example
+   -  see `this file <https://github.com/lightgbm-org/LightGBM/blob/main/examples/regression/forced_bins.json>`__ as an example
 
 -  ``save_binary`` :raw-html:`<a id="save_binary" title="Permalink to this parameter" href="#save_binary">&#x1F517;&#xFE0E;</a>`, default = ``false``, type = bool, aliases: ``is_save_binary``, ``is_save_binary_file``
 
@@ -989,9 +991,9 @@ Dataset Parameters
 
    -  path to a ``.json`` file that specifies customized parser initialized configuration
 
-   -  see `lightgbm-transform <https://github.com/microsoft/lightgbm-transform>`__ for usage examples
+   -  see `lightgbm-transform <https://github.com/Microsoft/LightGBM-transform>`__ for usage examples
 
-   -  **Note**: ``lightgbm-transform`` is not maintained by LightGBM's maintainers. Bug reports or feature requests should go to `issues page <https://github.com/microsoft/lightgbm-transform/issues>`__
+   -  **Note**: ``lightgbm-transform`` is not maintained by LightGBM's maintainers. Bug reports or feature requests should go to `issues page <https://github.com/Microsoft/LightGBM-transform/issues>`__
 
    -  *New in version 4.0.0*
 
@@ -1261,7 +1263,7 @@ Metric Parameters
 
       -  ``average_precision``, `average precision score <https://scikit-learn.org/stable/modules/generated/sklearn.metrics.average_precision_score.html>`__
 
-      -  ``r2``, `R-squared <https://scikit-learn.org/stable/modules/generated/sklearn.metrics.r2_score.html>`__
+      -  ``r2``, `R-squared <https://scikit-learn.org/stable/modules/generated/sklearn.metrics.r2_score.html>`__ (*New in version 4.7.0*)
 
       -  ``binary_logloss``, `log loss <https://en.wikipedia.org/wiki/Cross_entropy>`__, aliases: ``binary``
 
@@ -1373,7 +1375,19 @@ GPU Parameters
 
    -  ``-1`` means the default device in the selected platform
 
+   -  in multi-GPU case (``num_gpu>1``) means ID of the master GPU
+
    -  **Note**: refer to `GPU Targets <./GPU-Targets.rst#query-opencl-devices-in-your-system>`__ for more details
+
+-  ``gpu_device_id_list`` :raw-html:`<a id="gpu_device_id_list" title="Permalink to this parameter" href="#gpu_device_id_list">&#x1F517;&#xFE0E;</a>`, default = ``""``, type = string
+
+   -  list of CUDA device IDs
+
+   -  **Note**: can be used only in CUDA implementation (``device_type="cuda"``) and when ``num_gpu>1``
+
+   -  if empty, the devices with the smallest IDs will be used
+
+   -  *New in version 4.7.0*
 
 -  ``gpu_use_dp`` :raw-html:`<a id="gpu_use_dp" title="Permalink to this parameter" href="#gpu_use_dp">&#x1F517;&#xFE0E;</a>`, default = ``false``, type = bool
 
@@ -1383,9 +1397,15 @@ GPU Parameters
 
 -  ``num_gpu`` :raw-html:`<a id="num_gpu" title="Permalink to this parameter" href="#num_gpu">&#x1F517;&#xFE0E;</a>`, default = ``1``, type = int, constraints: ``num_gpu > 0``
 
-   -  number of GPUs
+   -  number of GPUs used for training in this node
 
    -  **Note**: can be used only in CUDA implementation (``device_type="cuda"``)
+
+   -  if ``0``, only 1 GPU will be used
+
+   -  used in both single-machine and distributed learning applications
+
+   -  in distributed learning application, each machine can use different number of GPUs
 
 .. end params list
 

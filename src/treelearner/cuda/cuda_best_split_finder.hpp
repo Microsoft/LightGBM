@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for
  * license information.
  */
@@ -103,7 +104,9 @@ class CUDABestSplitFinder {
     const int smaller_leaf_index, \
     const int larger_leaf_index, \
     const bool is_smaller_leaf_valid, \
-    const bool is_larger_leaf_valid
+    const bool is_larger_leaf_valid, \
+    const data_size_t global_num_data_in_smaller_leaf, \
+    const data_size_t global_num_data_in_larger_leaf
 
   void LaunchFindBestSplitsForLeafKernel(LaunchFindBestSplitsForLeafKernel_PARAMS);
 
@@ -128,7 +131,9 @@ class CUDABestSplitFinder {
   const score_t* grad_scale, \
   const score_t* hess_scale, \
   const uint8_t smaller_num_bits_in_histogram_bins, \
-  const uint8_t larger_num_bits_in_histogram_bins
+  const uint8_t larger_num_bits_in_histogram_bins, \
+  const data_size_t global_num_data_in_smaller_leaf, \
+  const data_size_t global_num_data_in_larger_leaf
 
   void LaunchFindBestSplitsDiscretizedForLeafKernel(LaunchFindBestSplitsDiscretizedForLeafKernel_PARAMS);
 
@@ -210,23 +215,23 @@ class CUDABestSplitFinder {
 
   // CUDA memory, held by this object
   // for per leaf best split information
-  CUDASplitInfo* cuda_leaf_best_split_info_;
+  CUDAVector<CUDASplitInfo> cuda_leaf_best_split_info_;
   // for best split information when finding best split
-  CUDASplitInfo* cuda_best_split_info_;
+  CUDAVector<CUDASplitInfo> cuda_best_split_info_;
   // best split information buffer, to be copied to host
-  int* cuda_best_split_info_buffer_;
+  CUDAVector<int> cuda_best_split_info_buffer_;
   // find best split task information
   CUDAVector<SplitFindTask> cuda_split_find_tasks_;
-  int8_t* cuda_is_feature_used_bytree_;
+  CUDAVector<int8_t> cuda_is_feature_used_bytree_;
   // used when finding best split with global memory
-  hist_t* cuda_feature_hist_grad_buffer_;
-  hist_t* cuda_feature_hist_hess_buffer_;
-  hist_t* cuda_feature_hist_stat_buffer_;
-  data_size_t* cuda_feature_hist_index_buffer_;
-  uint32_t* cuda_cat_threshold_leaf_;
-  int* cuda_cat_threshold_real_leaf_;
-  uint32_t* cuda_cat_threshold_feature_;
-  int* cuda_cat_threshold_real_feature_;
+  CUDAVector<hist_t> cuda_feature_hist_grad_buffer_;
+  CUDAVector<hist_t> cuda_feature_hist_hess_buffer_;
+  CUDAVector<hist_t> cuda_feature_hist_stat_buffer_;
+  CUDAVector<data_size_t> cuda_feature_hist_index_buffer_;
+  CUDAVector<uint32_t> cuda_cat_threshold_leaf_;
+  CUDAVector<int> cuda_cat_threshold_real_leaf_;
+  CUDAVector<uint32_t> cuda_cat_threshold_feature_;
+  CUDAVector<int> cuda_cat_threshold_real_feature_;
   int max_num_categories_in_split_;
   // used for extremely randomized trees
   CUDAVector<CUDARandom> cuda_randoms_;

@@ -1,5 +1,7 @@
 /*!
- * Copyright (c) 2020 IBM Corporation, Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2020-2021 IBM Corporation, Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2020-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2020-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  * Modifications Copyright(C) 2023 Advanced Micro Devices, Inc. All rights reserved.
  */
@@ -9,9 +11,12 @@
 #include <LightGBM/utils/common.h>
 
 #ifdef USE_CUDA
+#ifndef USE_ROCM
 #include <cuda.h>
 #include <cuda_runtime.h>
-#endif
+#endif  // USE_ROCM
+#include <LightGBM/cuda/cuda_utils.hu>
+#endif  // USE_CUDA
 #include <stdio.h>
 
 enum LGBM_Device {
@@ -66,14 +71,14 @@ struct CHAllocator {
     #ifdef USE_CUDA
       if (LGBM_config_::current_device == lgbm_device_cuda) {
         cudaPointerAttributes attributes;
-        cudaPointerGetAttributes(&attributes, p);
-        #if CUDA_VERSION >= 10000
+        CUDASUCCESS_OR_FATAL(cudaPointerGetAttributes(&attributes, p));
+        #if CUDA_VERSION >= 10000 || defined(USE_ROCM)
           if ((attributes.type == cudaMemoryTypeHost) && (attributes.devicePointer != NULL)) {
-            cudaFreeHost(p);
+            CUDASUCCESS_OR_FATAL(cudaFreeHost(p));
           }
         #else
           if ((attributes.memoryType == cudaMemoryTypeHost) && (attributes.devicePointer != NULL)) {
-            cudaFreeHost(p);
+            CUDASUCCESS_OR_FATAL(cudaFreeHost(p));
           }
         #endif
       } else {

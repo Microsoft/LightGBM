@@ -9,7 +9,7 @@ For the detailed experiment scripts and output logs, please refer to this `repo`
 History
 ^^^^^^^
 
-08 Mar, 2020: update according to the latest master branch (`1b97eaf <https://github.com/dmlc/xgboost/commit/1b97eaf7a74315bfa2c132d59f937a35408bcfd1>`__ for XGBoost, `bcad692 <https://github.com/microsoft/LightGBM/commit/bcad692e263e0317cab11032dd017c78f9e58e5f>`__ for LightGBM). (``xgboost_exact`` is not updated for it is too slow.)
+08 Mar, 2020: update according to the latest master branch (`1b97eaf <https://github.com/dmlc/xgboost/commit/1b97eaf7a74315bfa2c132d59f937a35408bcfd1>`__ for XGBoost, `bcad692 <https://github.com/lightgbm-org/LightGBM/commit/bcad692e263e0317cab11032dd017c78f9e58e5f>`__ for LightGBM). (``xgboost_exact`` is not updated for it is too slow.)
 
 27 Feb, 2017: first version.
 

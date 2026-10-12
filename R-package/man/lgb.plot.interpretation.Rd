@@ -13,7 +13,7 @@ lgb.plot.interpretation(
 )
 }
 \arguments{
-\item{tree_interpretation_dt}{a \code{data.table} returned by \code{\link{lgb.interprete}}.}
+\item{tree_interpretation_dt}{a \code{data.table} returned by \code{\link{lgb.interpret}}.}
 
 \item{top_n}{maximal number of top features to include into the plot.}
 
@@ -68,7 +68,7 @@ model <- lgb.train(
   , nrounds = 5L
 )
 
-tree_interpretation <- lgb.interprete(
+tree_interpretation <- lgb.interpret(
   model = model
   , data = agaricus.test$data
   , idxset = 1L:5L

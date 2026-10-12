@@ -5,7 +5,7 @@
     log(x / (1.0 - x))
 }
 
-test_that("lgb.interprete works as expected for binary classification", {
+test_that("lgb.interpret works as expected for binary classification", {
     data(agaricus.train, package = "lightgbm")
     train <- agaricus.train
     dtrain <- lgb.Dataset(train$data, label = train$label)
@@ -35,7 +35,7 @@ test_that("lgb.interprete works as expected for binary classification", {
         , nrounds = 3L
     )
     num_trees <- 5L
-    tree_interpretation <- lgb.interprete(
+    tree_interpretation <- lgb.interpret(
         model = model
         , data = test$data
         , idxset = seq_len(num_trees)
@@ -88,7 +88,7 @@ test_that("lgb.intereprete works as expected for multiclass classification", {
         , nrounds = 3L
     )
     num_trees <- 5L
-    tree_interpretation <- lgb.interprete(
+    tree_interpretation <- lgb.interpret(
         model = model
         , data = test[, 1L:4L]
         , idxset = seq_len(num_trees)

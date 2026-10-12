@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for
  * license information.
  * Modifications Copyright(C) 2023 Advanced Micro Devices, Inc. All rights reserved.
@@ -91,25 +92,37 @@ __global__ void BoostFromScoreKernel_2_BinaryLogloss(double* out_cuda_sum_labels
 
 double CUDABinaryLogloss::LaunchCalcInitScoreKernel(const int /*class_id*/) const {
   const int num_blocks = (num_data_ + CALC_INIT_SCORE_BLOCK_SIZE_BINARY - 1) / CALC_INIT_SCORE_BLOCK_SIZE_BINARY;
-  SetCUDAMemory<double>(cuda_boost_from_score_, 0, 1, __FILE__, __LINE__);
+  SetCUDAMemory<double>(cuda_boost_from_score_.RawData(), 0, 1, __FILE__, __LINE__);
   if (cuda_weights_ == nullptr) {
     BoostFromScoreKernel_1_BinaryLogloss<false><<<num_blocks, CALC_INIT_SCORE_BLOCK_SIZE_BINARY>>>
-      (cuda_label_, num_data_, cuda_boost_from_score_, cuda_sum_weights_, cuda_weights_);
+      (cuda_label_, num_data_, cuda_boost_from_score_.RawData(), cuda_sum_weights_.RawData(), cuda_weights_);
   } else {
     BoostFromScoreKernel_1_BinaryLogloss<true><<<num_blocks, CALC_INIT_SCORE_BLOCK_SIZE_BINARY>>>
-      (cuda_label_, num_data_, cuda_boost_from_score_, cuda_sum_weights_, cuda_weights_);
+      (cuda_label_, num_data_, cuda_boost_from_score_.RawData(), cuda_sum_weights_.RawData(), cuda_weights_);
   }
   SynchronizeCUDADevice(__FILE__, __LINE__);
   if (cuda_weights_ == nullptr) {
-    BoostFromScoreKernel_2_BinaryLogloss<false><<<1, 1>>>(cuda_boost_from_score_, cuda_sum_weights_, num_data_, sigmoid_);
+    if (nccl_communicator_ == nullptr) {
+      BoostFromScoreKernel_2_BinaryLogloss<false><<<1, 1>>>(cuda_boost_from_score_.RawData(), cuda_sum_weights_.RawData(), num_data_, sigmoid_);
+    } else {
+      NCCLAllReduce<double>(cuda_boost_from_score_.RawData(), cuda_boost_from_score_.RawData(), 1, ncclFloat64, ncclSum, nccl_communicator_);
+      const data_size_t global_num_data = NCCLAllReduce<data_size_t>(num_data_, ncclInt32, ncclSum, nccl_communicator_);
+      BoostFromScoreKernel_2_BinaryLogloss<false><<<1, 1>>>(cuda_boost_from_score_.RawData(), cuda_sum_weights_.RawData(), global_num_data, sigmoid_);
+    }
   } else {
-    BoostFromScoreKernel_2_BinaryLogloss<true><<<1, 1>>>(cuda_boost_from_score_, cuda_sum_weights_, num_data_, sigmoid_);
+    if (nccl_communicator_ == nullptr) {
+      BoostFromScoreKernel_2_BinaryLogloss<true><<<1, 1>>>(cuda_boost_from_score_.RawData(), cuda_sum_weights_.RawData(), num_data_, sigmoid_);
+    } else {
+      NCCLAllReduce<double>(cuda_boost_from_score_.RawData(), cuda_boost_from_score_.RawData(), 1, ncclFloat64, ncclSum, nccl_communicator_);
+      NCCLAllReduce<double>(cuda_sum_weights_.RawData(), cuda_sum_weights_.RawData(), 1, ncclFloat64, ncclSum, nccl_communicator_);
+      BoostFromScoreKernel_2_BinaryLogloss<true><<<1, 1>>>(cuda_boost_from_score_.RawData(), cuda_sum_weights_.RawData(), num_data_, sigmoid_);
+    }
   }
   SynchronizeCUDADevice(__FILE__, __LINE__);
   double boost_from_score = 0.0f;
-  CopyFromCUDADeviceToHost<double>(&boost_from_score, cuda_boost_from_score_, 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<double>(&boost_from_score, cuda_boost_from_score_.RawData(), 1, __FILE__, __LINE__);
   double pavg = 0.0f;
-  CopyFromCUDADeviceToHost<double>(&pavg, cuda_sum_weights_, 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<double>(&pavg, cuda_sum_weights_.RawData(), 1, __FILE__, __LINE__);
   // for some test cases in test_utilities.py which check the log output
   Log::Info("[%s:%s]: pavg=%f -> initscore=%f",  GetName(), "BoostFromScore", pavg, boost_from_score);
   return boost_from_score;
@@ -152,7 +165,7 @@ __global__ void GetGradientsKernel_BinaryLogloss(const double* cuda_scores, cons
 #define GetGradientsKernel_BinaryLogloss_ARGS \
   scores, \
   cuda_label_, \
-  cuda_label_weights_, \
+  cuda_label_weights_.RawData(), \
   cuda_weights_, \
   sigmoid_, \
   num_data_, \
@@ -161,7 +174,7 @@ __global__ void GetGradientsKernel_BinaryLogloss(const double* cuda_scores, cons
 
 void CUDABinaryLogloss::LaunchGetGradientsKernel(const double* scores, score_t* gradients, score_t* hessians) const {
   const int num_blocks = (num_data_ + GET_GRADIENTS_BLOCK_SIZE_BINARY - 1) / GET_GRADIENTS_BLOCK_SIZE_BINARY;
-  if (cuda_label_weights_ == nullptr) {
+  if (cuda_label_weights_.Size() == 0) {
     if (cuda_weights_ == nullptr) {
       GetGradientsKernel_BinaryLogloss<false, false><<<num_blocks, GET_GRADIENTS_BLOCK_SIZE_BINARY>>>(GetGradientsKernel_BinaryLogloss_ARGS);
     } else {
@@ -204,7 +217,7 @@ __global__ void ResetOVACUDALabelKernel(
 
 void CUDABinaryLogloss::LaunchResetOVACUDALabelKernel() const {
   const int num_blocks = (num_data_ + GET_GRADIENTS_BLOCK_SIZE_BINARY - 1) / GET_GRADIENTS_BLOCK_SIZE_BINARY;
-  ResetOVACUDALabelKernel<<<num_blocks, GET_GRADIENTS_BLOCK_SIZE_BINARY>>>(ova_class_id_, num_data_, cuda_ova_label_);
+  ResetOVACUDALabelKernel<<<num_blocks, GET_GRADIENTS_BLOCK_SIZE_BINARY>>>(ova_class_id_, num_data_, cuda_ova_label_.RawData());
 }
 
 }  // namespace LightGBM

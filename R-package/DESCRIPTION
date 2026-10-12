@@ -1,8 +1,7 @@
 Package: lightgbm
 Type: Package
 Title: Light Gradient Boosting Machine
-Version: ~~VERSION~~
-Date: ~~DATE~~
+Version: 4.7.0.99
 Authors@R: c(
     person("Yu", "Shi", email = "yushi2@microsoft.com", role = c("aut")),
     person("Guolin", "Ke", email = "guolin.ke@outlook.com", role = c("aut")),
@@ -39,8 +38,8 @@ Description: Tree based algorithms can be improved by introducing boosting frame
     Comparison experiments on public datasets suggest that 'LightGBM' can outperform existing boosting frameworks on both efficiency and accuracy, with significantly lower memory consumption. In addition, parallel experiments suggest that in certain circumstances, 'LightGBM' can achieve a linear speed-up in training time by using multiple machines.
 Encoding: UTF-8
 License: MIT + file LICENSE
-URL: https://github.com/Microsoft/LightGBM
-BugReports: https://github.com/Microsoft/LightGBM/issues
+URL: https://github.com/lightgbm-org/LightGBM
+BugReports: https://github.com/lightgbm-org/LightGBM/issues
 NeedsCompilation: yes
 Biarch: true
 VignetteBuilder: knitr
@@ -63,4 +62,4 @@ Imports:
     utils
 SystemRequirements:
     C++17
-RoxygenNote: 7.3.3
+Config/roxygen2/version: 8.1.0

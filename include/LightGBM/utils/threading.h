@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for
  * license information.
  */
@@ -119,6 +120,9 @@ class ParallelPartitionRunner {
       INDEX_T cnt,
       const std::function<INDEX_T(int, INDEX_T, INDEX_T, INDEX_T*, INDEX_T*)>& func,
       INDEX_T* out) {
+    if (cnt == 0) {
+      return 0;
+    }
     int nblock = 1;
     INDEX_T inner_size = cnt;
     if (FORCE_SIZE) {

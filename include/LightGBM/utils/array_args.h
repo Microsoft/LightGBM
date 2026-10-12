@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2020-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #ifndef LIGHTGBM_INCLUDE_LIGHTGBM_UTILS_ARRAY_ARGS_H_
@@ -182,15 +183,6 @@ class ArrayArgs {
     for (size_t i = 0; i < array->size(); ++i) {
       (*array)[i] = t;
     }
-  }
-
-  inline static bool CheckAllZero(const std::vector<VAL_T>& array) {
-    for (size_t i = 0; i < array.size(); ++i) {
-      if (array[i] != VAL_T(0)) {
-        return false;
-      }
-    }
-    return true;
   }
 
   inline static bool CheckAll(const std::vector<VAL_T>& array, VAL_T t) {

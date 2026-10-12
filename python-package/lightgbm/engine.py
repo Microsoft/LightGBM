@@ -14,12 +14,11 @@ from . import callback
 from .basic import (
     Booster,
     Dataset,
+    EvalResult,
     LightGBMError,
     _choose_param_value,
     _ConfigAliases,
     _InnerPredictor,
-    _LGBM_BoosterEvalMethodResultType,
-    _LGBM_BoosterEvalMethodResultWithStandardDeviationType,
     _LGBM_CustomObjectiveFunction,
     _LGBM_EvalFunctionResultType,
     _log_warning,
@@ -111,7 +110,7 @@ def train(
     train_set: Dataset,
     num_boost_round: int = 100,
     valid_sets: Optional[List[Dataset]] = None,
-    valid_names: Optional[List[str]] = None,
+    valid_names: Optional[Union[str, List[str]]] = None,
     feval: Optional[Union[_LGBM_CustomMetricFunction, List[_LGBM_CustomMetricFunction]]] = None,
     init_model: Optional[Union[str, Path, Booster]] = None,
     keep_training_booster: bool = False,
@@ -130,12 +129,12 @@ def train(
         Number of boosting iterations.
     valid_sets : list of Dataset, or None, optional (default=None)
         List of data to be evaluated on during training.
-    valid_names : list of str, or None, optional (default=None)
+    valid_names : str, list of str, or None, optional (default=None)
         Names of ``valid_sets``.
     feval : callable, list of callable, or None, optional (default=None)
         Customized evaluation function.
         Each evaluation function should accept two parameters: preds, eval_data,
-        and return (eval_name, eval_result, is_higher_better) or list of such tuples.
+        and return (metric_name, metric_value, maximize) or list of such tuples.
 
             preds : numpy 1-D array or numpy 2-D array (for multi-class task)
                 The predicted values.
@@ -144,12 +143,12 @@ def train(
                 e.g. they are raw margin instead of probability of positive class for binary task in this case.
             eval_data : Dataset
                 A ``Dataset`` to evaluate.
-            eval_name : str
-                The name of evaluation function (without whitespaces).
-            eval_result : float
-                The eval result.
-            is_higher_better : bool
-                Is eval result higher better, e.g. AUC is ``is_higher_better``.
+            metric_name : str
+                Unique identifier for the metric (e.g. "custom_adjusted_mse").
+            metric_value : float
+                Value of the evaluation metric.
+            maximize : bool
+                Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
 
         To ignore the default metric corresponding to the used objective,
         set the ``metric`` parameter to the string ``"None"`` in ``params``.
@@ -203,6 +202,15 @@ def train(
                     f"Item {i} has type '{type(valid_item).__name__}'."
                 )
 
+    if isinstance(valid_names, str):
+        valid_names = [valid_names]
+    if valid_names is not None:
+        for i, valid_name in enumerate(valid_names):
+            if not isinstance(valid_name, str):
+                raise TypeError(
+                    f"Every item in valid_names must be a string. Item {i} has type '{type(valid_name).__name__}'."
+                )
+
     # create predictor first
     params = copy.deepcopy(params)
     params = _choose_param_value(
@@ -250,8 +258,6 @@ def train(
     if valid_sets is not None:
         if isinstance(valid_sets, Dataset):
             valid_sets = [valid_sets]
-        if isinstance(valid_names, str):
-            valid_names = [valid_names]
         for i, valid_data in enumerate(valid_sets):
             # reduce cost for prediction training data
             if valid_data is train_set:
@@ -297,7 +303,7 @@ def train(
         booster = Booster(params=params, train_set=train_set)
         if is_valid_contain_train:
             booster.set_train_data_name(train_data_name)
-        for valid_set, name_valid_set in zip(reduced_valid_sets, name_valid_sets):
+        for valid_set, name_valid_set in zip(reduced_valid_sets, name_valid_sets, strict=True):
             booster.add_valid(valid_set, name_valid_set)
     finally:
         train_set._reverse_update_params()
@@ -321,7 +327,7 @@ def train(
 
         booster.update(fobj=fobj)
 
-        evaluation_result_list: List[_LGBM_BoosterEvalMethodResultType] = []
+        evaluation_result_list: List[EvalResult] = []
         # check evaluation result.
         if valid_sets is not None:
             if is_valid_contain_train:
@@ -341,13 +347,11 @@ def train(
                 )
         except callback.EarlyStopException as earlyStopException:
             booster.best_iteration = earlyStopException.best_iteration + 1
-            # eval results from cv() have a 5th element with the standard deviation of metrics,
-            # which is not needed for early stopping
-            evaluation_result_list = [item[:4] for item in earlyStopException.best_score]
+            evaluation_result_list = earlyStopException.best_score
             break
     booster.best_score = defaultdict(OrderedDict)
-    for dataset_name, eval_name, score, _ in evaluation_result_list:
-        booster.best_score[dataset_name][eval_name] = score
+    for result in evaluation_result_list:
+        booster.best_score[result.dataset_name][result.metric_name] = result.metric_value
     if not keep_training_booster:
         booster.model_from_string(booster.model_to_string()).free_dataset()
     return booster
@@ -571,10 +575,9 @@ def _make_n_folds(
                 randidx = np.random.RandomState(seed).permutation(num_data)
             else:
                 randidx = np.arange(num_data)
-            kstep = int(num_data / nfold)
-            test_id = [randidx[i : i + kstep] for i in range(0, num_data, kstep)]
+            test_id = np.array_split(randidx, nfold)
             train_id = [np.concatenate([test_id[i] for i in range(nfold) if k != i]) for k in range(nfold)]
-            folds = zip(train_id, test_id)
+            folds = zip(train_id, test_id, strict=True)
 
     ret = CVBooster()
     for train_idx, test_idx in folds:
@@ -594,13 +597,13 @@ def _make_n_folds(
 
 
 def _agg_cv_result(
-    raw_results: List[List[_LGBM_BoosterEvalMethodResultType]],
-) -> List[_LGBM_BoosterEvalMethodResultWithStandardDeviationType]:
+    raw_results: List[List[EvalResult]],
+) -> List[EvalResult]:
     """Aggregate cross-validation results."""
     # build up 2 maps, of the form:
     #
     # OrderedDict{
-    #     (<dataset_name>, <metric_name>): <is_higher_better>
+    #     (<dataset_name>, <metric_name>): <maximize>
     # }
     #
     # OrderedDict{
@@ -609,19 +612,28 @@ def _agg_cv_result(
     #
     metric_types: Dict[Tuple[str, str], bool] = OrderedDict()
     metric_values: Dict[Tuple[str, str], List[float]] = OrderedDict()
-    for one_result in raw_results:
-        for dataset_name, metric_name, metric_value, is_higher_better in one_result:
-            key = (dataset_name, metric_name)
-            metric_types[key] = is_higher_better
+    for result_list in raw_results:
+        for result in result_list:
+            key = (result.dataset_name, result.metric_name)
+            metric_types[key] = result.maximize
             metric_values.setdefault(key, [])
-            metric_values[key].append(metric_value)
+            metric_values[key].append(result.metric_value)
 
     # turn that into a list of tuples of the form:
     #
     # [
-    #     (<dataset_name>, <metric_name>, mean(<values>), <is_higher_better>, std_dev(<values>))
+    #     (<dataset_name>, <metric_name>, mean(<values>), <maximize>, std_dev(<values>))
     # ]
-    return [(k[0], k[1], float(np.mean(v)), metric_types[k], float(np.std(v))) for k, v in metric_values.items()]
+    return [
+        EvalResult(
+            dataset_name=k[0],
+            metric_name=k[1],
+            metric_value=float(np.mean(v)),
+            maximize=metric_types[k],
+            metric_std_dev=float(np.std(v)),
+        )
+        for k, v in metric_values.items()
+    ]
 
 
 def cv(
@@ -670,7 +682,7 @@ def cv(
     feval : callable, list of callable, or None, optional (default=None)
         Customized evaluation function.
         Each evaluation function should accept two parameters: preds, eval_data,
-        and return (eval_name, eval_result, is_higher_better) or list of such tuples.
+        and return (metric_name, metric_value, maximize) or list of such tuples.
 
             preds : numpy 1-D array or numpy 2-D array (for multi-class task)
                 The predicted values.
@@ -679,12 +691,12 @@ def cv(
                 e.g. they are raw margin instead of probability of positive class for binary task in this case.
             eval_data : Dataset
                 A ``Dataset`` to evaluate.
-            eval_name : str
-                The name of evaluation function (without whitespace).
-            eval_result : float
-                The eval result.
-            is_higher_better : bool
-                Is eval result higher better, e.g. AUC is ``is_higher_better``.
+            metric_name : str
+                Unique identifier for the metric (e.g. "custom_adjusted_mse").
+            metric_value : float
+                Value of the evaluation metric.
+            maximize : bool
+                Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
 
         To ignore the default metric corresponding to the used objective,
         set ``metrics`` to the string ``"None"``.
@@ -843,10 +855,10 @@ def cv(
                 )
             )
         cvbooster.update(fobj=fobj)  # type: ignore[call-arg]
-        res = _agg_cv_result(cvbooster.eval_valid(feval))  # type: ignore[call-arg]
-        for dataset_name, metric_name, metric_mean, _, metric_std_dev in res:
-            results[f"{dataset_name} {metric_name}-mean"].append(metric_mean)
-            results[f"{dataset_name} {metric_name}-stdv"].append(metric_std_dev)
+        evaluation_result_list = _agg_cv_result(cvbooster.eval_valid(feval))  # type: ignore[call-arg]
+        for result in evaluation_result_list:
+            results[f"{result.dataset_name} {result.metric_name}-mean"].append(result.metric_value)
+            results[f"{result.dataset_name} {result.metric_name}-stdv"].append(result.metric_std_dev)  # type: ignore[arg-type]
         try:
             for cb in callbacks_after_iter:
                 cb(
@@ -856,7 +868,7 @@ def cv(
                         iteration=i,
                         begin_iteration=0,
                         end_iteration=num_boost_round,
-                        evaluation_result_list=res,
+                        evaluation_result_list=evaluation_result_list,
                     )
                 )
         except callback.EarlyStopException as earlyStopException:

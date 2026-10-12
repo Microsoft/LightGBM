@@ -139,11 +139,11 @@ struct SplitInfo {
     double local_gain = this->gain;
     double other_gain = si.gain;
     // replace nan with -inf
-    if (local_gain == NAN) {
+    if (std::isnan(local_gain)) {
       local_gain = kMinScore;
     }
     // replace nan with -inf
-    if (other_gain == NAN) {
+    if (std::isnan(other_gain)) {
       other_gain = kMinScore;
     }
     if (local_gain != other_gain) {
@@ -169,11 +169,11 @@ struct SplitInfo {
     double local_gain = this->gain;
     double other_gain = si.gain;
     // replace nan with -inf
-    if (local_gain == NAN) {
+    if (std::isnan(local_gain)) {
       local_gain = kMinScore;
     }
     // replace nan with -inf
-    if (other_gain == NAN) {
+    if (std::isnan(other_gain)) {
       other_gain = kMinScore;
     }
     if (local_gain != other_gain) {
@@ -234,11 +234,11 @@ struct LightSplitInfo {
     double local_gain = this->gain;
     double other_gain = si.gain;
     // replace nan with -inf
-    if (local_gain == NAN) {
+    if (std::isnan(local_gain)) {
       local_gain = kMinScore;
     }
     // replace nan with -inf
-    if (other_gain == NAN) {
+    if (std::isnan(other_gain)) {
       other_gain = kMinScore;
     }
     if (local_gain != other_gain) {
@@ -264,11 +264,11 @@ struct LightSplitInfo {
     double local_gain = this->gain;
     double other_gain = si.gain;
     // replace nan with -inf
-    if (local_gain == NAN) {
+    if (std::isnan(local_gain)) {
       local_gain = kMinScore;
     }
     // replace nan with -inf
-    if (other_gain == NAN) {
+    if (std::isnan(other_gain)) {
       other_gain = kMinScore;
     }
     if (local_gain != other_gain) {

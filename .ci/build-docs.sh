@@ -3,6 +3,7 @@
 set -e -E -u -o pipefail
 
 conda env create \
+    -q \
     --name test-env \
     --file ./docs/env.yml \
 || exit 1

@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for
  * license information.
  * Modifications Copyright(C) 2023 Advanced Micro Devices, Inc. All rights reserved.
@@ -402,7 +403,7 @@ __global__ void CUDAConstructDiscretizedHistogramDenseKernel_GlobalMemory(
   const uint32_t partition_hist_end = column_hist_offsets_full[blockIdx.x + 1];
   const uint32_t num_items_in_partition = (partition_hist_end - partition_hist_start);
   const int num_total_bin = column_hist_offsets_full[gridDim.x];
-  int32_t* shared_hist_packed = global_hist_buffer + (blockIdx.y * num_total_bin + partition_column_start);
+  int32_t* shared_hist_packed = global_hist_buffer + (blockIdx.y * num_total_bin + partition_hist_start);
   const unsigned int thread_idx = threadIdx.x + threadIdx.y * blockDim.x;
   for (unsigned int i = thread_idx; i < num_items_in_partition; i += num_threads_per_block) {
     shared_hist_packed[i] = 0;

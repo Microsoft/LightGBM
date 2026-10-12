@@ -58,9 +58,12 @@ See `this SynapseML example`_ for additional information on using LightGBM on Sp
 Dask
 ^^^^
 
+LightGBM's Python-package supports distributed learning via `Dask`_. This integration is maintained by LightGBM's maintainers.
+
 .. versionadded:: 3.2.0
 
-LightGBM's Python-package supports distributed learning via `Dask`_. This integration is maintained by LightGBM's maintainers.
+.. versionadded:: 4.7.0
+    macOS support
 
 .. warning::
 
@@ -512,7 +515,7 @@ See `the mars documentation`_ for usage examples.
 
 .. _Dask: https://docs.dask.org/en/latest/
 
-.. _SynapseML: https://aka.ms/spark
+.. _SynapseML: https://microsoft.github.io/SynapseML/
 
 .. _this SynapseML example: https://github.com/microsoft/SynapseML/tree/master/docs/Explore%20Algorithms/LightGBM
 
@@ -520,13 +523,13 @@ See `the mars documentation`_ for usage examples.
 
 .. _the Dask DataFrame documentation: https://docs.dask.org/en/latest/dataframe.html
 
-.. _the Dask prediction example: https://github.com/microsoft/LightGBM/blob/master/examples/python-guide/dask/prediction.py
+.. _the Dask prediction example: https://github.com/lightgbm-org/LightGBM/blob/main/examples/python-guide/dask/prediction.py
 
 .. _the Dask worker documentation: https://distributed.dask.org/en/stable/worker-memory.html
 
 .. _the metrics functions from dask-ml: https://ml.dask.org/modules/api.html#dask-ml-metrics-metrics
 
-.. _these Dask examples: https://github.com/microsoft/lightgbm/tree/master/examples/python-guide/dask
+.. _these Dask examples: https://github.com/lightgbm-org/LightGBM/tree/main/examples/python-guide/dask
 
 .. _Kubeflow XGBoost Operator: https://github.com/kubeflow/xgboost-operator
 
@@ -534,7 +537,7 @@ See `the mars documentation`_ for usage examples.
 
 .. _here: https://www.youtube.com/watch?v=iqzXhp5TxUY
 
-.. _A simple distributed learning example: https://github.com/microsoft/lightgbm/tree/master/examples/parallel_learning
+.. _A simple distributed learning example: https://github.com/lightgbm-org/LightGBM/tree/main/examples/parallel_learning
 
 .. _lightgbm_ray: https://github.com/ray-project/lightgbm_ray
 

@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #ifndef LIGHTGBM_SRC_BOOSTING_DART_HPP_
@@ -36,7 +37,6 @@ class DART: public GBDT {
   * \param train_data Training data
   * \param objective_function Training objective function
   * \param training_metrics Training metrics
-  * \param output_model_filename Filename of output model
   */
   void Init(const Config* config, const Dataset* train_data,
             const ObjectiveFunction* objective_function,

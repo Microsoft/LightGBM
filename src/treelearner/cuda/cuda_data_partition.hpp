@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for
  * license information.
  */
@@ -26,13 +27,14 @@
 
 namespace LightGBM {
 
-class CUDADataPartition {
+class CUDADataPartition: public NCCLInfo {
  public:
   CUDADataPartition(
     const Dataset* train_data,
     const int num_total_bin,
     const int num_leaves,
     const int num_threads,
+    const bool use_quantized_grad,
     hist_t* cuda_hist);
 
   ~CUDADataPartition();
@@ -64,7 +66,9 @@ class CUDADataPartition {
     double* left_leaf_sum_of_hessians,
     double* right_leaf_sum_of_hessians,
     double* left_leaf_sum_of_gradients,
-    double* right_leaf_sum_of_gradients);
+    double* right_leaf_sum_of_gradients,
+    data_size_t* global_left_leaf_num_data,
+    data_size_t* global_right_leaf_num_data);
 
   void UpdateTrainScore(const Tree* tree, double* cuda_scores);
 
@@ -90,13 +94,13 @@ class CUDADataPartition {
     }
   }
 
-  const data_size_t* cuda_data_indices() const { return cuda_data_indices_; }
+  const data_size_t* cuda_data_indices() const { return cuda_data_indices_.RawData(); }
 
-  const data_size_t* cuda_leaf_num_data() const { return cuda_leaf_num_data_; }
+  const data_size_t* cuda_leaf_num_data() const { return cuda_leaf_num_data_.RawData(); }
 
-  const data_size_t* cuda_leaf_data_start() const { return cuda_leaf_data_start_; }
+  const data_size_t* cuda_leaf_data_start() const { return cuda_leaf_data_start_.RawData(); }
 
-  const int* cuda_data_index_to_leaf_index() const { return cuda_data_index_to_leaf_index_; }
+  const int* cuda_data_index_to_leaf_index() const { return cuda_data_index_to_leaf_index_.RawData(); }
 
   bool use_bagging() const { return use_bagging_; }
 
@@ -131,7 +135,9 @@ class CUDADataPartition {
     double* left_leaf_sum_of_hessians,
     double* right_leaf_sum_of_hessians,
     double* left_leaf_sum_of_gradients,
-    double* right_leaf_sum_of_gradients);
+    double* right_leaf_sum_of_gradients,
+    data_size_t* global_left_leaf_num_data,
+    data_size_t* global_right_leaf_num_data);
 
   // kernel launch functions
   void LaunchFillDataIndicesBeforeTrain();
@@ -153,7 +159,9 @@ class CUDADataPartition {
     double* left_leaf_sum_of_hessians,
     double* right_leaf_sum_of_hessians,
     double* left_leaf_sum_of_gradients,
-    double* right_leaf_sum_of_gradients);
+    double* right_leaf_sum_of_gradients,
+    data_size_t* global_left_leaf_num_data,
+    data_size_t* global_right_leaf_num_data);
 
   void LaunchGenDataToLeftBitVectorKernel(
     const data_size_t num_data_in_leaf,
@@ -327,6 +335,8 @@ class CUDADataPartition {
   int num_leaves_;
   /*! \brief number of threads */
   int num_threads_;
+  /*! \brief whether to use quantized gradients */
+  bool use_quantized_grad_;
 
   // per iteration information
   /*! \brief whether bagging is used in this iteration */
@@ -351,36 +361,36 @@ class CUDADataPartition {
 
   // tree structure information
   /*! \brief data indices by leaf */
-  data_size_t* cuda_data_indices_;
+  CUDAVector<data_size_t> cuda_data_indices_;
   /*! \brief start position of each leaf in cuda_data_indices_ */
-  data_size_t* cuda_leaf_data_start_;
+  CUDAVector<data_size_t> cuda_leaf_data_start_;
   /*! \brief end position of each leaf in cuda_data_indices_ */
-  data_size_t* cuda_leaf_data_end_;
+  CUDAVector<data_size_t> cuda_leaf_data_end_;
   /*! \brief number of data in each leaf */
-  data_size_t* cuda_leaf_num_data_;
+  CUDAVector<data_size_t> cuda_leaf_num_data_;
   /*! \brief records the histogram of each leaf */
-  hist_t** cuda_hist_pool_;
+  CUDAVector<hist_t*> cuda_hist_pool_;
   /*! \brief records the value of each leaf */
-  double* cuda_leaf_output_;
+  CUDAVector<double> cuda_leaf_output_;
 
   // split data algorithm related
-  uint16_t* cuda_block_to_left_offset_;
+  CUDAVector<uint16_t> cuda_block_to_left_offset_;
   /*! \brief maps data index to leaf index, for adding scores to training data set */
-  int* cuda_data_index_to_leaf_index_;
+  CUDAVector<int> cuda_data_index_to_leaf_index_;
   /*! \brief prefix sum of number of data going to left in all blocks */
-  data_size_t* cuda_block_data_to_left_offset_;
+  CUDAVector<data_size_t> cuda_block_data_to_left_offset_;
   /*! \brief prefix sum of number of data going to right in all blocks */
-  data_size_t* cuda_block_data_to_right_offset_;
+  CUDAVector<data_size_t> cuda_block_data_to_right_offset_;
   /*! \brief buffer for splitting data indices, will be copied back to cuda_data_indices_ after split */
-  data_size_t* cuda_out_data_indices_in_leaf_;
+  CUDAVector<data_size_t> cuda_out_data_indices_in_leaf_;
 
   // split tree structure algorithm related
   /*! \brief buffer to store split information, prepared to be copied to cpu */
-  int* cuda_split_info_buffer_;
+  CUDAVector<int> cuda_split_info_buffer_;
 
   // dataset information
   /*! \brief number of data in training set, for initialization of cuda_leaf_num_data_ and cuda_leaf_data_end_ */
-  data_size_t* cuda_num_data_;
+  CUDAVector<data_size_t> cuda_num_data_;
 
 
   // CUDA memory, held by other object

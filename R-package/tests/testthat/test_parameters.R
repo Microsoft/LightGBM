@@ -109,6 +109,7 @@ test_that("training should warn if you use 'dart' boosting with early stopping",
         , label = train$label
         , params = params
         , nrounds = 2L
+        , num_threads = .LGB_MAX_THREADS
         , verbose = .LGB_VERBOSITY
         , early_stopping_rounds = 1L
       )
@@ -121,6 +122,7 @@ test_that("training should warn if you use 'dart' boosting with early stopping",
         , label = train$label
         , params = params
         , nrounds = 2L
+        , num_threads = .LGB_MAX_THREADS
         , verbose = .LGB_VERBOSITY
         , early_stopping_rounds = NULL
       )

@@ -1,0 +1,34 @@
+* text=auto eol=lf
+
+# Explicitly declare text files you want to always be normalized and converted
+# to native line endings on checkout.
+*.c text
+*.cc text
+*.cmake text
+*.conf text
+*.cpp text
+*.cu text
+*.cuh text
+*.h text
+*.hpp text
+*.i text
+*.js text
+*.md text
+*.py text
+*.R text
+*.rst text
+*.sh text
+*.svg text
+*.toml text
+*.tpp text
+*.txt text
+*.yaml text
+*.yml text
+
+# help git identify which files should be treated as binary
+*.ico binary
+*.png binary
+
+# SCM syntax highlighting & preventing 3-way merges
+# (added automatically by 'pixi init')
+pixi.lock merge=binary linguist-language=YAML linguist-generated=true -diff

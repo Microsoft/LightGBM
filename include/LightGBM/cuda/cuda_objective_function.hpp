@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2026-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for
  * license information.
  */
@@ -19,11 +20,13 @@
 namespace LightGBM {
 
 template <typename HOST_OBJECTIVE>
-class CUDAObjectiveInterface: public HOST_OBJECTIVE {
+class CUDAObjectiveInterface: public HOST_OBJECTIVE, public NCCLInfo {
  public:
   explicit CUDAObjectiveInterface(const Config& config): HOST_OBJECTIVE(config) {
-    const int gpu_device_id = config.gpu_device_id >= 0 ? config.gpu_device_id : 0;
-    SetCUDADevice(gpu_device_id, __FILE__, __LINE__);
+    if (config.num_gpu <= 1) {
+      const int gpu_device_id = config.gpu_device_id >= 0 ? config.gpu_device_id : 0;
+      SetCUDADevice(gpu_device_id, __FILE__, __LINE__);
+    }
   }
 
   explicit CUDAObjectiveInterface(const std::vector<std::string>& strs): HOST_OBJECTIVE(strs) {}
@@ -32,6 +35,15 @@ class CUDAObjectiveInterface: public HOST_OBJECTIVE {
     HOST_OBJECTIVE::Init(metadata, num_data);
     cuda_labels_ = metadata.cuda_metadata()->cuda_label();
     cuda_weights_ = metadata.cuda_metadata()->cuda_weights();
+  }
+
+  void SetNCCLInfo(
+    ncclComm_t nccl_communicator,
+    int nccl_gpu_rank,
+    int local_gpu_rank,
+    int gpu_device_id,
+    data_size_t global_num_data) override {
+    NCCLInfo::SetNCCLInfo(nccl_communicator, nccl_gpu_rank, local_gpu_rank, gpu_device_id, global_num_data);
   }
 
   virtual const double* ConvertOutputCUDA(const data_size_t num_data, const double* input, double* output) const {
@@ -49,7 +61,7 @@ class CUDAObjectiveInterface: public HOST_OBJECTIVE {
     SynchronizeCUDADevice(__FILE__, __LINE__);
   }
 
-  void GetGradients(const double* scores, const data_size_t /*num_sampled_queries*/, const data_size_t* /*sampled_query_indices*/, score_t* gradients, score_t* hessians) const override {
+  void GetGradientsWithSampledQueries(const double* scores, const data_size_t /*num_sampled_queries*/, const data_size_t* /*sampled_query_indices*/, score_t* gradients, score_t* hessians) const override {
     LaunchGetGradientsKernel(scores, gradients, hessians);
     SynchronizeCUDADevice(__FILE__, __LINE__);
   }

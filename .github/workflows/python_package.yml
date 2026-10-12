@@ -3,15 +3,20 @@ name: Python-package
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
     branches:
-      - master
+      - main
 
 # automatically cancel in-progress builds if another commit is pushed
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# default to 0 permissions
+# (job-level overrides add the minimal permissions needed)
+permissions:
+  contents: none
 
 env:
   # tell scripts where to put artifacts
@@ -30,12 +35,12 @@ env:
 
 jobs:
   test-linux-aarch64:
-    name: bdist wheel (manylinux_2_28-arm, gcc, Python 3.13)
+    name: bdist wheel (aarch64-manylinux_2_28, gcc, Python 3.14)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 5
           persist-credentials: false
@@ -66,14 +71,14 @@ jobs:
             --env METHOD=wheel \
             --env OS_NAME=linux \
             --env PRODUCES_ARTIFACTS=true \
-            --env PYTHON_VERSION="3.13" \
+            --env PYTHON_VERSION="3.14" \
             --env TASK=bdist \
             -v "${PWD}":"${{ env.BUILD_DIRECTORY }}" \
             -w ${{ env.BUILD_DIRECTORY }} \
             "${IMAGE_URI}" \
             /bin/bash ./docker-script.sh
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: linux-aarch64-wheel
           path: artifacts/*.whl
@@ -88,27 +93,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # - os: macos-15-intel
-          #   task: regular
-          #   compiler: gcc
-          #   python_version: '3.11'
-          # - os: macos-15-intel
-          #   task: sdist
-          #   compiler: clang
-          #   python_version: '3.10'
-          # - os: macos-15-intel
-          #   task: sdist
-          #   compiler: gcc
-          #   python_version: '3.12'
-          # - os: macos-15-intel
-          #   task: bdist
-          #   method: wheel
-          #   compiler: gcc
-          #   python_version: '3.9'
-          # - os: windows-2022
-          #   task: sdist
-          #   compiler: MSVC
-          #   python_version: '3.10'
+          - os: windows-2022
+            task: sdist
+            compiler: MSVC
+            python_version: '3.10'
+            pixi-env: 'py310'
           - os: ubuntu-latest
             container: &ubuntu_latest_image ubuntu:22.04
             os-display-name: &ubuntu_latest_display_name 'ubuntu22.04'
@@ -116,13 +105,13 @@ jobs:
             compiler: clang-17
             python_version: '3.13'
             in-ubuntu-base-container: 'true'
-          # - os: ubuntu-latest
-          #   container: *ubuntu_latest_image
-          #   os-display-name: *ubuntu_latest_display_name
-          #   task: sdist
-          #   compiler: clang-17
-          #   python_version: '3.13'
-          #   in-ubuntu-base-container: 'true'
+          - os: ubuntu-latest
+            container: *ubuntu_latest_image
+            os-display-name: *ubuntu_latest_display_name
+            task: sdist
+            compiler: clang-17
+            python_version: '3.14'
+            in-ubuntu-base-container: 'true'
           #########################
           # OpenCL-based GPU jobs #
           #########################
@@ -130,117 +119,105 @@ jobs:
           # the package built with that compiler toolchain can't target the
           # CPUs on GitHub's runners.
           #
-          # ref: https://github.com/microsoft/LightGBM/pull/7096/files#r2590879590
-          - os: LightGBM-GPU
-            container: nvcr.io/nvidia/cuda:12.9.1-devel-ubuntu22.04
-            os-display-name: ubuntu22.04-with-gpu
-            task: bdist
-            compiler: clang-17
-            method: wheel
-            python_version: '3.11'
-            in-ubuntu-base-container: 'true'
-          - os: LightGBM-GPU
-            container: nvcr.io/nvidia/cuda:12.9.1-devel-ubuntu22.04
-            os-display-name: ubuntu22.04-with-gpu
-            task: gpu
-            compiler: clang-17
-            method: source
-            python_version: '3.12'
-            in-ubuntu-base-container: 'true'
+          # ref: https://github.com/lightgbm-org/LightGBM/pull/7096/files#r2590879590
+          # TODO(jameslamb): restore these GPU jobs when we've clarified handling of GPU CI
+          #             ref: https://github.com/lightgbm-org/LightGBM/issues/7187
+          # - os: github-hosted-linux-gpu-amd64
+          #   container: nvcr.io/nvidia/cuda:12.9.1-devel-ubuntu22.04
+          #   os-display-name: ubuntu22.04-with-gpu
+          #   task: bdist
+          #   compiler: clang-17
+          #   method: wheel
+          #   python_version: '3.11'
+          #   in-ubuntu-base-container: 'true'
+          # - os: github-hosted-linux-gpu-amd64
+          #   container: nvcr.io/nvidia/cuda:12.9.1-devel-ubuntu22.04
+          #   os-display-name: ubuntu22.04-with-gpu
+          #   task: gpu
+          #   compiler: clang-17
+          #   method: source
+          #   python_version: '3.12'
+          #   in-ubuntu-base-container: 'true'
           - os: ubuntu-latest
-            container: &manylinux_amd64_image ghcr.io/microsoft/lightgbm:ci-manylinux_2_28_x86_64-dev
-            os-display-name: &manylinux_amd64_display_name 'manylinux_2_28'
+            container: &manylinux_amd64_image ghcr.io/lightgbm-org/lightgbm:ci-manylinux_2_28_x86_64-dev
+            os-display-name: &manylinux_amd64_display_name 'x86_64_manylinux_2_28'
             task: gpu
             method: source
             compiler: gcc
-            python_version: '3.13'
+            python_version: '3.14'
             in-ubuntu-base-container: 'false'
             setup-conda: 'false'
           ############
           # MPI jobs #
           ############
-          # - os: macos-15-intel
-          #   task: mpi
-          #   compiler: gcc
-          #   method: source
-          #   python_version: '3.12'
-          # - os: macos-15-intel
-          #   task: mpi
-          #   compiler: gcc
-          #   method: pip
-          #   python_version: '3.13'
-          # - os: macos-15-intel
-          #   task: mpi
-          #   compiler: gcc
-          #   method: wheel
-          #   python_version: '3.10'
-          # - os: ubuntu-latest
-          #   container: *manylinux_amd64_image
-          #   os-display-name: *manylinux_amd64_display_name
-          #   task: mpi
-          #   compiler: gcc
-          #   method: source
-          #   python_version: '3.10'
-          #   in-ubuntu-base-container: 'false'
-          #   setup-conda: 'false'
-          # - os: ubuntu-latest
-          #   container: *ubuntu_latest_image
-          #   os-display-name: *ubuntu_latest_display_name
-          #   task: mpi
-          #   compiler: clang-17
-          #   method: source
-          #   python_version: '3.13'
-          #   in-ubuntu-base-container: 'true'
-          # - os: ubuntu-latest
-          #   container: *ubuntu_latest_image
-          #   os-display-name: *ubuntu_latest_display_name
-          #   task: mpi
-          #   compiler: clang-17
-          #   method: pip
-          #   python_version: '3.12'
-          #   in-ubuntu-base-container: 'true'
-          # - os: ubuntu-latest
-          #   container: *ubuntu_latest_image
-          #   os-display-name: *ubuntu_latest_display_name
-          #   task: mpi
-          #   compiler: clang-17
-          #   method: wheel
-          #   python_version: '3.10'
-          #   in-ubuntu-base-container: 'true'
+          - os: ubuntu-latest
+            container: *manylinux_amd64_image
+            os-display-name: *manylinux_amd64_display_name
+            task: mpi
+            compiler: gcc
+            method: source
+            python_version: '3.11'
+            in-ubuntu-base-container: 'false'
+            setup-conda: 'false'
+          - os: ubuntu-latest
+            container: *ubuntu_latest_image
+            os-display-name: *ubuntu_latest_display_name
+            task: mpi
+            compiler: clang-17
+            method: source
+            python_version: '3.13'
+            in-ubuntu-base-container: 'true'
+          - os: ubuntu-latest
+            container: *ubuntu_latest_image
+            os-display-name: *ubuntu_latest_display_name
+            task: mpi
+            compiler: clang-17
+            method: pip
+            python_version: '3.12'
+            in-ubuntu-base-container: 'true'
+          - os: ubuntu-latest
+            container: *ubuntu_latest_image
+            os-display-name: *ubuntu_latest_display_name
+            task: mpi
+            compiler: clang-17
+            method: wheel
+            python_version: '3.10'
+            pixi-env: 'py310'
+            in-ubuntu-base-container: 'true'
           #####################
           # jobs that create  #
           # release artifacts #
           #####################
-          # - os: macos-15-intel
-          #   task: bdist
-          #   compiler: clang
-          #   method: wheel
-          #   produces-artifacts: 'true'
-          #   artifact-name: 'macosx-amd64-wheel'
-          #   python_version: '3.13'
-          # - os: macos-14
-          #   task: bdist
-          #   compiler: clang
-          #   method: wheel
-          #   produces-artifacts: 'true'
-          #   artifact-name: 'macosx-arm64-wheel'
-          #   python_version: '3.11'
-          # - os: macos-15-intel
-          #   task: regular
-          #   compiler: clang
-          #   produces-artifacts: 'true'
-          #   artifact-name: 'macosx-amd64-liblightgbm'
-          #   python_version: '3.11'
-          # - os: ubuntu-latest
-          #   container: *manylinux_amd64_image
-          #   os-display-name: *manylinux_amd64_display_name
-          #   task: regular
-          #   compiler: gcc
-          #   python_version: '3.11'
-          #   in-ubuntu-base-container: 'false'
-          #   setup-conda: 'false'
-          #   produces-artifacts: 'true'
-          #   artifact-name: 'linux-amd64-liblightgbm'
+          - os: macos-15-intel
+            task: bdist
+            compiler: clang
+            method: wheel
+            produces-artifacts: 'true'
+            artifact-name: 'macosx-amd64-wheel'
+            python_version: '3.13'
+          - os: macos-15
+            task: bdist
+            compiler: clang
+            method: wheel
+            produces-artifacts: 'true'
+            artifact-name: 'macosx-arm64-wheel'
+            python_version: '3.11'
+          - os: macos-15-intel
+            task: regular
+            compiler: clang
+            produces-artifacts: 'true'
+            artifact-name: 'macosx-amd64-liblightgbm'
+            python_version: '3.11'
+          - os: ubuntu-latest
+            container: *manylinux_amd64_image
+            os-display-name: *manylinux_amd64_display_name
+            task: regular
+            compiler: gcc
+            python_version: '3.11'
+            in-ubuntu-base-container: 'false'
+            setup-conda: 'false'
+            produces-artifacts: 'true'
+            artifact-name: 'linux-amd64-liblightgbm'
           - os: ubuntu-latest
             container: *manylinux_amd64_image
             os-display-name: *manylinux_amd64_display_name
@@ -248,33 +225,54 @@ jobs:
             compiler: gcc
             method: wheel
             python_version: '3.10'
+            pixi-env: 'py310'
             in-ubuntu-base-container: 'false'
             setup-conda: 'false'
             produces-artifacts: 'true'
             artifact-name: 'linux-amd64-wheel'
-          # - os: ubuntu-latest
-          #   container: *manylinux_amd64_image
-          #   os-display-name: *manylinux_amd64_display_name
-          #   task: sdist
-          #   compiler: gcc
-          #   python_version: '3.9'
-          #   in-ubuntu-base-container: 'false'
-          #   setup-conda: 'false'
-          #   produces-artifacts: 'true'
-          #   artifact-name: 'sdist'
+          - os: ubuntu-latest
+            container: *manylinux_amd64_image
+            os-display-name: *manylinux_amd64_display_name
+            task: sdist
+            compiler: gcc
+            python_version: '3.10'
+            pixi-env: 'py310'
+            in-ubuntu-base-container: 'false'
+            setup-conda: 'false'
+            produces-artifacts: 'true'
+            artifact-name: 'sdist'
           - os: windows-2022
             task: bdist
             compiler: MSVC
             method: wheel
             produces-artifacts: 'true'
             artifact-name: 'windows-amd64-wheel'
+            wheel-platform-tag: 'win_amd64'
             python_version: '3.13'
-          # - os: windows-2022
-          #   task: regular
-          #   compiler: MSVC
-          #   produces-artifacts: 'true'
-          #   artifact-name: 'windows-amd64-cli-and-liblightgbm'
-          #   python_version: '3.11'
+          - os: windows-11-arm
+            task: bdist
+            compiler: MSVC
+            method: wheel
+            produces-artifacts: 'true'
+            artifact-name: 'windows-arm64-wheel'
+            setup-conda: 'false'
+            wheel-platform-tag: 'win_arm64'
+            python_version: '3.13'
+          - os: windows-2022
+            task: regular
+            compiler: MSVC
+            produces-artifacts: 'true'
+            artifact-name: 'windows-amd64-cli-and-liblightgbm'
+            python_version: '3.11'
+          - os: ubuntu-24.04-ppc64le
+            container: 'ghcr.io/lightgbm-org/lightgbm-ci:ppc64le-manylinux-2_28'
+            os-display-name: 'ppc64le-manylinux_2_28'
+            task: bdist
+            compiler: gcc
+            method: wheel
+            python_version: '3.12'
+            produces-artifacts: 'true'
+            artifact-name: 'linux-ppc64le-wheel'
     steps:
       - name: Install packages used by third-party actions
         if: ${{ matrix.in-ubuntu-base-container == 'true' }}
@@ -301,13 +299,23 @@ jobs:
         run: |
           git config --global --add safe.directory "${GITHUB_WORKSPACE}"
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 5
           persist-credentials: false
           submodules: true
+      - name: Set up Python on Windows
+        if: startsWith(matrix.os, 'windows') && matrix.setup-conda == 'false'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ matrix.python_version }}
+      - name: Set up 'pixi' for jobs that need it
+        if: matrix.pixi-env != ''
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e  # v0.10.2
+        with:
+          environments: ${{ matrix.pixi-env }}
       - name: Setup and run tests on Linux and macOS
-        if: startsWith(matrix.os, 'macos') || startsWith(matrix.os, 'ubuntu') || matrix.os == 'LightGBM-GPU'
+        if: startsWith(matrix.os, 'macos') || startsWith(matrix.os, 'ubuntu') || endsWith(matrix.os, 'gpu-amd64')
         shell: bash
         run: |
           export COMPILER="${{ matrix.compiler }}"
@@ -317,7 +325,11 @@ jobs:
           export METHOD="${{ matrix.method }}"
           if [[ "${{ matrix.os }}" =~ ^macos ]]; then
               export OS_NAME="macos"
-          elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]] || [[ "${{ matrix.os }}" == "LightGBM-GPU" ]]; then
+          elif \
+            [[ "${{ matrix.os }}" == "ubuntu-latest" ]] \
+            || [[ "${{ matrix.os }}" == "github-hosted-linux-gpu-amd64" ]] \
+            || [[ "${{ matrix.os }}" == "ubuntu-24.04-ppc64le" ]];
+          then
               export OS_NAME="linux"
               export PATH="/usr/lib64/openmpi/bin:${PATH}"
           fi
@@ -332,14 +344,14 @@ jobs:
           $GITHUB_WORKSPACE/.ci/setup.sh || exit 1
           $GITHUB_WORKSPACE/.ci/test.sh || exit 1
       - name: Install OpenCL on Windows
-        if: startsWith(matrix.os, 'windows') && (matrix.task == 'bdist')
+        if: startsWith(matrix.os, 'windows') && (matrix.task == 'bdist') && matrix.setup-conda != 'false'
         shell: pwsh -command ". {0}"
         run: |
-          & "$env:GITHUB_WORKSPACE/.ci/install-opencl-amd-driver.ps1"
+          & "$env:GITHUB_WORKSPACE/.ci/install-opencl.ps1"
       # 'conda init powershell' needs to be run in a separate process
       # ref: https://docs.conda.io/projects/conda/en/stable/dev-guide/deep-dives/activation.html
       - name: Initialize conda on Windows
-        if: startsWith(matrix.os, 'windows')
+        if: startsWith(matrix.os, 'windows') && matrix.setup-conda != 'false'
         shell: pwsh -command ". {0}"
         run: |
           $env:PATH = "$env:CONDA/Scripts;$env:PATH"
@@ -352,11 +364,13 @@ jobs:
           $env:METHOD = "${{ matrix.method }}"
           $env:PRODUCES_ARTIFACTS = "${{ matrix.produces-artifacts }}"
           $env:PYTHON_VERSION = "${{ matrix.python_version }}"
+          $env:SETUP_CONDA = "${{ matrix.setup-conda }}"
           $env:TASK = "${{ matrix.task }}"
+          $env:WHEEL_PLATFORM_TAG = "${{ matrix.wheel-platform-tag }}"
           & "$env:GITHUB_WORKSPACE/.ci/test-windows.ps1"
       - name: Upload artifacts
         if: ${{ matrix.produces-artifacts == 'true' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ${{ matrix.artifact-name }}
           path: |
@@ -371,23 +385,24 @@ jobs:
     name: NuGet package
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [test]
+    needs:
+      - test
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 5
           persist-credentials: false
           submodules: false
       - name: Download lib_lightgbm (all operating systems) and Windows CLI
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           merge-multiple: true
           path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}
           pattern: '*amd64*-liblightgbm'
           run-id: ${{ github.run_id }}
       - name: Setup NuGet CLI
-        uses: NuGet/setup-nuget@v2
+        uses: NuGet/setup-nuget@fd55a6f3b34392fa83fde1454582407d8c714123  # v4.0
       # ref: https://github.com/NuGet/setup-nuget/issues/168
       - name: Setup mono
         run: |
@@ -396,92 +411,148 @@ jobs:
             mono-devel
       - name: Create NuGet package
         run: |
-          python .ci/create-nuget.py "${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}"
+          python .ci/create-nuget.py "${BUILD_ARTIFACTSTAGINGDIRECTORY}"
           nuget pack \
             $(pwd)/.ci/nuget/LightGBM.nuspec \
             -NonInteractive \
             -Verbosity detailed \
-            -OutputDirectory "${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}"
+            -OutputDirectory "${BUILD_ARTIFACTSTAGINGDIRECTORY}"
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: nuget-package
           path: artifacts/*.nupkg
           if-no-files-found: error
 
-  # test-latest-versions:
-  #   name: Python - latest versions (manylinux_2_28)
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 60
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v6
-  #       with:
-  #         fetch-depth: 5
-  #         persist-credentials: false
-  #         submodules: true
-  #     - name: Create wheel
-  #       run: |
-  #         docker run \
-  #           --rm \
-  #           --env CMAKE_BUILD_PARALLEL_LEVEL=${{ env.CMAKE_BUILD_PARALLEL_LEVEL }} \
-  #           -v $(pwd):/opt/lgb-build \
-  #           -w /opt/lgb-build \
-  #           lightgbm/vsts-agent:manylinux_2_28_x86_64 \
-  #           /bin/bash -c 'PATH=/opt/miniforge/bin:$PATH sh ./build-python.sh bdist_wheel --nomp'
-  #     - name: Test compatibility
-  #       run: |
-  #         docker run \
-  #           --rm \
-  #           -v $(pwd):/opt/lgb-build \
-  #           -w /opt/lgb-build \
-  #           python:3.13 \
-  #           /bin/bash ./.ci/test-python-latest.sh
-  # test-old-versions:
-  #   name: Python - oldest supported versions (manylinux_2_28, Python ${{ matrix.python_version }})
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 60
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       # This should always include at least the oldest
-  #       # not-yet-end-of-life Python version
-  #       python_version:
-  #         - '3.9'
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v6
-  #       with:
-  #         fetch-depth: 5
-  #         persist-credentials: false
-  #         submodules: true
-  #     - name: Create wheel
-  #       run: |
-  #         docker run \
-  #           --rm \
-  #           --env CMAKE_BUILD_PARALLEL_LEVEL=${{ env.CMAKE_BUILD_PARALLEL_LEVEL }} \
-  #           -v $(pwd):/opt/lgb-build \
-  #           -w /opt/lgb-build \
-  #           lightgbm/vsts-agent:manylinux_2_28_x86_64 \
-  #           /bin/bash -c 'PATH=/opt/miniforge/bin:$PATH sh ./build-python.sh bdist_wheel --nomp'
-  #     - name: Test compatibility
-  #       run: |
-  #         docker run \
-  #           --rm \
-  #           -v $(pwd):/opt/lgb-build \
-  #           -w /opt/lgb-build \
-  #           python:${{ matrix.python_version }} \
-  #           /bin/bash ./.ci/test-python-oldest.sh
+  test-latest-versions:
+    name: Python - latest versions (manylinux_2_28)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 5
+          persist-credentials: false
+          submodules: true
+      - name: Create wheel
+        run: |
+          docker run \
+            --rm \
+            --env CMAKE_BUILD_PARALLEL_LEVEL=${{ env.CMAKE_BUILD_PARALLEL_LEVEL }} \
+            -v $(pwd):/opt/lgb-build \
+            -w /opt/lgb-build \
+            ghcr.io/lightgbm-org/lightgbm:ci-manylinux_2_28_x86_64-dev' \
+            /bin/bash -c '
+              export PATH=/opt/miniforge/bin:$PATH
+              pip install "build>=0.10"
+              sh ./build-python.sh bdist_wheel --nomp
+            '
+      - name: Test compatibility
+        run: |
+          docker run \
+            --rm \
+            -v $(pwd):/opt/lgb-build \
+            -w /opt/lgb-build \
+            python:3.14 \
+            /bin/bash ./.ci/test-python-latest.sh
+
+  test-old-versions:
+    name: Python - oldest supported versions (manylinux_2_28, Python ${{ matrix.python_version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # This should always include at least the oldest
+        # not-yet-end-of-life Python version
+        python_version:
+          - '3.10'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 5
+          persist-credentials: false
+          submodules: true
+      - name: Create wheel
+        run: |
+          docker run \
+            --rm \
+            --env CMAKE_BUILD_PARALLEL_LEVEL=${{ env.CMAKE_BUILD_PARALLEL_LEVEL }} \
+            -v $(pwd):/opt/lgb-build \
+            -w /opt/lgb-build \
+            ghcr.io/lightgbm-org/lightgbm:ci-manylinux_2_28_x86_64-dev' \
+            /bin/bash -c '
+              export PATH=/opt/miniforge/bin:$PATH
+              pip install "build>=0.10"
+              sh ./build-python.sh bdist_wheel --nomp
+            '
+      - name: Test compatibility
+        run: |
+          docker run \
+            --rm \
+            -v $(pwd):/opt/lgb-build \
+            -w /opt/lgb-build \
+            python:${{ matrix.python_version }} \
+            /bin/bash ./.ci/test-python-oldest.sh
+
+  upload-nightlies:
+    needs:
+      - test
+      - test-linux-aarch64
+    runs-on: ubuntu-latest
+    # publish whenever a new commit is pushed to 'main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: nightly-python-uploads
+      url: https://anaconda.org/lightgbm-packages/lightgbm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: setup
+        run: |
+          mkdir -p "${BUILD_ARTIFACTSTAGINGDIRECTORY}"
+          pip install --prefer-binary \
+            anaconda-auth \
+            anaconda-client
+      - name: download wheels
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          merge-multiple: true
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}
+          pattern: '*-wheel'
+          run-id: ${{ github.run_id }}
+      - name: download sdists
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: sdist
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}
+          run-id: ${{ github.run_id }}
+      - name: upload to anaconda.org
+        env:
+          ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_API_TOKEN_LIGHTGBM_PACKAGES }}
+        run: |
+          anaconda upload \
+            --package lightgbm \
+            --force \
+            -t pypi \
+            ${BUILD_ARTIFACTSTAGINGDIRECTORY}/lightgbm-*.tar.gz \
+            ${BUILD_ARTIFACTSTAGINGDIRECTORY}/*.whl
+
   all-python-package-jobs-successful:
     if: always()
     runs-on: ubuntu-latest
     needs:
-      # - test-latest-versions
+      - test-latest-versions
       - test
       - test-linux-aarch64
-      # - test-old-versions
+      - test-old-versions
+    permissions:
+      statuses: read
     steps:
       - name: Note that all tests succeeded
-        uses: re-actors/alls-green@v1.2.2
+        uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35  # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}

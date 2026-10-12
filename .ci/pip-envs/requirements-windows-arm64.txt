@@ -1,0 +1,17 @@
+# Runtime and test dependencies with native Windows Arm64 wheels.
+cffi>=1.16
+cloudpickle>=3.0.0
+joblib>=1.3.2
+matplotlib>=3.7.3
+narwhals>=1.15
+numpy>=1.24.4
+pandas>2.0
+psutil>=5.9.8
+pytest>=8.1.1
+scikit-learn>=1.3.2
+scipy>=1.7
+
+# Build-time dependencies
+hatchling>=1.27.0
+build>=0.10
+scikit-build-core>=0.11.0

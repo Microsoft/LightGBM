@@ -1,3 +1,9 @@
+# Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+# Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
+# Licensed under the MIT License. See LICENSE file in the project root for license information.
+
+cmake_minimum_required(VERSION 3.28)
+
 option(USE_MPI "Enable MPI-based distributed learning" OFF)
 option(USE_OPENMP "Enable OpenMP" ON)
 option(USE_GPU "Enable GPU-accelerated training" OFF)
@@ -24,8 +30,6 @@ option(__BUILD_FOR_PYTHON "Set to ON if building lib_lightgbm for use with the P
 option(__BUILD_FOR_R "Set to ON if building lib_lightgbm for use with the R-package" OFF)
 option(__INTEGRATE_OPENCL "Set to ON if building LightGBM with the OpenCL ICD Loader and its dependencies included" OFF)
 
-cmake_minimum_required(VERSION 3.28)
-
 # If using Visual Studio generators, always target v10.x of the Windows SDK.
 # Doing this avoids lookups that could fall back to very old versions, e.g. by finding
 # outdated registry entries.
@@ -35,6 +39,8 @@ if(CMAKE_GENERATOR MATCHES "Visual Studio")
 endif()
 
 project(lightgbm LANGUAGES C CXX)
+
+include(cmake/Utils.cmake)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -123,6 +129,25 @@ include_directories(${FAST_DOUBLE_PARSER_INCLUDE_DIR})
 set(FMT_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/external_libs/fmt/include")
 include_directories(${FMT_INCLUDE_DIR})
 
+if(BUILD_CPP_TEST AND MSVC)
+  # Use /MT flag to statically link the C runtime. Must be set before
+  # add_subdirectory(nanoarrow) so the bundled library uses the same runtime
+  # as the test executable; otherwise linking fails with unresolved __imp_*
+  # symbols (e.g. __imp_realloc).
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+# nanoarrow is only needed by the Arrow-based C API entry points, which are
+# disabled for the R package (the R API never calls them). Skipping the
+# subdirectory keeps the package tarball free of nanoarrow sources, which
+# would otherwise trigger CRAN warnings about diagnostic-suppressing pragmas.
+if(NOT __BUILD_FOR_R)
+  add_subdirectory("${PROJECT_SOURCE_DIR}/external_libs/nanoarrow" EXCLUDE_FROM_ALL)
+  if(NOT BUILD_STATIC_LIB)
+    set_target_properties(nanoarrow_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  endif()
+endif()
+
 if(__BUILD_FOR_R)
     find_package(LibR REQUIRED)
     message(STATUS "LIBR_EXECUTABLE: ${LIBR_EXECUTABLE}")
@@ -150,6 +175,10 @@ endif()
 
 if(USE_CUDA)
     set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
+    find_package(CUDAToolkit 11.8 REQUIRED)
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+      compute_cmake_cuda_archs("${CUDAToolkit_VERSION}")
+    endif()
     enable_language(CUDA)
     set(USE_OPENMP ON CACHE BOOL "CUDA requires OpenMP" FORCE)
 endif()
@@ -210,41 +239,10 @@ if(__INTEGRATE_OPENCL)
     endif()
 endif()
 
-if(BUILD_CPP_TEST AND MSVC)
-  # Use /MT flag to statically link the C runtime
-  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-endif()
-
 if(USE_CUDA)
-    find_package(CUDAToolkit 11.0 REQUIRED)
+    find_package(NCCL REQUIRED)
     include_directories(${CUDAToolkit_INCLUDE_DIRS})
     set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler=${OpenMP_CXX_FLAGS} -Xcompiler=-fPIC -Xcompiler=-Wall")
-
-    # reference for mapping of CUDA toolkit component versions to supported architectures ("compute capabilities"):
-    # https://en.wikipedia.org/wiki/CUDA#GPUs_supported
-    set(CUDA_ARCHS "60" "61" "62" "70" "75")
-    if(CUDAToolkit_VERSION VERSION_GREATER_EQUAL "11.0")
-        list(APPEND CUDA_ARCHS "80")
-    endif()
-    if(CUDAToolkit_VERSION VERSION_GREATER_EQUAL "11.1")
-        list(APPEND CUDA_ARCHS "86")
-    endif()
-    if(CUDAToolkit_VERSION VERSION_GREATER_EQUAL "11.5")
-        list(APPEND CUDA_ARCHS "87")
-    endif()
-    if(CUDAToolkit_VERSION VERSION_GREATER_EQUAL "11.8")
-        list(APPEND CUDA_ARCHS "89")
-        list(APPEND CUDA_ARCHS "90")
-    endif()
-    if(CUDAToolkit_VERSION VERSION_GREATER_EQUAL "12.8")
-        list(APPEND CUDA_ARCHS "100")
-        list(APPEND CUDA_ARCHS "120")
-    endif()
-    # Generate PTX for the most recent architecture for forwards compatibility
-    list(POP_BACK CUDA_ARCHS CUDA_LAST_SUPPORTED_ARCH)
-    list(TRANSFORM CUDA_ARCHS APPEND "-real")
-    list(APPEND CUDA_ARCHS "${CUDA_LAST_SUPPORTED_ARCH}-real" "${CUDA_LAST_SUPPORTED_ARCH}-virtual")
-    message(STATUS "CUDA_ARCHITECTURES: ${CUDA_ARCHS}")
     if(USE_DEBUG)
       set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -g")
     else()
@@ -285,6 +283,9 @@ if(USE_ROCM)
     endif()
     message(STATUS "CMAKE_HIP_FLAGS: ${CMAKE_HIP_FLAGS}")
 
+    # Building for ROCm almost always means USE_CUDA.
+    # Exceptions to this will be guarded by USE_ROCM.
+    add_definitions(-DUSE_CUDA)
     add_definitions(-DUSE_ROCM)
 endif()
 
@@ -438,6 +439,7 @@ set(
     LGBM_CUDA_SOURCES
       src/boosting/cuda/cuda_score_updater.cpp
       src/boosting/cuda/cuda_score_updater.cu
+      src/boosting/cuda/nccl_gbdt.cpp
       src/metric/cuda/cuda_binary_metric.cpp
       src/metric/cuda/cuda_pointwise_metric.cpp
       src/metric/cuda/cuda_regression_metric.cpp
@@ -471,11 +473,25 @@ set(
       src/cuda/cuda_algorithms.cu
 )
 
-if(USE_CUDA)
+if(USE_CUDA OR USE_ROCM)
   list(APPEND LGBM_SOURCES ${LGBM_CUDA_SOURCES})
 endif()
 
+if(USE_ROCM)
+  set(CU_FILES "")
+  foreach(file IN LISTS LGBM_CUDA_SOURCES)
+      string(REGEX MATCH "\\.cu$" is_cu_file "${file}")
+      if(is_cu_file)
+          list(APPEND CU_FILES "${file}")
+      endif()
+  endforeach()
+  set_source_files_properties(${CU_FILES} PROPERTIES LANGUAGE HIP)
+endif()
+
 add_library(lightgbm_objs OBJECT ${LGBM_SOURCES})
+if(NOT __BUILD_FOR_R)
+  target_link_libraries(lightgbm_objs PRIVATE nanoarrow_static)
+endif()
 
 if(BUILD_CLI)
     add_executable(lightgbm src/main.cpp src/application/application.cpp)
@@ -490,6 +506,9 @@ if(__BUILD_FOR_R)
 endif()
 
 add_library(lightgbm_capi_objs OBJECT ${API_SOURCES})
+if(NOT __BUILD_FOR_R)
+  target_link_libraries(lightgbm_capi_objs PRIVATE nanoarrow_static)
+endif()
 
 if(BUILD_STATIC_LIB)
   add_library(_lightgbm STATIC)
@@ -588,6 +607,15 @@ if(USE_GPU)
   target_link_libraries(lightgbm_objs PUBLIC ${OpenCL_LIBRARY} ${Boost_LIBRARIES})
 endif()
 
+if(USE_CUDA)
+  target_link_libraries(lightgbm_objs PUBLIC NCCL::NCCL)
+endif()
+
+if(USE_ROCM)
+  find_package(rccl)
+  target_link_libraries(lightgbm_objs PUBLIC ${RCCL_LIBRARY})
+endif()
+
 if(__INTEGRATE_OPENCL)
   # targets OpenCL and Boost are added in IntegratedOpenCL.cmake
   add_dependencies(lightgbm_objs OpenCL Boost)
@@ -602,14 +630,12 @@ if(USE_CUDA)
   set_target_properties(
     lightgbm_objs
     PROPERTIES
-      CUDA_ARCHITECTURES "${CUDA_ARCHS}"
       CUDA_SEPARABLE_COMPILATION ON
   )
 
   set_target_properties(
     _lightgbm
     PROPERTIES
-      CUDA_ARCHITECTURES "${CUDA_ARCHS}"
       CUDA_RESOLVE_DEVICE_SYMBOLS ON
   )
 
@@ -617,10 +643,13 @@ if(USE_CUDA)
     set_target_properties(
       lightgbm
       PROPERTIES
-        CUDA_ARCHITECTURES "${CUDA_ARCHS}"
         CUDA_RESOLVE_DEVICE_SYMBOLS ON
     )
   endif()
+endif()
+
+if(USE_ROCM)
+  target_link_libraries(lightgbm_objs PUBLIC hip::host)
 endif()
 
 if(WIN32)
@@ -667,12 +696,14 @@ if(BUILD_CPP_TEST)
     CPP_TEST_SOURCES
       tests/cpp_tests/test_array_args.cpp
       tests/cpp_tests/test_arrow.cpp
+      tests/cpp_tests/test_arrow_deprecated.cpp
       tests/cpp_tests/test_byte_buffer.cpp
       tests/cpp_tests/test_chunked_array.cpp
       tests/cpp_tests/test_common.cpp
       tests/cpp_tests/test_main.cpp
       tests/cpp_tests/test_serialize.cpp
       tests/cpp_tests/test_single_row.cpp
+      tests/cpp_tests/test_split_info.cpp
       tests/cpp_tests/test_stream.cpp
       tests/cpp_tests/testutils.cpp
     )
@@ -680,7 +711,7 @@ if(BUILD_CPP_TEST)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /permissive-")
   endif()
   add_executable(testlightgbm ${CPP_TEST_SOURCES})
-  target_link_libraries(testlightgbm PRIVATE lightgbm_objs lightgbm_capi_objs GTest::GTest)
+  target_link_libraries(testlightgbm PRIVATE lightgbm_objs lightgbm_capi_objs nanoarrow_static GTest::GTest)
 endif()
 
 if(BUILD_CLI)
@@ -797,7 +828,7 @@ if(APPLE AND USE_OPENMP AND NOT BUILD_STATIC_LIB)
       # ensure that R's library directory is the first place the loader searches for
       # libomp.dylib when clang is used.
       #
-      # ref: https://github.com/microsoft/LightGBM/issues/6628
+      # ref: https://github.com/lightgbm-org/LightGBM/issues/6628
       #
       if(__BUILD_FOR_R)
         list(PREPEND __omp_install_rpaths "${LIBR_LIBS_DIR}")

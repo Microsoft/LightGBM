@@ -6,22 +6,17 @@ on:
       pr-branch:
         type: string
         description: |
-          Branch in microsoft/LightGBM to update.
+          Branch in lightgbm-org/LightGBM to update.
 
+# automatically cancel in-progress builds if another commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# default to 0 permissions
+# (job-level overrides add the minimal permissions needed)
 permissions:
-  actions: none
-  checks: none
-  contents: write
-  deployments: none
-  discussions: none
-  id-token: write
-  issues: none
-  packages: none
-  pages: none
-  pull-requests: read
-  repository-projects: none
-  security-events: none
-  statuses: none
+  contents: none
 
 jobs:
   r-configure:
@@ -29,6 +24,10 @@ jobs:
     timeout-minutes: 60
     runs-on: ubuntu-latest
     container: "ubuntu:22.04"
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: read
     steps:
       - name: Install essential software before checkout
         run: |
@@ -40,11 +39,11 @@ jobs:
         run: |
           git config --global --add safe.directory "${GITHUB_WORKSPACE}"
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 5
           submodules: false
-          repository: microsoft/LightGBM
+          repository: lightgbm-org/LightGBM
           ref: "refs/heads/${{ inputs.pr-branch }}"
           token: ${{ github.token }}
           persist-credentials: true

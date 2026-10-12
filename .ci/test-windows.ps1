@@ -6,8 +6,8 @@ function Assert-Output {
     }
 }
 
-$env:CONDA_ENV = "test-env"
 $env:LGB_VER = (Get-Content $env:BUILD_SOURCESDIRECTORY\VERSION.txt).trim()
+$UseConda = $env:SETUP_CONDA -ne "false"
 # Use custom temp directory to avoid
 # > warning MSB8029: The Intermediate directory or Output directory cannot reside under the Temporary directory
 # > as it could lead to issues with incremental build.
@@ -34,8 +34,11 @@ if ($env:TASK -eq "cpp-tests") {
 if ($env:TASK -eq "swig") {
     $env:JAVA_HOME = $env:JAVA_HOME_8_X64  # there is pre-installed Eclipse Temurin 8 somewhere
     $ProgressPreference = "SilentlyContinue"  # progress bar bug extremely slows down download speed
+    $ReleaseInfo = Invoke-RestMethod "https://sourceforge.net/projects/swig/best_release.json"
+    $SwigFilename = $ReleaseInfo.platform_releases.windows.filename
+    # e.g. "/swigwin/swigwin-4.4.1/swigwin-4.4.1.zip"
     $params = @{
-        Uri = "https://sourceforge.net/projects/swig/files/latest/download"
+        Uri = "https://sourceforge.net/projects/swig/files$SwigFilename/download"
         OutFile = "$env:BUILD_SOURCESDIRECTORY/swig/swigwin.zip"
         UserAgent = "curl"
     }
@@ -65,68 +68,98 @@ if ($env:TASK -eq "swig") {
     exit 0
 }
 
-# setup for Python
-conda activate ; Assert-Output $?
-conda config --set always_yes yes --set changeps1 no ; Assert-Output $?
-conda config --remove channels defaults ; Assert-Output $?
-conda config --add channels nodefaults ; Assert-Output $?
-conda config --add channels conda-forge ; Assert-Output $?
-conda config --set channel_priority strict ; Assert-Output $?
-conda install -q -y conda "python=$env:PYTHON_VERSION[build=*_cp*]" ; Assert-Output $?
-
-# print output of 'conda info', to help in submitting bug reports
-Write-Output "conda info:"
-conda info
-
-if ($env:PYTHON_VERSION -eq "3.9") {
-    $env:CONDA_REQUIREMENT_FILE = "$env:BUILD_SOURCESDIRECTORY/.ci/conda-envs/ci-core-py39.txt"
+# There is no native conda distribution for Windows Arm64.
+if (-not $UseConda) {
+    python -m pip install `
+        --only-binary=:all: `
+        --requirement "$env:BUILD_SOURCESDIRECTORY/.ci/pip-envs/requirements-windows-arm64.txt" `
+        --upgrade ; Assert-Output $?
+} elseif ($env:PYTHON_VERSION -eq "3.10") {
+    # 'pixi' is used for end-of-life Python versions
+    $activation = ((& pixi shell-hook --locked -e py310 --shell powershell) -join "`n")
+    Invoke-Expression $activation ; Assert-Output $?
 } else {
+    # update conda env
+    $env:CONDA_ENV = "test-env"
+    conda activate ; Assert-Output $?
+    conda config --set always_yes yes --set changeps1 no ; Assert-Output $?
+    conda config --remove channels defaults ; Assert-Output $?
+    conda config --add channels nodefaults ; Assert-Output $?
+    conda config --add channels conda-forge ; Assert-Output $?
+    conda config --set channel_priority strict ; Assert-Output $?
+
+    # From Python 3.13 onwards, CPython packages on conda-forge have build strings
+    # with formats like "*_cp314".
+    #
+    # Have to be specific here (no trailing wildcard) to avoid unintentionally pulling
+    # in free-threaded builds (e.g. "*_cp314t").
+    $PythonMajorVersion, $PythonMinorVersion = $env:PYTHON_VERSION.Split(".")
+    if ([int]$PythonMajorVersion -gt 3 -or ([int]$PythonMajorVersion -eq 3 -and [int]$PythonMinorVersion -gt 12)) {
+        $env:PYTHON_ABI_TAG = "cp$($env:PYTHON_VERSION -replace '\.', '')"
+    } else {
+        $env:PYTHON_ABI_TAG = "cpython"
+    }
+    $env:CONDA_PYTHON_REQUIREMENT = "python=$env:PYTHON_VERSION[build=*_$env:PYTHON_ABI_TAG]"
+
+    conda install -q -y conda "$env:CONDA_PYTHON_REQUIREMENT" ; Assert-Output $?
+
+    # print output of 'conda info', to help in submitting bug reports
+    Write-Output "conda info:"
+    conda info
+
     $env:CONDA_REQUIREMENT_FILE = "$env:BUILD_SOURCESDIRECTORY/.ci/conda-envs/ci-core.txt"
-}
 
-$condaParams = @(
-    "-y",
-    "-n", "$env:CONDA_ENV",
-    "--file", "$env:CONDA_REQUIREMENT_FILE",
-    "python=$env:PYTHON_VERSION[build=*_cp*]"
-)
-conda create @condaParams ; Assert-Output $?
+    $condaParams = @(
+        "-q",
+        "-y",
+        "-n", "$env:CONDA_ENV",
+        "--file", "$env:CONDA_REQUIREMENT_FILE",
+        "$env:CONDA_PYTHON_REQUIREMENT"
+    )
+    conda create @condaParams ; Assert-Output $?
 
-# print output of 'conda list', to help in submitting bug reports
-Write-Output "conda list:"
-conda list -n $env:CONDA_ENV
+    # print output of 'conda list', to help in submitting bug reports
+    Write-Output "conda list:"
+    conda list -n $env:CONDA_ENV
 
-if ($env:TASK -ne "bdist") {
-    conda activate $env:CONDA_ENV
+    # 'bdist' job invokes 'RefreshEnv' to update PATH from the registry (which may have been modified
+    # by building in OpenCL support), so defer activating the conda environment until later for those builds.
+    if ($env:TASK -ne "bdist") {
+        conda activate $env:CONDA_ENV
+    }
 }
 
 Set-Location "$env:BUILD_SOURCESDIRECTORY"
 if ($env:TASK -eq "regular") {
     cmake -B build -S . -A x64 ; Assert-Output $?
     cmake --build build --target ALL_BUILD --config Release ; Assert-Output $?
-    sh ./build-python.sh install --precompile ; Assert-Output $?
+    sh ./build-python.sh install --precompile --no-isolation ; Assert-Output $?
     cp ./Release/lib_lightgbm.dll "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
     cp ./Release/lightgbm.exe "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
 } elseif ($env:TASK -eq "sdist") {
-    sh ./build-python.sh sdist ; Assert-Output $?
+    sh ./build-python.sh --no-isolation sdist ; Assert-Output $?
     sh ./.ci/check-python-dists.sh ./dist ; Assert-Output $?
-    Set-Location dist; pip install @(Get-ChildItem *.gz) -v ; Assert-Output $?
+    Set-Location dist; pip install --no-deps @(Get-ChildItem *.gz) -v ; Assert-Output $?
 } elseif ($env:TASK -eq "bdist") {
-    # Import the Chocolatey profile module so that the RefreshEnv command
-    # invoked below properly updates the current PowerShell session environment.
-    $module = "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
-    Import-Module "$module" ; Assert-Output $?
-    RefreshEnv
+    if ($UseConda) {
+        # Import the Chocolatey profile module so that the RefreshEnv command
+        # invoked below properly updates the current PowerShell session environment.
+        $module = "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
+        Import-Module "$module" ; Assert-Output $?
+        RefreshEnv
 
-    Write-Output "Current OpenCL drivers:"
-    Get-ItemProperty -Path Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\OpenCL\Vendors
+        Write-Output "Current OpenCL drivers:"
+        Get-ItemProperty -Path Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\OpenCL\Vendors
 
-    conda activate $env:CONDA_ENV
-    # TODO: restore --integrated-opencl as part of https://github.com/microsoft/LightGBM/issues/6968
-    sh "build-python.sh" bdist_wheel ; Assert-Output $?
+        # (re-) activate conda environment, in case any activation logic was overridden by that 'RefreshEnv' call above
+        conda activate $env:CONDA_ENV
+    }
+
+    # TODO: restore --integrated-opencl as part of https://github.com/lightgbm-org/LightGBM/issues/6968
+    sh "build-python.sh" --no-isolation bdist_wheel ; Assert-Output $?
     sh ./.ci/check-python-dists.sh ./dist ; Assert-Output $?
-    Set-Location dist; pip install @(Get-ChildItem *py3-none-win_amd64.whl) ; Assert-Output $?
-    cp @(Get-ChildItem *py3-none-win_amd64.whl) "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
+    Set-Location dist; pip install --no-deps @(Get-ChildItem "*py3-none-$env:WHEEL_PLATFORM_TAG.whl") ; Assert-Output $?
+    cp @(Get-ChildItem "*py3-none-$env:WHEEL_PLATFORM_TAG.whl") "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
 } elseif (($env:APPVEYOR -eq "true") -and ($env:TASK -eq "python")) {
     if ($env:COMPILER -eq "MINGW") {
         sh ./build-python.sh install --mingw ; Assert-Output $?
@@ -143,11 +176,11 @@ if (($env:TASK -eq "sdist") -or (($env:APPVEYOR -eq "true") -and ($env:TASK -eq 
 }
 if ($env:TASK -eq "bdist") {
     # Make sure we can do both CPU and GPU; see tests/python_package_test/test_dual.py
-    # TODO: set LIGHTGBM_TEST_DUAL_CPU_GPU back to "1" as part of https://github.com/microsoft/LightGBM/issues/6968
+    # TODO: set LIGHTGBM_TEST_DUAL_CPU_GPU back to "1" as part of https://github.com/lightgbm-org/LightGBM/issues/6968
     $env:LIGHTGBM_TEST_DUAL_CPU_GPU = "0"
 }
 
-pytest $tests ; Assert-Output $?
+pytest -ra $tests ; Assert-Output $?
 
 if (($env:TASK -eq "regular") -or (($env:APPVEYOR -eq "true") -and ($env:TASK -eq "python"))) {
     Set-Location "$env:BUILD_SOURCESDIRECTORY/examples/python-guide"
@@ -157,7 +190,12 @@ if (($env:TASK -eq "regular") -or (($env:APPVEYOR -eq "true") -and ($env:TASK -e
         'graph.render(view=True)',
         'graph.render(view=False)'
     ) | Set-Content "plot_example.py"
-    conda install -y -n $env:CONDA_ENV "h5py>=3.10" "ipywidgets>=8.1.2" "notebook>=7.1.2"
+
+    # install optional plotting libraries
+    # (not necessary for pixi-managed environments, where they're just installed by default)
+    if ($env:PYTHON_VERSION -ne "3.10") {
+        conda install -q -y -n $env:CONDA_ENV "h5py>=3.10" "ipywidgets>=8.1.2" "notebook>=7.1.2"
+    }
     # Run all examples
     foreach ($file in @(Get-ChildItem *.py)) {
         @(

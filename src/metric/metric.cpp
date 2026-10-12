@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #include <LightGBM/metric.h>
@@ -135,6 +136,12 @@ Metric* Metric::CreateMetric(const std::string& type, const Config& config) {
   #ifdef USE_CUDA
   }
   #endif  // USE_CUDA
+  // "custom" is a sentinel value produced by ParseMetricAlias for "none" / "na" / "null" / "custom";
+  // it means the user deliberately requested no built-in metric, so returning nullptr is intentional.
+  // Any other unrecognised name is a user mistake and deserves a clear error.
+  if (type != std::string("custom")) {
+    Log::Fatal("Unknown metric '%s'. To avoid enabling LightGBM built-in metrics, pass metric='none'. Otherwise, ensure 'metric' contains only supported values.", type.c_str());
+  }
   return nullptr;
 }
 

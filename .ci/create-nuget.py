@@ -33,7 +33,7 @@ if __name__ == "__main__":
         <authors>Guolin Ke</authors>
         <owners>Guolin Ke</owners>
         <license type="expression">MIT</license>
-        <projectUrl>https://github.com/microsoft/LightGBM</projectUrl>
+        <projectUrl>https://github.com/lightgbm-org/LightGBM</projectUrl>
         <requireLicenseAcceptance>false</requireLicenseAcceptance>
         <description>A fast, distributed, high performance gradient boosting framework</description>
         <copyright>Copyright {datetime.datetime.now().year} @ Microsoft</copyright>

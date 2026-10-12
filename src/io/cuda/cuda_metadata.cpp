@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 
@@ -17,20 +18,9 @@ CUDAMetadata::CUDAMetadata(const int gpu_device_id) {
   } else {
     SetCUDADevice(0, __FILE__, __LINE__);
   }
-  cuda_label_ = nullptr;
-  cuda_weights_ = nullptr;
-  cuda_query_boundaries_ = nullptr;
-  cuda_query_weights_ = nullptr;
-  cuda_init_score_ = nullptr;
 }
 
-CUDAMetadata::~CUDAMetadata() {
-  DeallocateCUDAMemory<label_t>(&cuda_label_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<label_t>(&cuda_weights_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<data_size_t>(&cuda_query_boundaries_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<label_t>(&cuda_query_weights_, __FILE__, __LINE__);
-  DeallocateCUDAMemory<double>(&cuda_init_score_, __FILE__, __LINE__);
-}
+CUDAMetadata::~CUDAMetadata() {}
 
 void CUDAMetadata::Init(const std::vector<label_t>& label,
                         const std::vector<label_t>& weight,
@@ -38,55 +28,50 @@ void CUDAMetadata::Init(const std::vector<label_t>& label,
                         const std::vector<label_t>& query_weights,
                         const std::vector<double>& init_score) {
   if (label.size() == 0) {
-    cuda_label_ = nullptr;
+    cuda_label_.Clear();
   } else {
-    InitCUDAMemoryFromHostMemory<label_t>(&cuda_label_, label.data(), label.size(), __FILE__, __LINE__);
+    cuda_label_.InitFromHostVector(label);
   }
   if (weight.size() == 0) {
-    cuda_weights_ = nullptr;
+    cuda_weights_.Clear();
   } else {
-    InitCUDAMemoryFromHostMemory<label_t>(&cuda_weights_, weight.data(), weight.size(), __FILE__, __LINE__);
+    cuda_weights_.InitFromHostVector(weight);
   }
   if (query_boundaries.size() == 0) {
-    cuda_query_boundaries_ = nullptr;
+    cuda_query_boundaries_.Clear();
   } else {
-    InitCUDAMemoryFromHostMemory<data_size_t>(&cuda_query_boundaries_, query_boundaries.data(), query_boundaries.size(), __FILE__, __LINE__);
+    cuda_query_boundaries_.InitFromHostVector(query_boundaries);
   }
   if (query_weights.size() == 0) {
-    cuda_query_weights_ = nullptr;
+    cuda_query_weights_.Clear();
   } else {
-    InitCUDAMemoryFromHostMemory<label_t>(&cuda_query_weights_, query_weights.data(), query_weights.size(), __FILE__, __LINE__);
+    cuda_query_weights_.InitFromHostVector(query_weights);
   }
   if (init_score.size() == 0) {
-    cuda_init_score_ = nullptr;
+    cuda_init_score_.Clear();
   } else {
-    InitCUDAMemoryFromHostMemory<double>(&cuda_init_score_, init_score.data(), init_score.size(), __FILE__, __LINE__);
+    cuda_init_score_.InitFromHostVector(init_score);
   }
   SynchronizeCUDADevice(__FILE__, __LINE__);
 }
 
 void CUDAMetadata::SetLabel(const label_t* label, data_size_t len) {
-  DeallocateCUDAMemory<label_t>(&cuda_label_, __FILE__, __LINE__);
-  InitCUDAMemoryFromHostMemory<label_t>(&cuda_label_, label, static_cast<size_t>(len), __FILE__, __LINE__);
+  cuda_label_.InitFromHostMemory(label, static_cast<size_t>(len));
 }
 
 void CUDAMetadata::SetWeights(const label_t* weights, data_size_t len) {
-  DeallocateCUDAMemory<label_t>(&cuda_weights_, __FILE__, __LINE__);
-  InitCUDAMemoryFromHostMemory<label_t>(&cuda_weights_, weights, static_cast<size_t>(len), __FILE__, __LINE__);
+  cuda_weights_.InitFromHostMemory(weights, static_cast<size_t>(len));
 }
 
 void CUDAMetadata::SetQuery(const data_size_t* query_boundaries, const label_t* query_weights, data_size_t num_queries) {
-  DeallocateCUDAMemory<data_size_t>(&cuda_query_boundaries_, __FILE__, __LINE__);
-  InitCUDAMemoryFromHostMemory<data_size_t>(&cuda_query_boundaries_, query_boundaries, static_cast<size_t>(num_queries) + 1, __FILE__, __LINE__);
+  cuda_query_boundaries_.InitFromHostMemory(query_boundaries, static_cast<size_t>(num_queries) + 1);
   if (query_weights != nullptr) {
-    DeallocateCUDAMemory<label_t>(&cuda_query_weights_, __FILE__, __LINE__);
-    InitCUDAMemoryFromHostMemory<label_t>(&cuda_query_weights_, query_weights, static_cast<size_t>(num_queries), __FILE__, __LINE__);
+    cuda_query_weights_.InitFromHostMemory(query_weights, static_cast<size_t>(num_queries));
   }
 }
 
 void CUDAMetadata::SetInitScore(const double* init_score, data_size_t len) {
-  DeallocateCUDAMemory<double>(&cuda_init_score_, __FILE__, __LINE__);
-  InitCUDAMemoryFromHostMemory<double>(&cuda_init_score_, init_score, static_cast<size_t>(len), __FILE__, __LINE__);
+  cuda_init_score_.InitFromHostMemory(init_score, len);
 }
 
 }  // namespace LightGBM

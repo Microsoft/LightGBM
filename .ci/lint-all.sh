@@ -7,7 +7,7 @@ echo "Linting PowerShell code"
 pwsh -file ./.ci/lint-powershell.ps1 || exit 1
 
 conda create -q -y -n test-env \
-    "python=3.13[build=*_cp*]" \
+    "python=3.14[build=*_cp*]" \
     'pre-commit>=3.8.0' \
     'r-lintr>=3.3.0'
 

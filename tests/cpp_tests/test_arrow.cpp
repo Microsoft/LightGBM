@@ -1,342 +1,216 @@
 /*!
- * Copyright (c) 2023 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2023-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2023-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  *
  * Author: Oliver Borchert
  */
 
-#include <LightGBM/arrow.h>
 #include <gtest/gtest.h>
 
 #include <cmath>
-#include <cstdlib>
+#include <utility>
 #include <vector>
 
+#include <nanoarrow/nanoarrow.hpp>
+
+#include "../../src/arrow/array.hpp"
+
 using LightGBM::ArrowChunkedArray;
-using LightGBM::ArrowTable;
 
-/* --------------------------------------------------------------------------------------------- */
-/*                                             UTILS                                             */
-/* --------------------------------------------------------------------------------------------- */
-// This code is copied and adapted from the official Arrow producer examples:
-// https://arrow.apache.org/docs/format/CDataInterface.html#exporting-a-struct-float32-utf8-array
+namespace {
 
-static void release_schema(struct ArrowSchema* schema) {
-  // Free children
-  if (schema->children) {
-    for (int64_t i = 0; i < schema->n_children; ++i) {
-      struct ArrowSchema* child = schema->children[i];
-      if (child->release) {
-        child->release(child);
-      }
-      free(child);
-    }
-    free(schema->children);
-  }
-
-  // Finalize
-  schema->release = nullptr;
+// Build an ArrowArrayStream from a schema and a list of chunk arrays. Takes ownership of the
+// passed schema and chunks.
+nanoarrow::UniqueArrayStream MakeStream(nanoarrow::UniqueSchema schema,
+                                        std::vector<nanoarrow::UniqueArray> chunks) {
+  nanoarrow::UniqueArrayStream stream;
+  nanoarrow::VectorArrayStream(schema.get(), std::move(chunks)).ToArrayStream(stream.get());
+  return stream;
 }
 
-static void release_array(struct ArrowArray* array) {
-  // Free children
-  if (array->children) {
-    for (int64_t i = 0; i < array->n_children; ++i) {
-      struct ArrowArray* child = array->children[i];
-      if (child->release) {
-        child->release(child);
-      }
-      free(child);
-    }
-    free(array->children);
-  }
-
-  // Free buffers
-  for (int64_t i = 0; i < array->n_buffers; ++i) {
-    if (array->buffers[i]) {
-      free(const_cast<void*>(array->buffers[i]));
-    }
-  }
-  free(array->buffers);
-
-  // Finalize
-  array->release = nullptr;
+nanoarrow::UniqueSchema MakePrimitiveSchema(ArrowType type) {
+  nanoarrow::UniqueSchema schema;
+  EXPECT_EQ(ArrowSchemaInitFromType(schema.get(), type), NANOARROW_OK);
+  return schema;
 }
 
-/* ------------------------------------------ PRODUCER ----------------------------------------- */
-
-class ArrowChunkedArrayTest : public testing::Test {
- protected:
-  void SetUp() override {}
-
-  /* -------------------------------------- ARRAY CREATION ------------------------------------- */
-
-  char* build_validity_bitmap(int64_t size, std::vector<int64_t> null_indices = {}) {
-    if (null_indices.empty()) {
-      return nullptr;
-    }
-    auto num_bytes = (size + 7) / 8;
-    auto validity = static_cast<char*>(malloc(num_bytes * sizeof(char)));
-    memset(validity, 0xff, num_bytes * sizeof(char));
-    for (auto idx : null_indices) {
-      validity[idx / 8] &= ~(1 << (idx % 8));
-    }
-    return validity;
+nanoarrow::UniqueSchema MakeStructSchema(const std::vector<ArrowType>& field_types) {
+  nanoarrow::UniqueSchema schema;
+  ArrowSchemaInit(schema.get());
+  EXPECT_EQ(ArrowSchemaSetTypeStruct(schema.get(), field_types.size()), NANOARROW_OK);
+  for (size_t i = 0; i < field_types.size(); ++i) {
+    EXPECT_EQ(ArrowSchemaSetType(schema->children[i], field_types[i]), NANOARROW_OK);
   }
-
-  ArrowArray build_primitive_array(void* data, int64_t size, int64_t offset,
-                                   std::vector<int64_t> null_indices) {
-    const void** buffers = (const void**)malloc(sizeof(void*) * 2);
-    buffers[0] = build_validity_bitmap(size, null_indices);
-    buffers[1] = data;
-
-    ArrowArray arr;
-    arr.length = size - offset;
-    arr.null_count = static_cast<int64_t>(null_indices.size());
-    arr.offset = offset;
-    arr.n_buffers = 2;
-    arr.n_children = 0;
-    arr.buffers = buffers;
-    arr.children = nullptr;
-    arr.dictionary = nullptr;
-    arr.release = &release_array;
-    arr.private_data = nullptr;
-    return arr;
-  }
-
-  template <typename T>
-  ArrowArray create_primitive_array(const std::vector<T>& values, int64_t offset = 0,
-                                    std::vector<int64_t> null_indices = {}) {
-    // NOTE: Arrow arrays have 64-bit alignment but we can safely ignore this in tests
-    auto buffer = static_cast<T*>(malloc(sizeof(T) * values.size()));
-    for (size_t i = 0; i < values.size(); ++i) {
-      buffer[i] = values[i];
-    }
-    return build_primitive_array(buffer, values.size(), offset, null_indices);
-  }
-
-  ArrowArray create_primitive_array(const std::vector<bool>& values, int64_t offset = 0,
-                                    std::vector<int64_t> null_indices = {}) {
-    auto num_bytes = (values.size() + 7) / 8;
-    auto buffer = static_cast<char*>(calloc(sizeof(char), num_bytes));
-    for (size_t i = 0; i < values.size(); ++i) {
-      // By using `calloc` above, we only need to set 'true' values
-      if (values[i]) {
-        buffer[i / 8] |= (1 << (i % 8));
-      }
-    }
-    return build_primitive_array(buffer, values.size(), offset, null_indices);
-  }
-
-  ArrowArray created_nested_array(const std::vector<ArrowArray*>& arrays) {
-    auto children = static_cast<ArrowArray**>(malloc(sizeof(ArrowArray*) * arrays.size()));
-    for (size_t i = 0; i < arrays.size(); ++i) {
-      auto child = static_cast<ArrowArray*>(malloc(sizeof(ArrowArray)));
-      *child = *arrays[i];
-      children[i] = child;
-    }
-
-    ArrowArray arr;
-    arr.length = children[0]->length;
-    arr.null_count = 0;
-    arr.offset = 0;
-    arr.n_buffers = 0;
-    arr.n_children = static_cast<int64_t>(arrays.size());
-    arr.buffers = nullptr;
-    arr.children = children;
-    arr.dictionary = nullptr;
-    arr.release = &release_array;
-    arr.private_data = nullptr;
-    return arr;
-  }
-
-  /* ------------------------------------- SCHEMA CREATION ------------------------------------- */
-
-  template <typename T>
-  ArrowSchema create_primitive_schema() {
-    std::logic_error("not implemented");
-  }
-
-  template <>
-  ArrowSchema create_primitive_schema<float>() {
-    ArrowSchema schema;
-    schema.format = "f";
-    schema.name = nullptr;
-    schema.metadata = nullptr;
-    schema.flags = 0;
-    schema.n_children = 0;
-    schema.children = nullptr;
-    schema.dictionary = nullptr;
-    schema.release = nullptr;
-    schema.private_data = nullptr;
-    return schema;
-  }
-
-  template <>
-  ArrowSchema create_primitive_schema<bool>() {
-    ArrowSchema schema;
-    schema.format = "b";
-    schema.name = nullptr;
-    schema.metadata = nullptr;
-    schema.flags = 0;
-    schema.n_children = 0;
-    schema.children = nullptr;
-    schema.dictionary = nullptr;
-    schema.release = nullptr;
-    schema.private_data = nullptr;
-    return schema;
-  }
-
-  ArrowSchema create_nested_schema(const std::vector<ArrowSchema*>& arrays) {
-    auto children = static_cast<ArrowSchema**>(malloc(sizeof(ArrowSchema*) * arrays.size()));
-    for (size_t i = 0; i < arrays.size(); ++i) {
-      auto child = static_cast<ArrowSchema*>(malloc(sizeof(ArrowSchema)));
-      *child = *arrays[i];
-      children[i] = child;
-    }
-
-    ArrowSchema schema;
-    schema.format = "+s";
-    schema.name = nullptr;
-    schema.metadata = nullptr;
-    schema.flags = 0;
-    schema.n_children = static_cast<int64_t>(arrays.size());
-    schema.children = children;
-    schema.dictionary = nullptr;
-    schema.release = &release_schema;
-    schema.private_data = nullptr;
-    return schema;
-  }
-};
-
-/* --------------------------------------------------------------------------------------------- */
-/*                                             TESTS                                             */
-/* --------------------------------------------------------------------------------------------- */
-
-TEST_F(ArrowChunkedArrayTest, GetLength) {
-  auto schema = create_primitive_schema<float>();
-
-  std::vector<float> dat1 = {1, 2};
-  auto arr1 = create_primitive_array(dat1);
-  ArrowChunkedArray ca1(1, &arr1, &schema);
-  ASSERT_EQ(ca1.get_length(), 2);
-
-  std::vector<float> dat2 = {3, 4, 5, 6};
-  auto arr2 = create_primitive_array(dat1);
-  auto arr3 = create_primitive_array(dat2);
-  ArrowArray arrs[2] = {arr2, arr3};
-  ArrowChunkedArray ca2(2, arrs, &schema);
-  ASSERT_EQ(ca2.get_length(), 6);
-
-  std::vector<bool> dat3 = {true, false, true, true};
-  auto arr4 = create_primitive_array(dat3, 1);
-  ArrowChunkedArray ca3(1, &arr4, &schema);
-  ASSERT_EQ(ca3.get_length(), 3);
+  return schema;
 }
 
-TEST_F(ArrowChunkedArrayTest, GetColumns) {
+template <typename T>
+nanoarrow::UniqueArray MakePrimitiveArray(ArrowType type, const std::vector<T>& values,
+                                          const std::vector<int64_t>& null_indices = {},
+                                          int64_t offset = 0) {
+  nanoarrow::UniqueArray array;
+  EXPECT_EQ(ArrowArrayInitFromType(array.get(), type), NANOARROW_OK);
+  EXPECT_EQ(ArrowArrayStartAppending(array.get()), NANOARROW_OK);
+  size_t null_idx_pos = 0;
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (null_idx_pos < null_indices.size() &&
+        null_indices[null_idx_pos] == static_cast<int64_t>(i)) {
+      EXPECT_EQ(ArrowArrayAppendNull(array.get(), 1), NANOARROW_OK);
+      ++null_idx_pos;
+    } else {
+      if (type == NANOARROW_TYPE_BOOL) {
+        EXPECT_EQ(ArrowArrayAppendInt(array.get(), values[i] ? 1 : 0), NANOARROW_OK);
+      } else {
+        EXPECT_EQ(ArrowArrayAppendDouble(array.get(), static_cast<double>(values[i])),
+                  NANOARROW_OK);
+      }
+    }
+  }
+  EXPECT_EQ(ArrowArrayFinishBuildingDefault(array.get(), nullptr), NANOARROW_OK);
+
+  // Apply slicing offset (tests the consumer's handling of `array->offset`).
+  if (offset > 0) {
+    array->offset += offset;
+    array->length -= offset;
+  }
+  return array;
+}
+
+}  // namespace
+
+TEST(ArrowChunkedArrayTest, GetLength) {
+  // Single chunk
+  {
+    auto schema = MakePrimitiveSchema(NANOARROW_TYPE_FLOAT);
+    std::vector<nanoarrow::UniqueArray> chunks;
+    chunks.emplace_back(MakePrimitiveArray<float>(NANOARROW_TYPE_FLOAT, {1, 2}));
+    ArrowChunkedArray chunked_array(MakeStream(std::move(schema), std::move(chunks)).get());
+    ASSERT_EQ(chunked_array.get_length(), 2);
+  }
+
+  // Multiple chunks
+  {
+    auto schema = MakePrimitiveSchema(NANOARROW_TYPE_FLOAT);
+    std::vector<nanoarrow::UniqueArray> chunks;
+    chunks.emplace_back(MakePrimitiveArray<float>(NANOARROW_TYPE_FLOAT, {1, 2}));
+    chunks.emplace_back(MakePrimitiveArray<float>(NANOARROW_TYPE_FLOAT, {3, 4, 5, 6}));
+    ArrowChunkedArray chunked_array(MakeStream(std::move(schema), std::move(chunks)).get());
+    ASSERT_EQ(chunked_array.get_length(), 6);
+  }
+
+  // Sliced chunk via offset
+  {
+    auto schema = MakePrimitiveSchema(NANOARROW_TYPE_BOOL);
+    std::vector<nanoarrow::UniqueArray> chunks;
+    chunks.emplace_back(
+        MakePrimitiveArray<bool>(NANOARROW_TYPE_BOOL, {true, false, true, true}, {}, 1));
+    ArrowChunkedArray chunked_array(MakeStream(std::move(schema), std::move(chunks)).get());
+    ASSERT_EQ(chunked_array.get_length(), 3);
+  }
+}
+
+TEST(ArrowChunkedArrayTest, GetFields) {
+  auto schema = MakeStructSchema({NANOARROW_TYPE_FLOAT, NANOARROW_TYPE_FLOAT});
+
+  nanoarrow::UniqueArray array;
+  ASSERT_EQ(ArrowArrayInitFromSchema(array.get(), schema.get(), nullptr), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayStartAppending(array.get()), NANOARROW_OK);
   std::vector<float> dat1 = {1, 2, 3};
-  auto arr1 = create_primitive_array(dat1);
   std::vector<float> dat2 = {4, 5, 6};
-  auto arr2 = create_primitive_array(dat2);
-  std::vector<ArrowArray*> arrs = {&arr1, &arr2};
-  auto arr = created_nested_array(arrs);
+  for (size_t i = 0; i < dat1.size(); ++i) {
+    ASSERT_EQ(ArrowArrayAppendDouble(array->children[0], dat1[i]), NANOARROW_OK);
+    ASSERT_EQ(ArrowArrayAppendDouble(array->children[1], dat2[i]), NANOARROW_OK);
+    ASSERT_EQ(ArrowArrayFinishElement(array.get()), NANOARROW_OK);
+  }
+  ASSERT_EQ(ArrowArrayFinishBuildingDefault(array.get(), nullptr), NANOARROW_OK);
 
-  auto schema1 = create_primitive_schema<float>();
-  auto schema2 = create_primitive_schema<float>();
-  std::vector<ArrowSchema*> schemas = {&schema1, &schema2};
-  auto schema = create_nested_schema(schemas);
+  std::vector<nanoarrow::UniqueArray> chunks;
+  chunks.emplace_back(std::move(array));
+  ArrowChunkedArray chunked_array(MakeStream(std::move(schema), std::move(chunks)).get());
 
-  ArrowTable table(1, &arr, &schema);
-  ASSERT_EQ(table.get_num_rows(), 3);
-  ASSERT_EQ(table.get_num_columns(), 2);
+  ASSERT_EQ(chunked_array.get_length(), 3);
+  ASSERT_EQ(chunked_array.get_num_fields(), 2);
 
-  auto ca1 = table.get_column(0);
-  ASSERT_EQ(ca1.get_length(), 3);
-  ASSERT_EQ(*ca1.begin<int32_t>(), 1);
-
-  auto ca2 = table.get_column(1);
-  ASSERT_EQ(ca2.get_length(), 3);
-  ASSERT_EQ(*ca2.begin<int32_t>(), 4);
+  int32_t first0 = 0, first1 = 0;
+  chunked_array.view().field(0).visit<int32_t>([&](auto v) { first0 = *v.begin(); });
+  chunked_array.view().field(1).visit<int32_t>([&](auto v) { first1 = *v.begin(); });
+  ASSERT_EQ(first0, 1);
+  ASSERT_EQ(first1, 4);
 }
 
-TEST_F(ArrowChunkedArrayTest, IteratorArithmetic) {
-  std::vector<float> dat1 = {1, 2};
-  auto arr1 = create_primitive_array(dat1);
-  std::vector<float> dat2 = {3, 4, 5, 6};
-  auto arr2 = create_primitive_array(dat2);
-  std::vector<float> dat3 = {7};
-  auto arr3 = create_primitive_array(dat3);
-  auto schema = create_primitive_schema<float>();
+TEST(ArrowChunkedArrayTest, IteratorArithmetic) {
+  auto schema = MakePrimitiveSchema(NANOARROW_TYPE_FLOAT);
+  std::vector<nanoarrow::UniqueArray> chunks;
+  chunks.emplace_back(MakePrimitiveArray<float>(NANOARROW_TYPE_FLOAT, {1, 2}));
+  chunks.emplace_back(MakePrimitiveArray<float>(NANOARROW_TYPE_FLOAT, {3, 4, 5, 6}));
+  chunks.emplace_back(MakePrimitiveArray<float>(NANOARROW_TYPE_FLOAT, {7}));
+  ArrowChunkedArray chunked_array(MakeStream(std::move(schema), std::move(chunks)).get());
 
-  ArrowArray arrs[3] = {arr1, arr2, arr3};
-  ArrowChunkedArray ca(3, arrs, &schema);
+  chunked_array.view().visit<int32_t>([](auto v) {
+    auto it = v.begin();
+    EXPECT_EQ(*it, 1);
+    ++it;
+    EXPECT_EQ(*it, 2);
+    ++it;
+    EXPECT_EQ(*it, 3);
+    it += 2;
+    EXPECT_EQ(*it, 5);
+    it += 2;
+    EXPECT_EQ(*it, 7);
 
-  // Arithmetic
-  auto it = ca.begin<int32_t>();
-  ASSERT_EQ(*it, 1);
-  ++it;
-  ASSERT_EQ(*it, 2);
-  ++it;
-  ASSERT_EQ(*it, 3);
-  it += 2;
-  ASSERT_EQ(*it, 5);
-  it += 2;
-  ASSERT_EQ(*it, 7);
-  --it;
-  ASSERT_EQ(*it, 6);
+    auto begin = v.begin();
+    EXPECT_EQ(begin[0], 1);
+    EXPECT_EQ(begin[1], 2);
+    EXPECT_EQ(begin[2], 3);
+    EXPECT_EQ(begin[6], 7);
 
-  // Subscripts
-  ASSERT_EQ(it[0], 1);
-  ASSERT_EQ(it[1], 2);
-  ASSERT_EQ(it[2], 3);
-  ASSERT_EQ(it[6], 7);
-
-  // End
-  auto end = ca.end<int32_t>();
-  ASSERT_EQ(end - it, 2);
-  ASSERT_EQ(end - ca.begin<int32_t>(), 7);
+    auto end = v.end();
+    EXPECT_EQ(end - it, 1);
+    EXPECT_EQ(end - v.begin(), 7);
+  });
 }
 
-TEST_F(ArrowChunkedArrayTest, BooleanIterator) {
-  std::vector<bool> dat1 = {false, true, false};
-  auto arr1 = create_primitive_array(dat1, 0, {2});
-  std::vector<bool> dat2 = {false, false, false, false, true, true, true, true, false, true};
-  auto arr2 = create_primitive_array(dat2, 1);
-  auto schema = create_primitive_schema<bool>();
+TEST(ArrowChunkedArrayTest, BooleanIterator) {
+  auto schema = MakePrimitiveSchema(NANOARROW_TYPE_BOOL);
+  std::vector<nanoarrow::UniqueArray> chunks;
+  chunks.emplace_back(MakePrimitiveArray<bool>(NANOARROW_TYPE_BOOL, {false, true, false}, {2}));
+  chunks.emplace_back(MakePrimitiveArray<bool>(
+      NANOARROW_TYPE_BOOL, {false, false, false, false, true, true, true, true, false, true}, {},
+      1));
+  ArrowChunkedArray chunked_array(MakeStream(std::move(schema), std::move(chunks)).get());
 
-  ArrowArray arrs[2] = {arr1, arr2};
-  ArrowChunkedArray ca(2, arrs, &schema);
+  chunked_array.view().visit<float>([](auto v) {
+    auto it = v.begin();
+    // First chunk
+    EXPECT_EQ(*it, 0);
+    EXPECT_EQ(*(++it), 1);
+    EXPECT_TRUE(std::isnan(*(++it)));
 
-  // Check for values in first chunk
-  auto it = ca.begin<float>();
-  ASSERT_EQ(*it, 0);
-  ASSERT_EQ(*(++it), 1);
-  ASSERT_TRUE(std::isnan(*(++it)));
+    // Second chunk
+    EXPECT_EQ(*(++it), 0);
+    it += 3;
+    EXPECT_EQ(*it, 1);
+    it += 4;
+    EXPECT_EQ(*it, 0);
+    EXPECT_EQ(*(++it), 1);
 
-  // Check for some values in second chunk
-  ASSERT_EQ(*(++it), 0);
-  it += 3;
-  ASSERT_EQ(*it, 1);
-  it += 4;
-  ASSERT_EQ(*it, 0);
-  ASSERT_EQ(*(++it), 1);
-
-  // Check end
-  ASSERT_EQ(++it, ca.end<float>());
+    EXPECT_EQ(++it, v.end());
+  });
 }
 
-TEST_F(ArrowChunkedArrayTest, OffsetAndValidity) {
-  std::vector<float> dat = {0, 1, 2, 3, 4, 5, 6};
-  auto arr = create_primitive_array(dat, 2, {2, 3});
-  auto schema = create_primitive_schema<float>();
-  ArrowChunkedArray ca(1, &arr, &schema);
+TEST(ArrowChunkedArrayTest, OffsetAndValidity) {
+  auto schema = MakePrimitiveSchema(NANOARROW_TYPE_FLOAT);
+  std::vector<nanoarrow::UniqueArray> chunks;
+  chunks.emplace_back(
+      MakePrimitiveArray<float>(NANOARROW_TYPE_FLOAT, {0, 1, 2, 3, 4, 5, 6}, {2, 3}, 2));
+  ArrowChunkedArray chunked_array(MakeStream(std::move(schema), std::move(chunks)).get());
 
-  auto it = ca.begin<double>();
-  ASSERT_TRUE(std::isnan(*it));
-  ASSERT_TRUE(std::isnan(*(++it)));
-  ASSERT_EQ(it[2], 4);
-  ASSERT_EQ(it[4], 6);
-
-  arr.release(&arr);
+  chunked_array.view().visit<double>([](auto v) {
+    auto it = v.begin();
+    EXPECT_TRUE(std::isnan(*it));
+    EXPECT_TRUE(std::isnan(*(++it)));
+    EXPECT_EQ(it[2], 4);
+    EXPECT_EQ(it[4], 6);
+  });
 }

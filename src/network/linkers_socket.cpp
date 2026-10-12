@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #ifdef USE_SOCKET
@@ -184,7 +185,7 @@ void Linkers::Construct() {
   }
 
   // start listener
-  listener_->SetTimeout(socket_timeout_);
+  listener_->SetTimeout(socket_timeout_ * 1000 * 60);
   listener_->Listen(incoming_cnt);
   std::thread listen_thread(&Linkers::ListenThread, this, incoming_cnt);
   const int connect_fail_constant_factor = 20;

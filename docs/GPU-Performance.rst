@@ -206,6 +206,6 @@ Huan Zhang, Si Si and Cho-Jui Hsieh. `GPU Acceleration for Large-scale Tree Boos
 
 .. _link6: https://community.amstat.org/jointscsg-section/dataexpo/dataexpo2009
 
-.. _0bb4a82: https://github.com/microsoft/LightGBM/commit/0bb4a82
+.. _0bb4a82: https://github.com/lightgbm-org/LightGBM/commit/0bb4a82
 
 .. _GPU Acceleration for Large-scale Tree Boosting: https://arxiv.org/abs/1706.08359

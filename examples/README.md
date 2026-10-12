@@ -3,7 +3,7 @@ Examples
 
 You can learn how to use LightGBM by these examples.
 
-Comments in configuration files might be outdated. Actual information about parameters always can be found [here](https://github.com/microsoft/LightGBM/blob/master/docs/Parameters.rst).
+Comments in configuration files might be outdated. Actual information about parameters always can be found [here](https://github.com/lightgbm-org/LightGBM/blob/main/docs/Parameters.rst).
 
 Machine Learning Challenge Winning Solutions
 ============================================

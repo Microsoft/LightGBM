@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  *
  * Author: Alberto Ferreira
@@ -70,14 +71,14 @@ class ChunkedArrayTest : public testing::Test {
 
 /*! ChunkedArray cannot be built from chunks of size 0. */
 TEST_F(ChunkedArrayTest, constructorWithChunkSize0Throws) {
-  ASSERT_THROW(ChunkedArray<int> ca(0), std::runtime_error);
+  ASSERT_THROW(ChunkedArray<int> chunked_array(0), std::runtime_error);
 }
 
 /*! get_chunk_size() should return the size used in the constructor */
 TEST_F(ChunkedArrayTest, constructorWithChunkSize) {
   for (size_t chunk_size = 1; chunk_size < 10; ++chunk_size) {
-    ChunkedArray<int> ca(chunk_size);
-    ASSERT_EQ(ca.get_chunk_size(), chunk_size);
+    ChunkedArray<int> chunked_array(chunk_size);
+    ASSERT_EQ(chunked_array.get_chunk_size(), chunk_size);
   }
 }
 

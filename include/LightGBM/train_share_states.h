@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #ifndef LIGHTGBM_INCLUDE_LIGHTGBM_TRAIN_SHARE_STATES_H_
@@ -22,7 +23,7 @@ class MultiValBinWrapper {
   MultiValBinWrapper(MultiValBin* bin, data_size_t num_data,
     const std::vector<int>& feature_groups_contained, const int num_grad_quant_bins);
 
-  bool IsSparse() {
+  bool IsSparse() const {
     if (multi_val_bin_ != nullptr) {
       return multi_val_bin_->IsSparse();
     }
@@ -274,9 +275,11 @@ struct TrainingShareStates {
 
   TrainingShareStates() {
     multi_val_bin_wrapper_.reset(nullptr);
+    bagging_use_indices = nullptr;
+    bagging_indices_cnt = 0;
   }
 
-  int num_hist_total_bin() { return num_hist_total_bin_; }
+  int num_hist_total_bin() const { return num_hist_total_bin_; }
 
   const std::vector<uint32_t>& feature_hist_offsets() const { return feature_hist_offsets_; }
 
@@ -284,7 +287,7 @@ struct TrainingShareStates {
   const std::vector<uint32_t>& column_hist_offsets() const { return column_hist_offsets_; }
   #endif  // USE_CUDA
 
-  bool IsSparseRowwise() {
+  bool IsSparseRowwise() const {
     return (multi_val_bin_wrapper_ != nullptr && multi_val_bin_wrapper_->IsSparse());
   }
 

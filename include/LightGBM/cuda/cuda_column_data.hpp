@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 
@@ -13,6 +14,7 @@
 #include <LightGBM/bin.h>
 #include <LightGBM/utils/openmp_wrapper.h>
 
+#include <memory>
 #include <cstdint>
 #include <vector>
 
@@ -39,11 +41,11 @@ class CUDAColumnData {
             const std::vector<uint8_t>& feature_mfb_is_na,
             const std::vector<int>& feature_to_column);
 
-  const void* GetColumnData(const int column_index) const { return data_by_column_[column_index]; }
+  const uint8_t* GetColumnData(const int column_index) const { return data_by_column_[column_index]->RawData(); }
 
   void CopySubrow(const CUDAColumnData* full_set, const data_size_t* used_indices, const data_size_t num_used_indices);
 
-  void* const* cuda_data_by_column() const { return cuda_data_by_column_; }
+  uint8_t* const* cuda_data_by_column() const { return cuda_data_by_column_.RawData(); }
 
   uint32_t feature_min_bin(const int feature_index) const { return feature_min_bin_[feature_index]; }
 
@@ -63,27 +65,27 @@ class CUDAColumnData {
 
   uint8_t feature_mfb_is_na(const int feature_index) const { return feature_mfb_is_na_[feature_index]; }
 
-  const uint32_t* cuda_feature_min_bin() const { return cuda_feature_min_bin_; }
+  const uint32_t* cuda_feature_min_bin() const { return cuda_feature_min_bin_.RawData(); }
 
-  const uint32_t* cuda_feature_max_bin() const { return cuda_feature_max_bin_; }
+  const uint32_t* cuda_feature_max_bin() const { return cuda_feature_max_bin_.RawData(); }
 
-  const uint32_t* cuda_feature_offset() const { return cuda_feature_offset_; }
+  const uint32_t* cuda_feature_offset() const { return cuda_feature_offset_.RawData(); }
 
-  const uint32_t* cuda_feature_most_freq_bin() const { return cuda_feature_most_freq_bin_; }
+  const uint32_t* cuda_feature_most_freq_bin() const { return cuda_feature_most_freq_bin_.RawData(); }
 
-  const uint32_t* cuda_feature_default_bin() const { return cuda_feature_default_bin_; }
+  const uint32_t* cuda_feature_default_bin() const { return cuda_feature_default_bin_.RawData(); }
 
-  const uint8_t* cuda_feature_missing_is_zero() const { return cuda_feature_missing_is_zero_; }
+  const uint8_t* cuda_feature_missing_is_zero() const { return cuda_feature_missing_is_zero_.RawData(); }
 
-  const uint8_t* cuda_feature_missing_is_na() const { return cuda_feature_missing_is_na_; }
+  const uint8_t* cuda_feature_missing_is_na() const { return cuda_feature_missing_is_na_.RawData(); }
 
-  const uint8_t* cuda_feature_mfb_is_zero() const { return cuda_feature_mfb_is_zero_; }
+  const uint8_t* cuda_feature_mfb_is_zero() const { return cuda_feature_mfb_is_zero_.RawData(); }
 
-  const uint8_t* cuda_feature_mfb_is_na() const { return cuda_feature_mfb_is_na_; }
+  const uint8_t* cuda_feature_mfb_is_na() const { return cuda_feature_mfb_is_na_.RawData(); }
 
-  const int* cuda_feature_to_column() const { return cuda_feature_to_column_; }
+  const int* cuda_feature_to_column() const { return cuda_feature_to_column_.RawData(); }
 
-  const uint8_t* cuda_column_bit_type() const { return cuda_column_bit_type_; }
+  const uint8_t* cuda_column_bit_type() const { return cuda_column_bit_type_.RawData(); }
 
   int feature_to_column(const int feature_index) const { return feature_to_column_[feature_index]; }
 
@@ -91,13 +93,21 @@ class CUDAColumnData {
 
  private:
   template <bool IS_SPARSE, bool IS_4BIT, typename BIN_TYPE>
-  void InitOneColumnData(const void* in_column_data, BinIterator* bin_iterator, void** out_column_data_pointer);
+  void InitOneColumnData(const void* in_column_data, BinIterator* bin_iterator, CUDAVector<uint8_t>* out_column_data_pointer);
 
-  void LaunchCopySubrowKernel(void* const* in_cuda_data_by_column);
+  void LaunchCopySubrowKernel(uint8_t* const* in_cuda_data_by_column);
 
   void InitColumnMetaInfo();
 
   void ResizeWhenCopySubrow(const data_size_t num_used_indices);
+
+  std::vector<uint8_t*> GetDataByColumnPointers(const std::vector<std::unique_ptr<CUDAVector<uint8_t>>>& data_by_column) const {
+    std::vector<uint8_t*> data_by_column_pointers(data_by_column.size(), nullptr);
+    for (size_t i = 0; i < data_by_column.size(); ++i) {
+      data_by_column_pointers[i] = reinterpret_cast<uint8_t*>(data_by_column[i]->RawData());
+    }
+    return data_by_column_pointers;
+  }
 
   int gpu_device_id_;
   int num_threads_;
@@ -113,24 +123,24 @@ class CUDAColumnData {
   std::vector<uint8_t> feature_missing_is_na_;
   std::vector<uint8_t> feature_mfb_is_zero_;
   std::vector<uint8_t> feature_mfb_is_na_;
-  void** cuda_data_by_column_;
+  CUDAVector<uint8_t*> cuda_data_by_column_;
   std::vector<int> feature_to_column_;
-  std::vector<void*> data_by_column_;
+  std::vector<std::unique_ptr<CUDAVector<uint8_t>>> data_by_column_;
 
-  uint8_t* cuda_column_bit_type_;
-  uint32_t* cuda_feature_min_bin_;
-  uint32_t* cuda_feature_max_bin_;
-  uint32_t* cuda_feature_offset_;
-  uint32_t* cuda_feature_most_freq_bin_;
-  uint32_t* cuda_feature_default_bin_;
-  uint8_t* cuda_feature_missing_is_zero_;
-  uint8_t* cuda_feature_missing_is_na_;
-  uint8_t* cuda_feature_mfb_is_zero_;
-  uint8_t* cuda_feature_mfb_is_na_;
-  int* cuda_feature_to_column_;
+  CUDAVector<uint8_t> cuda_column_bit_type_;
+  CUDAVector<uint32_t> cuda_feature_min_bin_;
+  CUDAVector<uint32_t> cuda_feature_max_bin_;
+  CUDAVector<uint32_t> cuda_feature_offset_;
+  CUDAVector<uint32_t> cuda_feature_most_freq_bin_;
+  CUDAVector<uint32_t> cuda_feature_default_bin_;
+  CUDAVector<uint8_t> cuda_feature_missing_is_zero_;
+  CUDAVector<uint8_t> cuda_feature_missing_is_na_;
+  CUDAVector<uint8_t> cuda_feature_mfb_is_zero_;
+  CUDAVector<uint8_t> cuda_feature_mfb_is_na_;
+  CUDAVector<int> cuda_feature_to_column_;
 
   // used when bagging with subset
-  data_size_t* cuda_used_indices_;
+  CUDAVector<data_size_t> cuda_used_indices_;
   data_size_t num_used_indices_;
   data_size_t cur_subset_buffer_size_;
 };

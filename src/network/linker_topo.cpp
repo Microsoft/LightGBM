@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #include <LightGBM/network.h>
@@ -47,12 +48,17 @@ BruckMap BruckMap::Construct(int rank, int num_machines) {
 
 RecursiveHalvingMap::RecursiveHalvingMap() {
   k = 0;
+  type = RecursiveHalvingNodeType::Other;
+  is_power_of_2 = false;
+  neighbor = -1;
 }
 
 RecursiveHalvingMap::RecursiveHalvingMap(int in_k, RecursiveHalvingNodeType _type, bool _is_power_of_2) {
   type = _type;
   k = in_k;
   is_power_of_2 = _is_power_of_2;
+  // default set as -1, may be overwritten below depending on node type
+  neighbor = -1;
   if (type != RecursiveHalvingNodeType::Other) {
     for (int i = 0; i < k; ++i) {
       // default set as -1

@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #ifndef LIGHTGBM_SRC_TREELEARNER_LEAF_SPLITS_HPP_
@@ -178,7 +179,7 @@ class LeafSplits {
     double tmp_sum_hessians = 0.0f;
     const int16_t* packed_int_gradients_and_hessians = reinterpret_cast<const int16_t*>(int_gradients_and_hessians);
     int64_t tmp_sum_gradients_and_hessians = 0;
-#pragma omp parallel for num_threads(OMP_NUM_THREADS()) schedule(static, 512) reduction(+:tmp_sum_gradients, tmp_sum_hessians, tmp_sum_gradients_and_hessians) if (num_data_in_leaf_ >= 1024 && deterministic_)
+#pragma omp parallel for num_threads(OMP_NUM_THREADS()) schedule(static, 512) reduction(+:tmp_sum_gradients, tmp_sum_hessians, tmp_sum_gradients_and_hessians) if (num_data_in_leaf_ >= 1024 && !deterministic_)
     for (data_size_t i = 0; i < num_data_in_leaf_; ++i) {
       const data_size_t idx = data_indices_[i];
       tmp_sum_gradients += int_gradients_and_hessians[2 * idx + 1] * grad_scale;

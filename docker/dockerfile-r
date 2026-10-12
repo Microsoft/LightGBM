@@ -8,7 +8,7 @@ RUN apt-get update && \
     git clone \
         --recursive \
         --branch stable \
-        --depth 1 https://github.com/Microsoft/LightGBM && \
+        --depth 1 https://github.com/lightgbm-org/LightGBM && \
     cd ./LightGBM && \
     sh build-cran-package.sh --no-build-vignettes && \
     R CMD INSTALL ./lightgbm_*.tar.gz && \

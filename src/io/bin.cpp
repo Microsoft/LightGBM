@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #include <LightGBM/bin.h>
@@ -401,7 +402,7 @@ void BinMapper::FindBin(double* values, int num_sample_values, size_t total_samp
       cnt_in_bin.resize(num_bin_, 0);
       int i_bin = 0;
       for (int i = 0; i < num_distinct_values; ++i) {
-        while (distinct_values[i] > bin_upper_bound_[i_bin] && i_bin < num_bin_ - 1) {
+        while (i_bin < num_bin_ - 1 && distinct_values[i] > bin_upper_bound_[i_bin]) {
           ++i_bin;
         }
         cnt_in_bin[i_bin] += counts[i];

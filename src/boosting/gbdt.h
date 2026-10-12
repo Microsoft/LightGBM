@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #ifndef LIGHTGBM_SRC_BOOSTING_GBDT_H_
@@ -512,7 +513,7 @@ class GBDT : public GBDTBase {
   */
   std::string OutputMetric(int iter);
 
-  double BoostFromAverage(int class_id, bool update_scorer);
+  virtual double BoostFromAverage(int class_id, bool update_scorer);
 
   /*!
   * \brief Reset gradient buffers, must be called after sample strategy is reset

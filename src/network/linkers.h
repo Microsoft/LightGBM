@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2016 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2016-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for license information.
  */
 #ifndef LIGHTGBM_SRC_NETWORK_LINKERS_H_
@@ -38,6 +39,12 @@ class Linkers {
  public:
   Linkers() {
     is_init_ = false;
+    rank_ = 0;
+    num_machines_ = 1;
+    #ifdef USE_SOCKET
+    socket_timeout_ = 0;
+    local_listen_port_ = 0;
+    #endif
   }
   /*!
   * \brief Constructor

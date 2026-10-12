@@ -1,5 +1,6 @@
 /*!
- * Copyright (c) 2021 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 Microsoft Corporation. All rights reserved.
+ * Copyright (c) 2021-2026 The LightGBM developers. All rights reserved.
  * Licensed under the MIT License. See LICENSE file in the project root for
  * license information.
  */
@@ -25,11 +26,13 @@ namespace LightGBM {
 
 #define CUDA_GRADIENT_DISCRETIZER_BLOCK_SIZE (1024)
 
-class CUDAGradientDiscretizer: public GradientDiscretizer {
+class CUDAGradientDiscretizer: public GradientDiscretizer, public NCCLInfo {
  public:
   CUDAGradientDiscretizer(int num_grad_quant_bins, int num_trees, int random_seed, bool is_constant_hessian, bool stochastic_roudning):
     GradientDiscretizer(num_grad_quant_bins, num_trees, random_seed, is_constant_hessian, stochastic_roudning) {
   }
+
+  ~CUDAGradientDiscretizer() {}
 
   void DiscretizeGradients(
     const data_size_t num_data,
