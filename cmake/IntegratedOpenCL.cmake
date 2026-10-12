@@ -17,7 +17,16 @@ set(BOOST_TAG "boost-${BOOST_VERSION_DOT}.0")
 # Build Independent OpenCL library
 include(FetchContent)
 # lint_cmake: -readability/wonkycase
-FetchContent_Declare(OpenCL-Headers GIT_REPOSITORY ${OPENCL_HEADER_REPOSITORY} GIT_TAG ${OPENCL_HEADER_TAG})
+FetchContent_Declare(
+# lint_cmake: +readability/wonkycase
+  OpenCL-Headers
+  GIT_REPOSITORY
+  ${OPENCL_HEADER_REPOSITORY}
+  GIT_TAG
+  ${OPENCL_HEADER_TAG}
+  EXCLUDE_FROM_ALL
+)
+# lint_cmake: -readability/wonkycase
 FetchContent_GetProperties(OpenCL-Headers)
 # lint_cmake: +readability/wonkycase
 if(NOT OpenCL-Headers_POPULATED)

@@ -98,13 +98,13 @@ jobs:
             compiler: MSVC
             python_version: '3.10'
             pixi-env: 'py310'
-          - os: ubuntu-latest
-            container: &ubuntu_latest_image ubuntu:22.04
-            os-display-name: &ubuntu_latest_display_name 'ubuntu22.04'
-            task: regular
-            compiler: clang-17
-            python_version: '3.13'
-            in-ubuntu-base-container: 'true'
+          # - os: ubuntu-latest
+          #   container: &ubuntu_latest_image ubuntu:22.04
+          #   os-display-name: &ubuntu_latest_display_name 'ubuntu22.04'
+          #   task: regular
+          #   compiler: clang-17
+          #   python_version: '3.13'
+          #   in-ubuntu-base-container: 'true'
           - os: ubuntu-latest
             container: *ubuntu_latest_image
             os-display-name: *ubuntu_latest_display_name

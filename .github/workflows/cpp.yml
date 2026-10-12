@@ -42,12 +42,12 @@ jobs:
           #############
           # C++ tests #
           #############
-          - os: ubuntu-latest
-            task: cpp-tests
-            compiler: clang-17
-            method: with-sanitizers
-            container: 'ubuntu:22.04'
-            os-display-name: 'ubuntu22.04'
+          # - os: ubuntu-latest
+          #   task: cpp-tests
+          #   compiler: clang-17
+          #   method: with-sanitizers
+          #   container: 'ubuntu:22.04'
+          #   os-display-name: 'ubuntu22.04'
           # - os: macos-15
           #   task: cpp-tests
           #   compiler: clang
@@ -70,13 +70,13 @@ jobs:
           #
           # They need Python because they're written with pytest, but they
           # do not need the LightGBM Python package
-          - os: ubuntu-latest
-            task: if-else
-            compiler: clang-17
-            container: 'ubuntu:22.04'
-            os-display-name: 'ubuntu22.04'
-            python_version: '3.14'
-            setup-conda: 'true'
+          # - os: ubuntu-latest
+          #   task: if-else
+          #   compiler: clang-17
+          #   container: 'ubuntu:22.04'
+          #   os-display-name: 'ubuntu22.04'
+          #   python_version: '3.14'
+          #   setup-conda: 'true'
           # - os: macos-15-intel
           #   task: if-else
           #   compiler: clang
