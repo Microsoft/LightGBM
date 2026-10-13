@@ -1201,33 +1201,52 @@ def test_model_and_local_version_are_picklable_whether_or_not_client_set_explici
             assert_eq(preds_orig_local, preds_loaded_model_local)
 
 
-@pytest.mark.parametrize(
-    ("params", "expected_warnings"),
-    [
-        ({}, []),
-        ({"n_jobs": None}, []),
-        ({"n_jobs": -1}, []),
-        (
-            {"n_jobs": 3, "num_machines": 2},
-            [
-                "Parameter 'num_machines' will be ignored (determined from the Dask cluster).",
-                "Parameter 'n_jobs=3' will be ignored. The number of threads is set by the Dask worker. "
-                "To avoid this warning, omit 'n_jobs' or set it to None or -1.",
-            ],
-        ),
-    ],
-)
-def test_thread_parameter_warnings(params, expected_warnings, cluster):
+def test_thread_parameter_warnings(cluster):
     with Client(cluster) as client:
         X = da.from_array(np.arange(40).reshape(20, 2), chunks=(10, 2))
         y = da.from_array(np.arange(20), chunks=10)
-        model = lgb.DaskLGBMRegressor(
-            client=client, n_estimators=1, num_leaves=2, min_child_samples=2, verbosity=-1, **params
-        )
+        common_params = {
+            "client": client,
+            "n_estimators": 1,
+            "num_leaves": 2,
+            "min_child_samples": 2,
+            "verbosity": -1,
+        }
+
+        # Default parameters.
+        model = lgb.DaskLGBMRegressor(**common_params)
         with warnings.catch_warnings(record=True) as recorded:
             warnings.simplefilter("always")
             model.fit(X, y)
-        assert [str(w.message) for w in recorded] == expected_warnings
+        assert [str(w.message) for w in recorded] == []
+        assert model.booster_.params["num_threads"] == 2
+
+        # Explicitly passing n_jobs=None.
+        model = lgb.DaskLGBMRegressor(**common_params, n_jobs=None)
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            model.fit(X, y)
+        assert [str(w.message) for w in recorded] == []
+        assert model.booster_.params["num_threads"] == 2
+
+        # Explicitly passing n_jobs=-1.
+        model = lgb.DaskLGBMRegressor(**common_params, n_jobs=-1)
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            model.fit(X, y)
+        assert [str(w.message) for w in recorded] == []
+        assert model.booster_.params["num_threads"] == 2
+
+        # Explicit thread and machine counts.
+        model = lgb.DaskLGBMRegressor(**common_params, n_jobs=3, num_machines=2)
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            model.fit(X, y)
+        assert [str(w.message) for w in recorded] == [
+            "Parameter 'num_machines' will be ignored (determined from the Dask cluster).",
+            "Parameter 'n_jobs=3' will be ignored. The number of threads is set by the Dask worker. "
+            "To avoid this warning, omit 'n_jobs' or set it to None or -1.",
+        ]
         assert model.booster_.params["num_threads"] == 2
 
 
