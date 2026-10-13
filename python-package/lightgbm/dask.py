@@ -587,12 +587,12 @@ def _train(
             if param_alias in params:
                 value = params.pop(param_alias)
                 if param == "num_machines":
-                    _log_warning(f"Parameter {param_alias} will be ignored.")
+                    _log_warning(f"Parameter '{param_alias}' will be ignored (determined from the Dask cluster).")
                 elif value not in (None, -1):
                     _log_warning(
-                        f"Parameter {param_alias}={value} will be ignored. "
+                        f"Parameter '{param_alias}={value}' will be ignored. "
                         "The number of threads is set by the Dask worker. "
-                        f"To avoid this warning, omit {param_alias} or set it to None or -1."
+                        f"To avoid this warning, omit '{param_alias}' or set it to None or -1."
                     )
 
     # Split arrays/dataframes into parts. Arrange parts into dicts to enforce co-locality

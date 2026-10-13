@@ -1208,10 +1208,11 @@ def test_model_and_local_version_are_picklable_whether_or_not_client_set_explici
         ({"n_jobs": None}, []),
         ({"n_jobs": -1}, []),
         (
-            {"n_jobs": 3},
+            {"n_jobs": 3, "num_machines": 2},
             [
-                "Parameter n_jobs=3 will be ignored. The number of threads is set by the Dask worker. "
-                "To avoid this warning, omit n_jobs or set it to None or -1."
+                "Parameter 'num_machines' will be ignored (determined from the Dask cluster).",
+                "Parameter 'n_jobs=3' will be ignored. The number of threads is set by the Dask worker. "
+                "To avoid this warning, omit 'n_jobs' or set it to None or -1.",
             ],
         ),
     ],
