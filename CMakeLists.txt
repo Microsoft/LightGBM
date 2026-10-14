@@ -551,6 +551,29 @@ if(NOT BUILD_STATIC_LIB)
       CUDA_VISIBILITY_PRESET hidden
       VISIBILITY_INLINES_HIDDEN TRUE
   )
+  # some symbols ignore -fvisibility (e.g. compiler-generated OpenMP locks) or come from
+  # statically-linked dependencies, so also restrict exports at link time
+  if(APPLE)
+    target_link_options(
+      _lightgbm
+      PRIVATE
+        "LINKER:-exported_symbols_list,${PROJECT_SOURCE_DIR}/cmake/lightgbm.exports"
+    )
+    if(__BUILD_FOR_R)
+      target_link_options(_lightgbm PRIVATE "LINKER:-exported_symbol,_R_init_lightgbm")
+    endif()
+  elseif(UNIX AND NOT CYGWIN)
+    # listing a symbol that does not exist is an error for some linkers (e.g. lld >= 16),
+    # so only list R's entry point when building for R
+    set(LGBM_EXTRA_EXPORTED_SYMBOLS "")
+    if(__BUILD_FOR_R)
+      set(LGBM_EXTRA_EXPORTED_SYMBOLS "\n    R_init_lightgbm;")
+    endif()
+    set(LGBM_VERSION_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/lightgbm.map")
+    configure_file("${PROJECT_SOURCE_DIR}/cmake/lightgbm.map.in" "${LGBM_VERSION_SCRIPT}" @ONLY)
+    target_link_options(_lightgbm PRIVATE "LINKER:--version-script=${LGBM_VERSION_SCRIPT}")
+    set_property(TARGET _lightgbm APPEND PROPERTY LINK_DEPENDS "${LGBM_VERSION_SCRIPT}")
+  endif()
 endif()
 
 if(USE_SWIG)

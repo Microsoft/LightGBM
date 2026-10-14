@@ -6,7 +6,15 @@
 #ifndef LIGHTGBM_INCLUDE_LIGHTGBM_EXPORT_H_
 #define LIGHTGBM_INCLUDE_LIGHTGBM_EXPORT_H_
 
-/** Macros for exporting symbols in MSVC/GCC/CLANG **/
+/**
+ * Macros for exporting symbols.
+ *
+ * On Windows (MSVC and MinGW), only symbols marked __declspec(dllexport) are exported.
+ * MinGW otherwise exports every symbol when nothing is marked.
+ *
+ * On other platforms, everything else is hidden by building with -fvisibility=hidden
+ * and a linker allowlist (see CMakeLists.txt).
+ **/
 
 #ifdef __cplusplus
 #define LIGHTGBM_EXTERN_C extern "C"
@@ -15,7 +23,7 @@
 #endif
 
 
-#ifdef _MSC_VER
+#if defined(_WIN32)
   #define LIGHTGBM_C_EXPORT  LIGHTGBM_EXTERN_C __declspec(dllexport)
 #elif defined(__GNUC__) || defined(__clang__)
   #define LIGHTGBM_C_EXPORT  LIGHTGBM_EXTERN_C __attribute__((visibility("default")))
