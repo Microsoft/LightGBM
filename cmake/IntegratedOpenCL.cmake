@@ -20,10 +20,8 @@ include(FetchContent)
 FetchContent_Declare(
 # lint_cmake: +readability/wonkycase
   OpenCL-Headers
-  GIT_REPOSITORY
-  ${OPENCL_HEADER_REPOSITORY}
-  GIT_TAG
-  ${OPENCL_HEADER_TAG}
+  GIT_REPOSITORY ${OPENCL_HEADER_REPOSITORY}
+  GIT_TAG ${OPENCL_HEADER_TAG}
   EXCLUDE_FROM_ALL
 )
 # lint_cmake: -readability/wonkycase
