@@ -1,0 +1,6 @@
+# Symbols exported from lib_lightgbm.dylib on macOS.
+#
+# Passed to the linker via '-exported_symbols_list'. Any symbol not matched here is hidden,
+# including those that '-fvisibility=hidden' cannot hide (e.g. OpenMP lock variables
+# like '.gomp_critical_user_.reduction.var') and those from statically-linked dependencies.
+_LGBM_*

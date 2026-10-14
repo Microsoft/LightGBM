@@ -1,0 +1,16 @@
+/*
+ * Linker version script controlling the symbols exported from lib_lightgbm.so.
+ *
+ * Any symbol not matched by 'global' is hidden, including those that '-fvisibility=hidden'
+ * cannot hide (e.g. OpenMP lock variables like '.gomp_critical_user_.reduction.var') and
+ * those from statically-linked dependencies.
+ *
+ * This is intentionally an anonymous version node (no 'LIGHTGBM_x.y' tag), so it only
+ * controls visibility and does not add symbol versioning to the ABI.
+ */
+{
+  global:
+    LGBM_*;@LGBM_EXTRA_EXPORTED_SYMBOLS@
+  local:
+    *;
+};
