@@ -1,12 +1,15 @@
+# Build static libraries by default
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+# set dependency versions
 set(BOOST_VERSION_DOT "1.74")
 string(REPLACE "." "_" BOOST_VERSION_UNDERSCORE ${BOOST_VERSION_DOT})
 
 set(OPENCL_HEADER_REPOSITORY "https://github.com/KhronosGroup/OpenCL-Headers.git")
-set(OPENCL_HEADER_TAG "1b2a1850f410aaaaeaa56cead5a179b5aea4918e")
+set(OPENCL_HEADER_TAG "8a97ebc88daa3495d6f57ec10bb515224400186f")  # v2025.07.22
 
 set(OPENCL_LOADER_REPOSITORY "https://github.com/KhronosGroup/OpenCL-ICD-Loader.git")
-set(OPENCL_LOADER_TAG "98ca71fb9f8484f1cd1999f55224bf9e8d18693b")
+set(OPENCL_LOADER_TAG "ad770a1b64c6b8d5f2ed4e153f22e4f45939f27f")  # v2025.07.22
 
 set(BOOST_REPOSITORY "https://github.com/boostorg/boost.git")
 set(BOOST_TAG "boost-${BOOST_VERSION_DOT}.0")
@@ -14,7 +17,14 @@ set(BOOST_TAG "boost-${BOOST_VERSION_DOT}.0")
 # Build Independent OpenCL library
 include(FetchContent)
 # lint_cmake: -readability/wonkycase
-FetchContent_Declare(OpenCL-Headers GIT_REPOSITORY ${OPENCL_HEADER_REPOSITORY} GIT_TAG ${OPENCL_HEADER_TAG})
+FetchContent_Declare(
+# lint_cmake: +readability/wonkycase
+  OpenCL-Headers
+  GIT_REPOSITORY ${OPENCL_HEADER_REPOSITORY}
+  GIT_TAG ${OPENCL_HEADER_TAG}
+  EXCLUDE_FROM_ALL
+)
+# lint_cmake: -readability/wonkycase
 FetchContent_GetProperties(OpenCL-Headers)
 # lint_cmake: +readability/wonkycase
 if(NOT OpenCL-Headers_POPULATED)
@@ -49,7 +59,19 @@ if(NOT OpenCL-ICD-Loader_POPULATED)
   message(STATUS "Populated OpenCL ICD Loader")
 endif()
 list(APPEND INTEGRATED_OPENCL_INCLUDES ${OPENCL_ICD_LOADER_HEADERS_DIR})
-list(APPEND INTEGRATED_OPENCL_DEFINITIONS CL_TARGET_OPENCL_VERSION=120)
+
+# lint_cmake: -linelength
+# CL_TARGET_OPENCL_VERSION should match whatever the version was with the OpenCL-Headers commit pulled above.
+# That should also be consistent with whatever version of PoCL is built in LightGBM's CI images.
+#
+#  references:
+#
+#    * https://github.com/KhronosGroup/OpenCL-Headers/blob/6137cfbbc7938cd43069d45c622022572fb87113/README.md?plain=1#L56-L71
+#    * https://github.com/KhronosGroup/OpenCL-Headers/blob/6137cfbbc7938cd43069d45c622022572fb87113/CL/cl_version.h#L23
+#    * https://github.com/pocl/pocl/blob/070b1081111d5f29bd8bd87fb8355866644fe8ea/CMakeLists.txt#L1572-L1573
+#
+# lint_cmake: +linelength
+list(APPEND INTEGRATED_OPENCL_DEFINITIONS CL_TARGET_OPENCL_VERSION=300)
 if(WIN32)
   list(
     APPEND

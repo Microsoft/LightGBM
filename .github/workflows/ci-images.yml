@@ -1,6 +1,10 @@
 name: ci-images
 
 on:
+  # TODO(jameslamb): remove 'push' trigger before merging
+  push:
+    branches:
+      - ci/image-builds
   workflow_dispatch:
     inputs:
       tag-suffix:
@@ -34,13 +38,24 @@ jobs:
       contents: read
       id-token: write
       packages: write
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04-ppc64le
-            dockerfile: .ci/ci-images/ppc64le-manylinux/Dockerfile
-            image-tag: ppc64le-manylinux-2_28${{ inputs.tag-suffix }}
+          - os: ubuntu-24.04-arm
+            dockerfile: .ci/ci-images/manylinux_2_28_aarch64/Dockerfile
+            # TODO(jameslamb): revert hard-coded tag before merging
+            image-tag: manylinux_2_28_aarch64-dev
+            # image-tag: ci-manylinux_2_28_aarch64${{ inputs.tag-suffix }}
+          - os: ubuntu-latest
+            dockerfile: .ci/ci-images/manylinux_2_28_x86_64/Dockerfile
+            # TODO(jameslamb): revert hard-coded tag before merging
+            image-tag: manylinux_2_28_x86_64-dev
+            # image-tag: ci-manylinux_2_28_x86_64${{ inputs.tag-suffix }}
+            # - os: ubuntu-24.04-ppc64le
+            #   dockerfile: .ci/ci-images/ppc64le-manylinux/Dockerfile
+            #   image-tag: ppc64le-manylinux-2_28${{ inputs.tag-suffix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

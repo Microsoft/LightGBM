@@ -91,7 +91,7 @@ def test_binary():
     params = {
         "objective": "binary",
         "metric": "binary_logloss",
-        "verbose": -1,
+        "verbose": 10,
         "num_iteration": 50,  # test num_iteration in dict here
     }
     lgb_train = lgb.Dataset(X_train, y_train)

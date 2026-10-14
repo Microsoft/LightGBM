@@ -42,22 +42,22 @@ jobs:
           #############
           # C++ tests #
           #############
-          - os: ubuntu-latest
-            task: cpp-tests
-            compiler: clang-17
-            method: with-sanitizers
-            container: 'ubuntu:22.04'
-            os-display-name: 'ubuntu22.04'
-          - os: macos-15
-            task: cpp-tests
-            compiler: clang
-            method: with-sanitizers
-            sanitizers: "address;undefined"
-            container: null
-          - os: windows-2022
-            task: cpp-tests
-            compiler: msvc
-            container: null
+          # - os: ubuntu-latest
+          #   task: cpp-tests
+          #   compiler: clang-17
+          #   method: with-sanitizers
+          #   container: 'ubuntu:22.04'
+          #   os-display-name: 'ubuntu22.04'
+          # - os: macos-15
+          #   task: cpp-tests
+          #   compiler: clang
+          #   method: with-sanitizers
+          #   sanitizers: "address;undefined"
+          #   container: null
+          # - os: windows-2022
+          #   task: cpp-tests
+          #   compiler: msvc
+          #   container: null
           - os: ubuntu-24.04-ppc64le
             task: cpp-tests
             compiler: gcc
@@ -70,23 +70,23 @@ jobs:
           #
           # They need Python because they're written with pytest, but they
           # do not need the LightGBM Python package
-          - os: ubuntu-latest
-            task: if-else
-            compiler: clang-17
-            container: 'ubuntu:22.04'
-            os-display-name: 'ubuntu22.04'
-            python_version: '3.14'
-            setup-conda: 'true'
-          - os: macos-15-intel
-            task: if-else
-            compiler: clang
-            python_version: '3.10'
-            container: null
+          # - os: ubuntu-latest
+          #   task: if-else
+          #   compiler: clang-17
+          #   container: 'ubuntu:22.04'
+          #   os-display-name: 'ubuntu22.04'
+          #   python_version: '3.14'
+          #   setup-conda: 'true'
+          # - os: macos-15-intel
+          #   task: if-else
+          #   compiler: clang
+          #   python_version: '3.10'
+          #   container: null
           - os: ubuntu-latest
             task: if-else
             compiler: gcc
             python_version: '3.11'
-            container: 'ghcr.io/lightgbm-org/lightgbm-vsts-agent:manylinux_2_28_x86_64'
+            container: 'ghcr.io/lightgbm-org/lightgbm-ci:manylinux_2_28_x86_64-dev'
             os-display-name: 'manylinux_2_28'
     steps:
       - name: Install packages used by third-party actions

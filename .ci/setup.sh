@@ -124,12 +124,26 @@ else  # Linux
             sudo apt-get install --no-install-recommends -y \
                 patchelf \
                 pocl-opencl-icd
-        elif [[ $(uname -m) == "x86_64" ]]; then
+        else # in manylinux image
             sudo yum update -y
             sudo yum install -y \
+                clinfo \
                 ocl-icd-devel \
                 opencl-headers \
             || exit 1
+
+            # install drives allowing the OpenCL version to target host GPUs
+            # if [[ "${ARCH}" == "x86_64" ]]; then
+            #     .ci/install-opencl-intel-driver.sh
+            # fi
+            echo "--- clinfo: ---"
+            clinfo || true
+            # echo "--- llc -mcpu=help ---"
+            # # this shows the possible values for -DLLC_HOST_CPU
+            # # see https://github.com/pocl/pocl/blob/013d2f19f4e8f2e0fd9aedcb70117d6dcc737aa9/doc/sphinx/source/install.rst#L171
+            # llc -mcpu=help
+            echo "--- /etc/OpenCL contents ---"
+            find /etc/OpenCL -type f -name '*'
         fi
     fi
     if [[ $TASK == "cuda" ]]; then
