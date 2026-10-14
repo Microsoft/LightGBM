@@ -970,7 +970,9 @@ def _predict(
         raise LightGBMError("dask is required for lightgbm.dask") from err
 
     if isinstance(data, dask.dataframe.DataFrame):
-        return data.map_partitions(
+        # Bind prediction options into the callable to give each mode distinct task keys.
+        # ref: https://github.com/dask/dask/pull/12603
+        predict_fn = partial(
             _predict_part,
             model=model,
             raw_score=raw_score,
@@ -978,7 +980,8 @@ def _predict(
             pred_leaf=pred_leaf,
             pred_contrib=pred_contrib,
             **kwargs,
-        ).values
+        )
+        return data.map_partitions(predict_fn).values
     elif isinstance(data, dask.array.Array):
         # for multi-class classification with sparse matrices, pred_contrib predictions
         # are returned as a list of sparse matrices (one per class)

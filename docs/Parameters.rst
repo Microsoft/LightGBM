@@ -951,6 +951,8 @@ Dataset Parameters
 
    -  **Note**: all values will be cast to ``int32`` (integer codes will be extracted from pandas categoricals in the Python-package)
 
+   -  **Note**: in the Python-package, when ``categorical_feature="auto"`` and the input is a dataframe with a categorical dtype, only unordered categoricals are auto-detected. Ordered categoricals are treated as ordinal numeric features (see `Categorical Feature Support <./Advanced-Topics.rst#categorical-feature-support>`__)
+
    -  **Note**: index starts from ``0`` and it doesn't count the label column when passing type is ``int``
 
    -  **Note**: all values should be less than ``Int32.MaxValue`` (2147483647)

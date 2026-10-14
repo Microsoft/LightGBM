@@ -126,8 +126,8 @@ jobs:
             build_type: cran
             container: null
             pixi-env: 'r-macos-intel'
-          # macos-14 = arm64
-          - os: macos-14
+          # macos-15 = arm64
+          - os: macos-15
             task: r-package
             compiler: clang
             r_version: 4.3
@@ -170,14 +170,14 @@ jobs:
           submodules: true
       - name: Set up 'pixi' for jobs that need it
         if: matrix.pixi-env != ''
-        uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347  # v0.10.1
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e  # v0.10.2
         with:
           environments: ${{ matrix.pixi-env }}
       - name: Install pandoc
-        uses: r-lib/actions/setup-pandoc@d3c5be51b12e724e68f33216ca3c148b66d5f0b6  # v2.12.1
+        uses: r-lib/actions/setup-pandoc@465b7d8e732ca3921382b1674c59bada9cbf3399  # v2.13.0
       - name: Install tinytex
         if: startsWith(matrix.os, 'windows')
-        uses: r-lib/actions/setup-tinytex@d3c5be51b12e724e68f33216ca3c148b66d5f0b6  # v2.12.1
+        uses: r-lib/actions/setup-tinytex@465b7d8e732ca3921382b1674c59bada9cbf3399  # v2.13.0
         env:
           CTAN_MIRROR: https://ctan.math.illinois.edu/systems/win32/miktex
           TINYTEX_INSTALLER: TinyTeX
@@ -306,7 +306,7 @@ jobs:
           persist-credentials: false
           submodules: true
       - name: Install pandoc
-        uses: r-lib/actions/setup-pandoc@d3c5be51b12e724e68f33216ca3c148b66d5f0b6  # v2.12.1
+        uses: r-lib/actions/setup-pandoc@465b7d8e732ca3921382b1674c59bada9cbf3399  # v2.13.0
       - name: Install system dependencies
         shell: bash
         run: |
@@ -408,6 +408,6 @@ jobs:
       statuses: read
     steps:
       - name: Note that all tests succeeded
-        uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe  # v1.2.2
+        uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35  # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}

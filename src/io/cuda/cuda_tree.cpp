@@ -57,6 +57,7 @@ void CUDATree::InitCUDAMemory() {
   cuda_split_gain_.Resize(static_cast<size_t>(max_leaves_));
   SetCUDAMemory<double>(cuda_leaf_value_.RawData(), 0.0f, 1, __FILE__, __LINE__);
   SetCUDAMemory<double>(cuda_leaf_weight_.RawData(), 0.0f, 1, __FILE__, __LINE__);
+  SetCUDAMemory<int>(cuda_leaf_depth_.RawData(), 0, 1, __FILE__, __LINE__);
   SetCUDAMemory<int>(cuda_leaf_parent_.RawData(), -1, 1, __FILE__, __LINE__);
   CUDASUCCESS_OR_FATAL(cudaStreamCreate(&cuda_stream_));
   SynchronizeCUDADevice(__FILE__, __LINE__);

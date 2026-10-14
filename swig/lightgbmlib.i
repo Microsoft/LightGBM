@@ -54,6 +54,7 @@
       result = LGBM_BoosterSaveModelToString(handle, start_iteration, num_iteration, feature_importance_type, realloc_len, out_len, dst);
     }
     if (result != 0) {
+      delete [] dst;
       return nullptr;
     }
     return dst;
@@ -75,6 +76,7 @@
       result = LGBM_BoosterDumpModel(handle, start_iteration, num_iteration, feature_importance_type, realloc_len, out_len, dst);
     }
     if (result != 0) {
+      delete [] dst;
       return nullptr;
     }
     return dst;

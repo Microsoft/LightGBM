@@ -1,4 +1,4 @@
-﻿# Using LightGBM via Docker
+# Using LightGBM via Docker
 
 This directory contains `Dockerfile`s to make it easy to build and run LightGBM via [Docker](https://www.docker.com/).
 

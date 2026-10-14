@@ -16,10 +16,24 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      - id: check-executables-have-shebangs
+      - id: check-added-large-files
+        args: ["--maxkb=2500"]
+      - id: check-case-conflict
+      - id: check-illegal-windows-names
+      - id: check-json
+      - id: check-shebang-scripts-are-executable
       - id: check-toml
       - id: check-xml
+      - id: fix-byte-order-marker
+        exclude: ^windows/.*$
       - id: end-of-file-fixer
       - id: trailing-whitespace
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.38.2
+    hooks:
+      - id: check-dependabot
+      - id: check-readthedocs
   - repo: https://github.com/cmake-lint/cmake-lint
     rev: '1.4.3'
     hooks:

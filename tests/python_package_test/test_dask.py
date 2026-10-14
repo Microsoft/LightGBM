@@ -1634,6 +1634,57 @@ def test_predict_returns_expected_dtypes(task, output, cluster):
         assert preds_leaves.dtype == np.int32
 
 
+@pytest.mark.parametrize("task", tasks)
+@pytest.mark.parametrize("all_empty", [False, True])
+def test_predict_dataframe_modes_together(task, all_empty, cluster):
+    with Client(cluster) as client:
+        _, _, _, _, dX, dy, _, dg = _create_data(objective=task, output="dataframe-with-categorical", group=None)
+        model = task_to_dask_factory[task](
+            client=client, n_estimators=3, num_leaves=3, random_state=0, time_out=5, verbose=-1
+        )
+        model.fit(dX, dy, group=dg)
+
+        sample = dX.head(5)
+        empty = sample.iloc[:0]
+        parts = [empty, empty if all_empty else sample, empty]
+        prediction_data = dd.from_delayed([dask.delayed(part) for part in parts], meta=empty)
+        local_model = model.to_local()
+        prediction_options = [
+            {},
+            {"raw_score": True},
+            {"pred_leaf": True},
+            {"pred_contrib": True},
+            {"pred_leaf": True, "start_iteration": 1, "num_iteration": 1},
+            {"pred_contrib": True, "start_iteration": 1, "num_iteration": 1},
+            {"pred_leaf": True, "start_iteration": 1, "num_iteration": 2},
+            {"pred_leaf": True, "start_iteration": 2, "num_iteration": 1},
+        ]
+        predictions = []
+        expected_results = []
+        for options in prediction_options:
+            # predict()
+            expected = local_model.predict(sample, **options)
+            if all_empty:
+                expected = expected[:0]
+            predictions.append(model.predict(prediction_data, **options))
+            expected_results.append(expected)
+
+            # predict_proba() (classification-only)
+            if task.endswith("classification"):
+                expected = local_model.predict_proba(sample, **options)
+                if all_empty:
+                    expected = expected[:0]
+                predictions.append(model.predict_proba(prediction_data, **options))
+                expected_results.append(expected)
+        actual_results = dask.compute(*predictions)
+        for prediction, actual, expected in zip(predictions, actual_results, expected_results, strict=True):
+            assert prediction.ndim == expected.ndim
+            assert prediction.dtype == expected.dtype
+            assert actual.shape == expected.shape
+            assert actual.dtype == expected.dtype
+            np_assert_array_equal(actual, expected, strict=True)
+
+
 @pytest.mark.parametrize("output", data_output)
 @pytest.mark.parametrize("use_init_score", [False, True])
 def test_predict_stump(output, use_init_score, cluster, rng):

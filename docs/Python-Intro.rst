@@ -136,7 +136,12 @@ In LightGBM, the validation data should be aligned with training data.
 LightGBM can use categorical features as input directly.
 It doesn't need to convert to one-hot encoding, and is much faster than one-hot encoding (about 8x speed-up).
 
-**Note**: You should convert your categorical features to ``int`` type before you construct ``Dataset``.
+**Note**: For array-like inputs (e.g. ``numpy``), convert categorical features to non-negative
+``int`` values before constructing the ``Dataset``. For dataframe inputs (e.g. ``pandas``) with
+a categorical dtype, integer codes are extracted automatically. With the default
+``categorical_feature="auto"``, only **unordered** categoricals are auto-detected. Ordered
+categoricals are treated as ordinal numeric features.
+See `Categorical Feature Support <./Advanced-Topics.rst#categorical-feature-support>`__ for details.
 
 **Weights can be set when needed:**
 

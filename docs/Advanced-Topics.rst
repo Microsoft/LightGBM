@@ -32,6 +32,15 @@ Categorical Feature Support
    align categories to those observed during training before converting them to integer values.
    This ensures consistent encoding between training and prediction without additional preprocessing.
 
+-  With ``categorical_feature="auto"`` (the default), LightGBM auto-detects **unordered**
+   categorical columns of a dataframe input (``pandas.Categorical(ordered=False)``)
+   and treats them as categorical features. Ordered categoricals
+   (``pandas.Categorical(ordered=True)``) are instead treated as ordinal numeric features
+   (standard ``value < threshold`` splits on the integer codes), since a declared order between
+   categories matches numeric-split semantics better than partition-based categorical splits.
+   Pass the column name explicitly via ``categorical_feature=["col"]`` to force categorical
+   handling of an ordered column.
+
 -  At ``predict()`` time, categories not seen during training will be treated as missing values.
 
 -  Use ``min_data_per_group``, ``cat_smooth`` to deal with over-fitting (when ``#data`` is small or ``#category`` is large).
