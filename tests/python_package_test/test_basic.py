@@ -285,6 +285,43 @@ def test_sequence_get_data(num_seq, rng):
     np_assert_array_equal(subset_data.get_data(), X[sorted(used_indices)], strict=True)
 
 
+def test_retrain_list_of_sequence():
+    X, y = load_breast_cancer(return_X_y=True)
+    seqs = _create_sequence_from_ndarray(X, 2, 100)
+
+    seq_ds = lgb.Dataset(seqs, label=y, free_raw_data=False)
+
+    assert sum([len(s) for s in seq_ds.get_data()]) == X.shape[0]
+    assert len(seq_ds.get_feature_name()) == X.shape[1]
+    assert seq_ds.get_data() == seqs
+
+    params = {
+        "objective": "binary",
+        "num_boost_round": 20,
+        "min_data": 10,
+        "num_leaves": 10,
+        "verbose": -1,
+    }
+
+    model1 = lgb.train(
+        params,
+        seq_ds,
+        keep_training_booster=True,
+    )
+
+    assert model1.current_iteration() == 20 
+    assert model1.num_trees() == 20 
+
+    model2 = lgb.train(
+        params,
+        seq_ds,
+        init_model=model1,
+    )
+
+    assert model2.current_iteration() == 20 
+    assert model2.num_trees() == 20
+
+
 def test_chunked_dataset():
     X_train, X_test, y_train, y_test = train_test_split(
         *load_breast_cancer(return_X_y=True), test_size=0.1, random_state=2
