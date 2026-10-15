@@ -13,6 +13,7 @@
 
 #include <R_ext/Rdynload.h>
 #include <R_ext/Altrep.h>
+#include <R_ext/Visibility.h>
 
 #ifndef R_NO_REMAP
 #define R_NO_REMAP
@@ -1488,7 +1489,16 @@ static const R_CallMethodDef CallEntries[] = {
   {NULL, NULL, 0}
 };
 
-LIGHTGBM_C_EXPORT void R_init_lightgbm(DllInfo *dll);
+// R_init_lightgbm() is the only symbol the package exports. All of its other routines
+// are registered with R here. See "Controlling visibility" in "Writing R Extensions".
+// R's attribute_visible does nothing on Windows, where the MSVC build needs dllexport.
+#ifdef _WIN32
+#define LIGHTGBM_R_INIT_EXPORT LIGHTGBM_EXTERN_C __declspec(dllexport)
+#else
+#define LIGHTGBM_R_INIT_EXPORT LIGHTGBM_EXTERN_C attribute_visible
+#endif
+
+LIGHTGBM_R_INIT_EXPORT void R_init_lightgbm(DllInfo *dll);
 
 void R_init_lightgbm(DllInfo *dll) {
   R_registerRoutines(dll, NULL, CallEntries, NULL, NULL);

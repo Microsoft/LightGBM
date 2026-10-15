@@ -10,7 +10,7 @@
  */
 {
   global:
-    LGBM_*;@LGBM_EXTRA_EXPORTED_SYMBOLS@
+    @LGBM_EXPORTED_SYMBOLS@
   local:
     *;
 };

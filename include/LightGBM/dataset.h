@@ -497,7 +497,7 @@ class Dataset {
 
   Dataset();
 
-  Dataset(data_size_t num_data);
+  explicit Dataset(data_size_t num_data);
 
   void Construct(
     std::vector<std::unique_ptr<BinMapper>>* bin_mappers,

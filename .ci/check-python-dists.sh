@@ -33,7 +33,7 @@ if [ "$PY_MINOR_VER" -gt 7 ]; then
             --ignore 'compiled-objects-have-debug-symbols'\
             --ignore 'distro-too-large-compressed' \
             --max-allowed-size-uncompressed '550M' \
-            --max-allowed-files 806 \
+            --max-allowed-files 807 \
             "$(echo "${DIST_DIR}"/*)" || exit 1
     elif { test "$(uname -m)" = "aarch64"; }; then
         pydistcheck \
@@ -41,14 +41,14 @@ if [ "$PY_MINOR_VER" -gt 7 ]; then
             --ignore 'compiled-objects-have-debug-symbols' \
             --max-allowed-size-compressed '5M' \
             --max-allowed-size-uncompressed '15M' \
-            --max-allowed-files 806 \
+            --max-allowed-files 807 \
             "$(echo "${DIST_DIR}"/*)" || exit 1
     else
         pydistcheck \
             --inspect \
             --max-allowed-size-compressed '5M' \
             --max-allowed-size-uncompressed '15M' \
-            --max-allowed-files 806 \
+            --max-allowed-files 807 \
             "$(echo "${DIST_DIR}"/*)" || exit 1
     fi
 else

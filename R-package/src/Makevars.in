@@ -11,7 +11,10 @@ PKG_CPPFLAGS = \
     -I$(PKGROOT)/include \
     $(LGB_CPPFLAGS)
 
+# hide all symbols except those explicitly marked visible (like R_init_lightgbm()),
+# as described in "Controlling visibility" in "Writing R Extensions"
 PKG_CXXFLAGS = \
+    $(CXX_VISIBILITY) \
     @OPENMP_CXXFLAGS@ \
     -pthread
 

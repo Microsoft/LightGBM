@@ -553,21 +553,23 @@ if(NOT BUILD_STATIC_LIB)
   )
   # some symbols ignore -fvisibility (e.g. compiler-generated OpenMP locks) or come from
   # statically-linked dependencies, so also restrict exports at link time
+  #
+  # The R package registers its routines with R, so it only needs to export R_init_lightgbm().
   if(APPLE)
-    target_link_options(
-      _lightgbm
-      PRIVATE
-        "LINKER:-exported_symbols_list,${PROJECT_SOURCE_DIR}/cmake/lightgbm.exports"
-    )
     if(__BUILD_FOR_R)
       target_link_options(_lightgbm PRIVATE "LINKER:-exported_symbol,_R_init_lightgbm")
+    else()
+      target_link_options(
+        _lightgbm
+        PRIVATE
+          "LINKER:-exported_symbols_list,${PROJECT_SOURCE_DIR}/cmake/lightgbm.exports"
+      )
     endif()
   elseif(UNIX AND NOT CYGWIN)
-    # listing a symbol that does not exist is an error for some linkers (e.g. lld >= 16),
-    # so only list R's entry point when building for R
-    set(LGBM_EXTRA_EXPORTED_SYMBOLS "")
     if(__BUILD_FOR_R)
-      set(LGBM_EXTRA_EXPORTED_SYMBOLS "\n    R_init_lightgbm;")
+      set(LGBM_EXPORTED_SYMBOLS "R_init_lightgbm;")
+    else()
+      set(LGBM_EXPORTED_SYMBOLS "LGBM_*;")
     endif()
     set(LGBM_VERSION_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/lightgbm.map")
     configure_file("${PROJECT_SOURCE_DIR}/cmake/lightgbm.map.in" "${LGBM_VERSION_SCRIPT}" @ONLY)
