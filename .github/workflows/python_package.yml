@@ -195,7 +195,7 @@ jobs:
             produces-artifacts: 'true'
             artifact-name: 'macosx-amd64-wheel'
             python_version: '3.13'
-          - os: macos-14
+          - os: macos-15
             task: bdist
             compiler: clang
             method: wheel
@@ -311,7 +311,7 @@ jobs:
           python-version: ${{ matrix.python_version }}
       - name: Set up 'pixi' for jobs that need it
         if: matrix.pixi-env != ''
-        uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347  # v0.10.1
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e  # v0.10.2
         with:
           environments: ${{ matrix.pixi-env }}
       - name: Setup and run tests on Linux and macOS
@@ -553,6 +553,6 @@ jobs:
       statuses: read
     steps:
       - name: Note that all tests succeeded
-        uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe  # v1.2.2
+        uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35  # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}
