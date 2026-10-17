@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e -E -o -u pipefail
+set -e -E -u -o pipefail
 
 # defaults
 CONDA_ENV="test-env"
