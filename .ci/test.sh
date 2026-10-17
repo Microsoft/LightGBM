@@ -55,6 +55,7 @@ cd "${BUILD_DIRECTORY}"
 if [[ $TASK == "swig" ]]; then
     cmake -B build -S . -DUSE_SWIG=ON
     cmake --build build -j4 || exit 1
+    ./.ci/check-abi.sh ./lib_lightgbm.*
     if [[ $OS_NAME == "linux" ]] && [[ $COMPILER == "gcc" ]]; then
         objdump -T ./lib_lightgbm.so > ./objdump.log || exit 1
         objdump -T ./lib_lightgbm_swig.so >> ./objdump.log || exit 1
@@ -140,6 +141,8 @@ fi
 
 cd "${BUILD_DIRECTORY}"
 
+SITE_PACKAGES=$(python -c "import sysconfig; print(sysconfig.get_paths()['platlib'])")
+
 if [[ $TASK == "sdist" ]]; then
     sh ./build-python.sh sdist || exit 1
     sh .ci/check-python-dists.sh ./dist || exit 1
@@ -147,6 +150,7 @@ if [[ $TASK == "sdist" ]]; then
     if [[ $PRODUCES_ARTIFACTS == "true" ]]; then
         cp "./dist/lightgbm-${LGB_VER}.tar.gz" "${BUILD_ARTIFACTSTAGINGDIRECTORY}" || exit 1
     fi
+    ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
     pytest -ra ./tests/python_package_test || exit 1
     exit 0
 elif [[ $TASK == "bdist" ]]; then
@@ -203,6 +207,7 @@ elif [[ $TASK == "bdist" ]]; then
         fi
     fi
     pip install -v --no-deps ./dist/*.whl || exit 1
+    ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
     pytest -ra ./tests || exit 1
     exit 0
 fi
@@ -219,12 +224,14 @@ if [[ $TASK == "gpu" ]]; then
             --config-settings=cmake.define.USE_GPU=ON \
             "./dist/lightgbm-${LGB_VER}.tar.gz" \
         || exit 1
+        ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
         pytest -ra ./tests/python_package_test || exit 1
         exit 0
     elif [[ $METHOD == "wheel" ]]; then
         sh ./build-python.sh bdist_wheel --gpu || exit 1
         sh ./.ci/check-python-dists.sh ./dist || exit 1
         pip install -v --no-deps "$(echo "./dist/lightgbm-${LGB_VER}"*.whl)" || exit 1
+        ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
         pytest -ra ./tests || exit 1
         exit 0
     elif [[ $METHOD == "source" ]]; then
@@ -245,12 +252,14 @@ elif [[ $TASK == "cuda" ]]; then
             --config-settings=cmake.define.USE_CUDA=ON \
             "./dist/lightgbm-${LGB_VER}.tar.gz" \
         || exit 1
+        ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
         pytest -ra ./tests/python_package_test || exit 1
         exit 0
     elif [[ $METHOD == "wheel" ]]; then
         sh ./build-python.sh bdist_wheel --cuda || exit 1
         sh ./.ci/check-python-dists.sh ./dist || exit 1
         pip install -v --no-deps "$(echo "./dist/lightgbm-${LGB_VER}"*.whl)" || exit 1
+        ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
         pytest -ra ./tests || exit 1
         exit 0
     elif [[ $METHOD == "source" ]]; then
@@ -271,12 +280,14 @@ elif [[ $TASK == "mpi" ]]; then
             --config-settings=cmake.define.USE_MPI=ON \
             "./dist/lightgbm-${LGB_VER}.tar.gz" \
         || exit 1
+        ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
         pytest -ra ./tests/python_package_test || exit 1
         exit 0
     elif [[ $METHOD == "wheel" ]]; then
         sh ./build-python.sh bdist_wheel --mpi || exit 1
         sh ./.ci/check-python-dists.sh ./dist || exit 1
         pip install -v --no-deps "$(echo "./dist/lightgbm-${LGB_VER}"*.whl)" || exit 1
+        ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
         pytest -ra ./tests || exit 1
         exit 0
     elif [[ $METHOD == "source" ]]; then
@@ -301,6 +312,7 @@ if [[ "${TASK}" != "mpi" ]]; then
 fi
 
 echo "running tests"
+./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.*
 pytest -ra ./tests || exit 1
 
 if [[ $TASK == "regular" ]]; then

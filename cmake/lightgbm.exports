@@ -3,4 +3,10 @@
 # Passed to the linker via '-exported_symbols_list'. Any symbol not matched here is hidden,
 # including those that '-fvisibility=hidden' cannot hide (e.g. OpenMP lock variables
 # like '.gomp_critical_user_.reduction.var') and those from statically-linked dependencies.
+#
+# references:
+#
+#   * https://developer.apple.com/documentation/xcode/build-settings-reference#Exported-Symbols-File
+#   * https://www.unix.com/man_page/osx/1/ld/
+#
 _LGBM_*
