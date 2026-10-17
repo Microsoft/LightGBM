@@ -1489,9 +1489,17 @@ static const R_CallMethodDef CallEntries[] = {
   {NULL, NULL, 0}
 };
 
-// R_init_lightgbm() is the only symbol the package exports. All of its other routines
-// are registered with R here. See "Controlling visibility" in "Writing R Extensions".
-// R's attribute_visible does nothing on Windows, where the MSVC build needs dllexport.
+/*
+   R_init_lightgbm() is the only symbol the package needs to export.
+
+   See "Controlling Visibility" in "Writing R Extensions", which says:
+
+       A shared object which registers its entry points needs only for have
+       one visible entry point, its initializer
+
+  The Windows-specific branch here is only needed for the CMake-based build,
+  which doesn't re-use lightgbm-win.def.
+*/
 #ifdef _WIN32
 #define LIGHTGBM_R_INIT_EXPORT LIGHTGBM_EXTERN_C __declspec(dllexport)
 #else

@@ -348,14 +348,12 @@ result <- file.copy(
   , to = sprintf("%s/", CMAKE_MODULES_R_DIR)
   , overwrite = TRUE
 )
-for (cmake_file in c("Utils.cmake", "lightgbm.map.in")) {
-  result <- file.copy(
-    from = file.path("cmake", cmake_file)
-    , to = sprintf("%s/", CMAKE_R_DIR)
-    , overwrite = TRUE
-  )
-  .handle_result(result)
-}
+result <- file.copy(
+  from = file.path("cmake", "Utils.cmake")
+  , to = sprintf("%s/", CMAKE_R_DIR)
+  , overwrite = TRUE
+)
+.handle_result(result)
 for (src_file in c("lightgbm_R.cpp", "lightgbm_R.h")) {
   result <- file.copy(
     from = file.path(TEMP_SOURCE_DIR, src_file)

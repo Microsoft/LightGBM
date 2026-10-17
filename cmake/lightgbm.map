@@ -7,10 +7,15 @@
  *
  * This is intentionally an anonymous version node (no 'LIGHTGBM_x.y' tag), so it only
  * controls visibility and does not add symbol versioning to the ABI.
+ *
+ * references:
+ *
+ *   - https://www.gnu.org/software/gnulib/manual/html_node/LD-Version-Scripts.html
+ *
  */
 {
   global:
-    @LGBM_EXPORTED_SYMBOLS@
+    LGBM_*;
   local:
     *;
 };
