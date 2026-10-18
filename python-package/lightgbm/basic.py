@@ -3637,7 +3637,7 @@ _LGBM_CustomEvalFunction = Union[
 ]
 
 
-class EvalResult(NamedTuple):
+class EvalResult(NamedTuple):  # numpydoc ignore=PR02
     """
     Result from computing an evaluation metric on a dataset.
 
