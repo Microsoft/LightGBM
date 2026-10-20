@@ -134,10 +134,6 @@ quote-style = "double"
 skip-magic-trailing-comma = false
 
 [tool.ruff.lint]
-fixable = [
-    # (isort)  Import block is un-sorted or un-formatted
-    "I001"
-]
 ignore = [
     # (pydocstyle) Missing docstring in magic method
     "D105",
