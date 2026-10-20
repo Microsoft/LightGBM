@@ -181,7 +181,7 @@ if ($env:TASK -eq "bdist") {
     $env:LIGHTGBM_TEST_DUAL_CPU_GPU = "0"
 }
 
-python "$env:BUILD_SOURCESDIRECTORY/.ci/test-imports.py"
+python "$env:BUILD_SOURCESDIRECTORY/.ci/test-imports.py" ; Assert-Output $?
 
 pytest -ra --cov=lightgbm --cov-fail-under=70 $tests ; Assert-Output $?
 
