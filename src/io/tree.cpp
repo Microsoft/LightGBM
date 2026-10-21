@@ -967,6 +967,9 @@ double FeatureValue(const std::unordered_map<int, double>& feature_values, int f
 // The QuadratureTreeSHAP algorithm over the subtree at node.
 // Closely follows the recursion in Algorithm 1 of arXiv:2605.04497, with the path's distinct features stored in
 // path[0..path_len) and the current product of branch weights in w_prod.
+// c and h are polynomials in t, kept as their values at the quadrature points. c depends only on the path features
+// and is built on the way down the recursion. h is the subtree's full polynomial, including branch weights and leaf
+// values, and is summed on the way up the recursion.
 template <int kNumPoints, typename FeatureValues, typename Phi>
 void Tree::QuadratureTreeSHAPNode(const FeatureValues& feature_values, Phi& phi, int node,
                                   const std::array<double, kNumPoints>& c, double w_prod,
