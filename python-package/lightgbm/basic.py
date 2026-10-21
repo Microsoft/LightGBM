@@ -5071,6 +5071,7 @@ class Booster:
             params=new_params,
             free_raw_data=free_raw_data,
         )
+        train_set.pandas_categorical = self.pandas_categorical
         new_params["refit_decay_rate"] = decay_rate
         new_booster = Booster(new_params, train_set)
         # Copy models

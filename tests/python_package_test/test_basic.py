@@ -1300,6 +1300,49 @@ def test_booster_eval_adds_new_valid_dataset() -> None:
     assert maximize is False
 
 
+@pytest.mark.parametrize("categories", [["c", "a", "b"], ["b", "c"], ["d", "b", "c"]])
+@pytest.mark.parametrize("decay_rate", [0.0, 0.5, 1.0])
+@pytest.mark.parametrize("reload_model", [False, True])
+def test_refit_preserves_pandas_categorical_encoding(categories, decay_rate, reload_model):
+    pd = pytest.importorskip("pandas")
+    original_categories = ["a", "b", "c"]
+    X = pd.DataFrame({"category": pd.Categorical(original_categories * 20)})
+    y = np.tile([0.0, 5.0, 10.0], 20)
+    bst = lgb.train(
+        {
+            "objective": "regression",
+            "learning_rate": 0.3,
+            "num_leaves": 3,
+            "min_data_in_leaf": 1,
+            "min_data_in_bin": 1,
+            "num_threads": 1,
+            "verbosity": -1,
+        },
+        lgb.Dataset(X, label=y),
+        num_boost_round=3,
+    )
+    if reload_model:
+        bst = lgb.Booster(model_str=bst.model_to_string())
+
+    X_refit = pd.DataFrame({"category": pd.Categorical(categories * 20, categories=categories)})
+    y_refit = np.tile(np.arange(len(categories), dtype=float) + 1.0, 20)
+    X_refit_original = X_refit.copy(deep=True)
+    X_aligned = X_refit.copy(deep=True)
+    X_aligned["category"] = X_aligned["category"].cat.set_categories(original_categories)
+
+    expected = bst.refit(X_aligned, y_refit, decay_rate=decay_rate, num_threads=1)
+    actual = bst.refit(X_refit, y_refit, decay_rate=decay_rate, num_threads=1)
+    np.testing.assert_allclose(actual.predict(X, num_threads=1), expected.predict(X, num_threads=1))
+    assert actual.pandas_categorical == bst.pandas_categorical
+    pd.testing.assert_frame_equal(X_refit, X_refit_original)
+    if decay_rate == 1.0:
+        np.testing.assert_allclose(actual.predict(X, num_threads=1), bst.predict(X, num_threads=1))
+
+    restored = lgb.Booster(model_str=actual.model_to_string())
+    np.testing.assert_allclose(restored.predict(X, num_threads=1), expected.predict(X, num_threads=1))
+    assert restored.pandas_categorical == bst.pandas_categorical
+
+
 def test_refit_correctly_handles_categorical_features_in_params(rng) -> None:
     rng = np.random.default_rng()
     X = rng.integers(1, 10, size=(1_000, 3))
