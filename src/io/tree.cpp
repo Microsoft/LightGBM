@@ -912,15 +912,21 @@ struct GaussLegendreRule {
 template <int kNumPoints>
 GaussLegendreRule<kNumPoints> MakeGaussLegendreRule() {
   constexpr double kPi = 3.141592653589793238462643383279502884;
+  // Cap the number of iterations used to find each of the LegendrePolynomial roots.
+  // Safe cap only, from the initial guess, Newton should converge in a few iterations.
+  constexpr int kMaxNewtonIterations = 64;
+  // Stop once the Newton step for roots in [-1, 1] reaches the float64 noise floor.
+  constexpr double kNewtonTolerance = 1e-15;
+
   GaussLegendreRule<kNumPoints> rule;
   for (int i = 0; i < kNumPoints; ++i) {
     // initial guess for the i-th largest root
     double x = std::cos(kPi * (i + 0.75) / (kNumPoints + 0.5));
-    for (int iter = 0; iter < 64; ++iter) {
+    for (int iter = 0; iter < kMaxNewtonIterations; ++iter) {
       const double pn = LegendrePolynomial(kNumPoints, x);
       const double dx = pn / LegendreDerivative(kNumPoints, x, pn);
       x -= dx;
-      if (std::fabs(dx) < 1e-15) {
+      if (std::fabs(dx) < kNewtonTolerance) {
         break;
       }
     }
