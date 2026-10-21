@@ -8,6 +8,7 @@
 
 #include <LightGBM/meta.h>
 #include <LightGBM/metric.h>
+#include <LightGBM/network.h>
 #include <LightGBM/utils/common.h>
 #include <LightGBM/utils/log.h>
 
@@ -80,7 +81,9 @@ class CrossEntropyMetric : public Metric {
     label_ = metadata.label();
     weights_ = metadata.weights();
 
-    CHECK_NOTNULL(label_);
+    if (num_data_ > 0) {
+      CHECK_NOTNULL(label_);
+    }
 
     // ensure that labels are in interval [0, 1], interval ends included
     Common::CheckElementsIntervalClosed<label_t>(label_, 0.0f, 1.0f, num_data_, GetName()[0].c_str());
@@ -89,6 +92,8 @@ class CrossEntropyMetric : public Metric {
     // check that weights are non-negative and sum is positive
     if (weights_ == nullptr) {
       sum_weights_ = static_cast<double>(num_data_);
+    } else if (num_data_ == 0) {
+      sum_weights_ = 0.0f;
     } else {
       label_t minw;
       Common::ObtainMinMaxSum(weights_, num_data_, &minw, static_cast<label_t*>(nullptr), &sum_weights_);
@@ -97,10 +102,6 @@ class CrossEntropyMetric : public Metric {
       }
     }
 
-    // check weight sum (may fail to be zero)
-    if (sum_weights_ <= 0.0f) {
-      Log::Fatal("[%s:%s]: sum-of-weights = %f is non-positive", __func__, GetName()[0].c_str(), sum_weights_);
-    }
     Log::Info("[%s:%s]: sum-of-weights = %f", GetName()[0].c_str(), __func__, sum_weights_);
   }
 
@@ -135,7 +136,15 @@ class CrossEntropyMetric : public Metric {
         }
       }
     }
-    double loss = sum_loss / sum_weights_;
+    double sum_weights = sum_weights_;
+    if (Network::num_machines() > 1) {
+      sum_loss = Network::GlobalSyncUpBySum(sum_loss);
+      sum_weights = Network::GlobalSyncUpBySum(sum_weights);
+    }
+    if (sum_weights <= 0.0f) {
+      Log::Fatal("Validation data has no positive total weight");
+    }
+    double loss = sum_loss / sum_weights;
     return std::vector<double>(1, loss);
   }
 
@@ -161,7 +170,7 @@ class CrossEntropyMetric : public Metric {
 };
 
 //
-// CrossEntropyLambdaMetric : "xentlambda" : (optional) weights have a different meaning than for "xentropy"
+// CrossEntropyLambdaMetric : "xentlambda": (optional) weights have a different meaning than for "xentropy"
 // ATTENTION: Supposed to be used when the objective also is "xentlambda"
 //
 class CrossEntropyLambdaMetric : public Metric {
@@ -175,12 +184,14 @@ class CrossEntropyLambdaMetric : public Metric {
     label_ = metadata.label();
     weights_ = metadata.weights();
 
-    CHECK_NOTNULL(label_);
+    if (num_data_ > 0) {
+      CHECK_NOTNULL(label_);
+    }
     Common::CheckElementsIntervalClosed<label_t>(label_, 0.0f, 1.0f, num_data_, GetName()[0].c_str());
     Log::Info("[%s:%s]: (metric) labels passed interval [0, 1] check",  GetName()[0].c_str(), __func__);
 
     // check all weights are strictly positive; throw error if not
-    if (weights_ != nullptr) {
+    if (weights_ != nullptr && num_data_ > 0) {
       label_t minw;
       Common::ObtainMinMaxSum(weights_, num_data_, &minw, static_cast<label_t*>(nullptr), static_cast<label_t*>(nullptr));
       if (minw <= 0.0f) {
@@ -222,7 +233,16 @@ class CrossEntropyLambdaMetric : public Metric {
         }
       }
     }
-    return std::vector<double>(1, sum_loss / static_cast<double>(num_data_));
+    // Weights are part of the cross_entropy_lambda loss formula, not the denominator.
+    double denominator = static_cast<double>(num_data_);
+    if (Network::num_machines() > 1) {
+      sum_loss = Network::GlobalSyncUpBySum(sum_loss);
+      denominator = Network::GlobalSyncUpBySum(denominator);
+    }
+    if (denominator <= 0.0f) {
+      Log::Fatal("Validation data has no positive total weight");
+    }
+    return std::vector<double>(1, sum_loss / denominator);
   }
 
   const std::vector<std::string>& GetName() const override {
@@ -258,12 +278,16 @@ class KullbackLeiblerDivergence : public Metric {
     label_ = metadata.label();
     weights_ = metadata.weights();
 
-    CHECK_NOTNULL(label_);
+    if (num_data_ > 0) {
+      CHECK_NOTNULL(label_);
+    }
     Common::CheckElementsIntervalClosed<label_t>(label_, 0.0f, 1.0f, num_data_, GetName()[0].c_str());
     Log::Info("[%s:%s]: (metric) labels passed interval [0, 1] check",  GetName()[0].c_str(), __func__);
 
     if (weights_ == nullptr) {
       sum_weights_ = static_cast<double>(num_data_);
+    } else if (num_data_ == 0) {
+      sum_weights_ = 0.0f;
     } else {
       label_t minw;
       Common::ObtainMinMaxSum(weights_, num_data_, &minw, static_cast<label_t*>(nullptr), &sum_weights_);
@@ -272,28 +296,22 @@ class KullbackLeiblerDivergence : public Metric {
       }
     }
 
-    // check weight sum
-    if (sum_weights_ <= 0.0f) {
-      Log::Fatal("[%s:%s]: sum-of-weights = %f is non-positive", GetName()[0].c_str(), __func__, sum_weights_);
-    }
-
     Log::Info("[%s:%s]: sum-of-weights = %f", GetName()[0].c_str(), __func__, sum_weights_);
 
     // evaluate offset term
-    presum_label_entropy_ = 0.0f;
+    sum_label_entropy_ = 0.0f;
     if (weights_ == nullptr) {
       for (data_size_t i = 0; i < num_data; ++i) {
-        presum_label_entropy_ += YentLoss(label_[i]);
+        sum_label_entropy_ += YentLoss(label_[i]);
       }
     } else {
       for (data_size_t i = 0; i < num_data; ++i) {
-        presum_label_entropy_ += YentLoss(label_[i]) * weights_[i];
+        sum_label_entropy_ += YentLoss(label_[i]) * weights_[i];
       }
     }
-    presum_label_entropy_ /= sum_weights_;
-
-    // communicate the value of the offset term to be added
-    Log::Info("%s offset term = %f", GetName()[0].c_str(), presum_label_entropy_);
+    if (sum_weights_ > 0.0f) {
+      Log::Info("%s offset term = %f", GetName()[0].c_str(), sum_label_entropy_ / sum_weights_);
+    }
   }
 
   std::vector<double> Eval(const double* score, const ObjectiveFunction* objective) const override {
@@ -327,7 +345,17 @@ class KullbackLeiblerDivergence : public Metric {
         }
       }
     }
-    double loss = presum_label_entropy_ + sum_loss / sum_weights_;
+    double sum_weights = sum_weights_;
+    double sum_label_entropy = sum_label_entropy_;
+    if (Network::num_machines() > 1) {
+      sum_loss = Network::GlobalSyncUpBySum(sum_loss);
+      sum_label_entropy = Network::GlobalSyncUpBySum(sum_label_entropy);
+      sum_weights = Network::GlobalSyncUpBySum(sum_weights);
+    }
+    if (sum_weights <= 0.0f) {
+      Log::Fatal("Validation data has no positive total weight");
+    }
+    double loss = (sum_label_entropy + sum_loss) / sum_weights;
     return std::vector<double>(1, loss);
   }
 
@@ -348,8 +376,8 @@ class KullbackLeiblerDivergence : public Metric {
   const label_t* weights_;
   /*! \brief Sum of weights */
   double sum_weights_;
-  /*! \brief Offset term to cross-entropy; precomputed during init */
-  double presum_label_entropy_;
+  /*! \brief Offset term numerator to cross-entropy; precomputed during init */
+  double sum_label_entropy_;
   /*! \brief Name of this metric */
   std::vector<std::string> name_;
 };

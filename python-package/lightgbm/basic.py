@@ -745,8 +745,8 @@ def _data_from_pandas(
     categorical_feature: _LGBM_CategoricalFeatureConfiguration,
     pandas_categorical: Optional[List[List]],
 ) -> Tuple[np.ndarray, List[str], Union[List[str], List[int]], List[List]]:
-    if len(data.shape) != 2 or data.shape[0] < 1:
-        raise ValueError("Input data must be 2 dimensional and non empty.")
+    if len(data.shape) != 2 or data.shape[1] < 1:
+        raise ValueError("Input data must be 2 dimensional and have at least one column.")
 
     # take shallow copy in case we modify categorical columns
     # whole column modifications don't change the original df
@@ -772,8 +772,8 @@ def _data_from_pandas(
         for col, category in zip(cat_cols, pandas_categorical, strict=True):
             if list(data[col].cat.categories) != list(category):
                 data[col] = data[col].cat.set_categories(category)
-    if cat_cols:  # cat_cols is list
-        data[cat_cols] = data[cat_cols].apply(lambda x: x.cat.codes).replace({-1: np.nan})
+    for col in cat_cols:
+        data[col] = data[col].cat.codes.replace({-1: np.nan})
 
     # use cat cols from DataFrame
     if categorical_feature == "auto":
@@ -3082,6 +3082,8 @@ class Dataset:
                 label_array = _list_to_1d_numpy(data=label, dtype=np.float32, name="label")
             self.set_field("label", label_array)
             self.label = self.get_field("label")  # original values can be modified at cpp side
+            if self.label is None and len(label_array) == 0:
+                self.label = label_array
         return self
 
     def set_weight(

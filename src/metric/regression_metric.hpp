@@ -7,6 +7,7 @@
 #define LIGHTGBM_SRC_METRIC_REGRESSION_METRIC_HPP_
 
 #include <LightGBM/metric.h>
+#include <LightGBM/network.h>
 #include <LightGBM/utils/log.h>
 
 #include <string>
@@ -91,7 +92,15 @@ class RegressionMetric: public Metric {
         }
       }
     }
-    double loss = PointWiseLossCalculator::AverageLoss(sum_loss, sum_weights_);
+    double sum_weights = sum_weights_;
+    if (Network::num_machines() > 1) {
+      sum_loss = Network::GlobalSyncUpBySum(sum_loss);
+      sum_weights = Network::GlobalSyncUpBySum(sum_weights);
+      if (sum_weights <= 0.0f) {
+        Log::Fatal("Validation data has no positive total weight");
+      }
+    }
+    double loss = PointWiseLossCalculator::AverageLoss(sum_loss, sum_weights);
     return std::vector<double>(1, loss);
   }
 
@@ -352,6 +361,13 @@ class R2Metric: public Metric {
       }
       sum_weights_ = local_sum_weights;
     }
+    if (Network::num_machines() > 1) {
+      sum_label = Network::GlobalSyncUpBySum(sum_label);
+      sum_weights_ = Network::GlobalSyncUpBySum(sum_weights_);
+      if (sum_weights_ <= 0.0f) {
+        Log::Fatal("Validation data has no positive total weight");
+      }
+    }
     label_mean_ = sum_label / sum_weights_;
 
     total_sum_squares_ = 0.0f;
@@ -370,6 +386,9 @@ class R2Metric: public Metric {
       }
     }
     total_sum_squares_ = local_total_sum_squares;
+    if (Network::num_machines() > 1) {
+      total_sum_squares_ = Network::GlobalSyncUpBySum(total_sum_squares_);
+    }
   }
 
   std::vector<double> Eval(const double* score, const ObjectiveFunction* objective) const override {
@@ -408,6 +427,9 @@ class R2Metric: public Metric {
       }
     }
 
+    if (Network::num_machines() > 1) {
+      residual_sum_squares = Network::GlobalSyncUpBySum(residual_sum_squares);
+    }
     double r2 = 1.0 - (residual_sum_squares / total_sum_squares_);
     if (std::fabs(total_sum_squares_) < kZeroThreshold) {
       return std::vector<double>(1, std::fabs(residual_sum_squares) < kZeroThreshold ? 1.0 : 0.0);

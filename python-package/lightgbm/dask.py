@@ -172,6 +172,107 @@ def _remove_list_padding(*args: Any) -> List[List[Any]]:
     return [[z for z in arg if z is not None] for arg in args]
 
 
+def _slice_empty(data: _DaskPart) -> _DaskPart:
+    return data[:0]
+
+
+# Built-in metrics whose per-worker values are aggregated across workers when
+# num_machines > 1. Additive metrics use GlobalSyncUpBySum (sum_loss/sum_weights pattern).
+# Ordering-dependent metrics (auc, average_precision, auc_mu) use Allgather to collect all
+# (label, score, weight) data before computing the metric globally. Query-based metrics
+# (ndcg, map) sync per-query weighted values via GlobalSyncUpBySum since queries are never
+# split across workers. Custom Python eval functions compute per-worker only.
+_AGGREGATED_DISTRIBUTED_EVAL_METRICS = {
+    "auc",
+    "auc_mu",
+    "average_precision",
+    "binary_error",
+    "binary_logloss",
+    "cross_entropy",
+    "cross_entropy_lambda",
+    "fair",
+    "gamma",
+    "huber",
+    "kullback_leibler",
+    "l1",
+    "l2",
+    "map",
+    "mape",
+    "multiclass",
+    "multiclassova",
+    "multi_error",
+    "multi_logloss",
+    "ndcg",
+    "poisson",
+    "quantile",
+    "regression",
+    "regression_l1",
+    "r2",
+    "rmse",
+    "tweedie",
+}
+
+
+def _eval_metrics_are_distributed_aggregated(
+    params: Dict[str, Any],
+    eval_metric: Optional[_LGBM_ScikitEvalMetricType],
+    model_factory: Type[LGBMModel],
+    eval_group: Optional[List[_DaskVectorLike]],
+) -> bool:
+    """Return True if every eval metric this fit will report is in the distributed-aggregation set.
+
+    The C++ side aggregates these across workers. Custom Python eval metrics → False.
+    """
+
+    def _collect(value: Any) -> List[str]:
+        if value is None:
+            return []
+        if callable(value):
+            return ["__custom__"]
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, list):
+            out: List[str] = []
+            for v in value:
+                if callable(v):
+                    out.append("__custom__")
+                elif isinstance(v, str):
+                    out.append(v)
+            return out
+        return []
+
+    metric_names = _collect(eval_metric)
+    param_metric = next((params[p] for p in _ConfigAliases.get("metric") if p in params), None)
+    if param_metric is None:
+        objective = params.get("objective")
+        if isinstance(objective, str):
+            metric_names.append(objective)
+        elif issubclass(model_factory, LGBMRegressor):
+            metric_names.append("l2")
+        elif issubclass(model_factory, LGBMClassifier):
+            metric_names.append("binary_logloss")
+        elif issubclass(model_factory, LGBMRanker):
+            metric_names.append("ndcg")
+    else:
+        metric_names.extend(_collect(param_metric))
+
+    no_metric_sentinels = {"", "na", "none", "null"}
+    metric_names = [m for m in metric_names if not (isinstance(m, str) and m.lower() in no_metric_sentinels)]
+    if not metric_names:
+        return False
+
+    def _supported(metric: str) -> bool:
+        m = metric.lower()
+        return (
+            m in _AGGREGATED_DISTRIBUTED_EVAL_METRICS
+            or m.startswith("multi_error@")
+            or m.startswith("ndcg@")
+            or m.startswith("map@")
+        )
+
+    return all(m != "__custom__" and _supported(m) for m in metric_names)
+
+
 def _pad_eval_names(
     *,
     lgbm_model: LGBMModel,
@@ -201,6 +302,7 @@ def _train_part(
     return_model: bool,
     time_out: int,
     remote_socket: _RemoteSocket,
+    required_eval_names: Optional[List[str]],
     **kwargs: Any,
 ) -> Optional[LGBMModel]:
     network_params = {
@@ -245,6 +347,7 @@ def _train_part(
     if n_evals:
         has_eval_sample_weight = any(x.get("eval_sample_weight") is not None for x in list_of_parts)
         has_eval_init_score = any(x.get("eval_init_score") is not None for x in list_of_parts)
+        has_eval_group = any(x.get("eval_group") is not None for x in list_of_parts)
 
         local_eval_set = []
         evals_result_names = []
@@ -252,11 +355,14 @@ def _train_part(
             local_eval_sample_weight = []
         if has_eval_init_score:
             local_eval_init_score = []
-        if is_ranker:
+        # Remember whether this worker had eval_sample_weight/eval_init_score/eval_group entries
+        # before the per-eval-index loop starts stripping padding, so we can distinguish
+        # "padded to empty" (use zero-row weight/group) from "never had data" (don't pass).
+        worker_had_eval_sample_weight = has_eval_sample_weight
+        worker_had_eval_init_score = has_eval_init_score
+        worker_had_eval_group = has_eval_group
+        if has_eval_group:
             local_eval_group = []
-
-        # store indices of eval_set components that were not contained within local parts.
-        missing_eval_component_idx = []
 
         # consolidate parts of each individual eval component.
         for i in range(n_evals):
@@ -313,26 +419,50 @@ def _train_part(
             if x_e:
                 local_eval_set.append((_concat(x_e), _concat(y_e)))
             else:
-                missing_eval_component_idx.append(i)
-                continue
+                # A zero-row placeholder. This keeps the collective balanced for additive
+                # objective metrics (binary_logloss, multi_logloss, l2) which are always
+                # present and always call GlobalSyncUpBySum.
+                local_eval_set.append((_slice_empty(data), _slice_empty(label)))
 
             if w_e:
                 local_eval_sample_weight.append(_concat(w_e))
+            elif worker_had_eval_sample_weight:
+                local_eval_sample_weight.append(_slice_empty(weight if weight is not None else label))
             if init_score_e:
                 local_eval_init_score.append(_concat(init_score_e))
+            elif worker_had_eval_init_score:
+                local_eval_init_score.append(_slice_empty(init_score if init_score is not None else label))
             if g_e:
                 local_eval_group.append(_concat(g_e))
+            elif worker_had_eval_group:
+                local_eval_group.append(_slice_empty(group if group is not None else label))
 
         # reconstruct eval_set fit args/kwargs depending on which components of eval_set are on worker.
-        eval_component_idx = [i for i in range(n_evals) if i not in missing_eval_component_idx]
+        eval_component_idx = list(range(n_evals))
         if eval_names:
             local_eval_names = [eval_names[i] for i in eval_component_idx]
         if eval_class_weight:
-            kwargs["eval_class_weight"] = [eval_class_weight[i] for i in eval_component_idx]
+            # Filter each class_weight dict to keys present in this worker's local eval slice.
+            # sklearn <=1.0.x raises on absent class keys; absent classes contribute zero rows
+            # anyway so the filtered weights are equivalent on this worker.
+            local_eval_class_weight: List[Optional[Union[dict, str]]] = []
+            for idx in eval_component_idx:
+                cw = eval_class_weight[idx]
+                if isinstance(cw, dict):
+                    present = set(np.unique(np.asarray(local_eval_set[idx][1])).tolist())
+                    filtered = {k: v for k, v in cw.items() if k in present}
+                    local_eval_class_weight.append(filtered if filtered else None)
+                else:
+                    local_eval_class_weight.append(cw)
+            kwargs["eval_class_weight"] = local_eval_class_weight
 
-    if local_eval_set is None:
-        local_eval_X = None
-        local_eval_y = None
+    if not local_eval_set:
+        local_eval_X = None  # type: ignore[assignment]
+        local_eval_y = None  # type: ignore[assignment]
+        local_eval_sample_weight = None  # type: ignore[assignment]
+        local_eval_init_score = None  # type: ignore[assignment]
+        local_eval_group = None  # type: ignore[assignment]
+        local_eval_names = None
     else:
         local_eval_X = tuple(X for X, _ in local_eval_set)
         local_eval_y = tuple(y for _, y in local_eval_set)
@@ -374,9 +504,9 @@ def _train_part(
         if getattr(model, "fitted_", False):
             model.booster_.free_network()
 
-    if n_evals:
+    if n_evals or required_eval_names:
         # ensure that expected keys for evals_result_ and best_score_ exist regardless of padding.
-        model = _pad_eval_names(lgbm_model=model, required_names=evals_result_names)
+        model = _pad_eval_names(lgbm_model=model, required_names=required_eval_names or evals_result_names)
 
     return model if return_model else None
 
@@ -554,6 +684,8 @@ def _train(
 
     params = deepcopy(params)
 
+    is_ranker = issubclass(model_factory, LGBMRanker)
+
     # capture whether local_listen_port or its aliases were provided
     listen_port_in_params = any(alias in params for alias in _ConfigAliases.get("local_listen_port"))
 
@@ -617,6 +749,17 @@ def _train(
             parts[i]["init_score"] = init_score_parts[i]
 
     eval_set = _validate_eval_set_Xy(eval_set=eval_set, eval_X=eval_X, eval_y=eval_y)
+    required_eval_names = None
+    if eval_set:
+        required_eval_names = eval_names or [f"valid_{i}" for i in range(len(eval_set))]
+
+    eval_metrics_are_distributed_aggregated = bool(eval_set) and _eval_metrics_are_distributed_aggregated(
+        params=params,
+        eval_metric=eval_metric,
+        model_factory=model_factory,
+        eval_group=eval_group,
+    )
+
     # evals_set will to be re-constructed into smaller lists of (X, y) tuples, where
     # X and y are each delayed sub-lists of original eval dask Collections.
     if eval_set:
@@ -665,6 +808,10 @@ def _train(
                         eval_sets[parts_idx][-1][0].append(x_e)  # type: ignore[index, union-attr]
                         eval_sets[parts_idx][-1][1].append(y_e)  # type: ignore[index, union-attr]
 
+                if eval_metrics_are_distributed_aggregated or not is_ranker:
+                    for parts_idx in range(min(n_largest_eval_parts, n_parts), n_parts):
+                        eval_sets[parts_idx].append(([None], [None]))
+
             if eval_sample_weight:
                 if eval_sample_weight[i] is sample_weight:
                     for parts_idx in range(n_parts):
@@ -685,6 +832,9 @@ def _train(
                         else:
                             eval_sample_weights[parts_idx][-1].append(w_e)  # type: ignore[union-attr]
 
+                    for parts_idx in range(min(n_largest_eval_parts, n_parts), n_parts):
+                        eval_sample_weights[parts_idx].append([None])
+
             if eval_init_score:
                 if eval_init_score[i] is init_score:
                     for parts_idx in range(n_parts):
@@ -703,6 +853,9 @@ def _train(
                         else:
                             eval_init_scores[parts_idx][-1].append(init_score_e)  # type: ignore[union-attr]
 
+                    for parts_idx in range(min(n_largest_eval_parts, n_parts), n_parts):
+                        eval_init_scores[parts_idx].append([None])
+
             if eval_group:
                 if eval_group[i] is group:
                     for parts_idx in range(n_parts):
@@ -720,6 +873,9 @@ def _train(
                             eval_groups[parts_idx].append([g_e])
                         else:
                             eval_groups[parts_idx][-1].append(g_e)  # type: ignore[union-attr]
+
+                    for parts_idx in range(min(n_largest_eval_parts, n_parts), n_parts):
+                        eval_groups[parts_idx].append([None])
 
         # assign sub-eval_set components to worker parts.
         for parts_idx, e_set in eval_sets.items():
@@ -747,23 +903,6 @@ def _train(
     worker_map = defaultdict(list)
     for key, workers in who_has.items():
         worker_map[next(iter(workers))].append(key_to_part_dict[key])
-
-    # Check that all workers were provided some of eval_set. Otherwise warn user that validation
-    # data artifacts may not be populated depending on worker returning final estimator.
-    if eval_set:
-        for worker in worker_map:
-            has_eval_set = False
-            for part in worker_map[worker]:
-                if "eval_set" in part.result():  # type: ignore[attr-defined]
-                    has_eval_set = True
-                    break
-
-            if not has_eval_set:
-                _log_warning(
-                    f"Worker {worker} was not allocated eval_set data. Therefore evals_result_ and best_score_ data may be unreliable. "
-                    "Try rebalancing data across workers."
-                )
-
     # assign general validation set settings to fit kwargs.
     if eval_names:
         kwargs["eval_names"] = eval_names
@@ -848,6 +987,7 @@ def _train(
             time_out=params.get("time_out", 120),
             remote_socket=worker_to_socket_future.get(worker, None),
             return_model=(worker == master_worker),
+            required_eval_names=required_eval_names,
             workers=[worker],
             allow_other_workers=False,
             pure=False,
@@ -1484,6 +1624,14 @@ class DaskLGBMClassifier(LGBMClassifier, _DaskLGBMModel):
                 Value of the evaluation metric.
             maximize : bool
                 Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
+
+        For all built-in eval metrics, validation scores reported in
+        ``evals_result_`` and ``best_score_`` are aggregated across Dask workers
+        and reflect the full distributed validation set. Supported metrics
+        include all built-in binary, regression, multiclass, cross-entropy,
+        ranking (``ndcg``, ``ndcg@k``, ``map``, ``map@k``), and ordering-dependent
+        (``auc``, ``average_precision``, ``auc_mu``) metrics. Custom Python eval
+        functions compute per-worker only.
         """
         self._lgb_dask_fit(
             model_factory=LGBMClassifier,
@@ -1953,6 +2101,14 @@ class DaskLGBMRegressor(LGBMRegressor, _DaskLGBMModel):
                 Value of the evaluation metric.
             maximize : bool
                 Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
+
+        For all built-in eval metrics, validation scores reported in
+        ``evals_result_`` and ``best_score_`` are aggregated across Dask workers
+        and reflect the full distributed validation set. Supported metrics
+        include all built-in binary, regression, multiclass, cross-entropy,
+        ranking (``ndcg``, ``ndcg@k``, ``map``, ``map@k``), and ordering-dependent
+        (``auc``, ``average_precision``, ``auc_mu``) metrics. Custom Python eval
+        functions compute per-worker only.
         """
         self._lgb_dask_fit(
             model_factory=LGBMRegressor,
@@ -2371,6 +2527,14 @@ class DaskLGBMRanker(LGBMRanker, _DaskLGBMModel):
                 Value of the evaluation metric.
             maximize : bool
                 Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
+
+        For all built-in eval metrics, validation scores reported in
+        ``evals_result_`` and ``best_score_`` are aggregated across Dask workers
+        and reflect the full distributed validation set. Supported metrics
+        include all built-in binary, regression, multiclass, cross-entropy,
+        ranking (``ndcg``, ``ndcg@k``, ``map``, ``map@k``), and ordering-dependent
+        (``auc``, ``average_precision``, ``auc_mu``) metrics. Custom Python eval
+        functions compute per-worker only.
         """
         self._lgb_dask_fit(
             model_factory=LGBMRanker,

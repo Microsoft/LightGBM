@@ -41,7 +41,7 @@ Dataset::Dataset() {
 }
 
 Dataset::Dataset(data_size_t num_data) {
-  CHECK_GT(num_data, 0);
+  CHECK_GE(num_data, 0);
   data_filename_ = "noname";
   num_data_ = num_data;
   metadata_.Init(num_data_, NO_SPECIFIC, NO_SPECIFIC);

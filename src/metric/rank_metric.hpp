@@ -7,6 +7,7 @@
 #define LIGHTGBM_SRC_METRIC_RANK_METRIC_HPP_
 
 #include <LightGBM/metric.h>
+#include <LightGBM/network.h>
 #include <LightGBM/utils/common.h>
 #include <LightGBM/utils/log.h>
 #include <LightGBM/utils/openmp_wrapper.h>
@@ -43,6 +44,10 @@ class NDCGMetric:public Metric {
     DCGCalculator::CheckLabel(label_, num_data_);
     // get query boundaries
     query_boundaries_ = metadata.query_boundaries();
+    if (num_data_ == 0) {
+      sum_query_weights_ = 0.0;
+      return;
+    }
     if (query_boundaries_ == nullptr) {
       Log::Fatal("The NDCG metric requires query information");
     }
@@ -85,6 +90,23 @@ class NDCGMetric:public Metric {
   }
 
   std::vector<double> Eval(const double* score, const ObjectiveFunction*) const override {
+    if (num_data_ == 0) {
+      std::vector<double> result(eval_at_.size(), 0.0f);
+      if (Network::num_machines() > 1) {
+        // Participate in collective with zero contribution to keep it balanced
+        double sum_weights = 0.0;
+        sum_weights = Network::GlobalSyncUpBySum(sum_weights);
+        for (size_t j = 0; j < result.size(); ++j) {
+          result[j] = Network::GlobalSyncUpBySum(result[j]);
+        }
+        if (sum_weights > 0.0f) {
+          for (size_t j = 0; j < result.size(); ++j) {
+            result[j] /= sum_weights;
+          }
+        }
+      }
+      return result;
+    }
     int num_threads = OMP_NUM_THREADS();
     // some buffers for multi-threading sum up
     std::vector<std::vector<double>> result_buffer_;
@@ -139,7 +161,22 @@ class NDCGMetric:public Metric {
       for (int i = 0; i < num_threads; ++i) {
         result[j] += result_buffer_[i][j];
       }
-      result[j] /= sum_query_weights_;
+    }
+    if (Network::num_machines() > 1) {
+      double sum_weights = sum_query_weights_;
+      sum_weights = Network::GlobalSyncUpBySum(sum_weights);
+      for (size_t j = 0; j < result.size(); ++j) {
+        result[j] = Network::GlobalSyncUpBySum(result[j]);
+      }
+      if (sum_weights > 0.0f) {
+        for (size_t j = 0; j < result.size(); ++j) {
+          result[j] /= sum_weights;
+        }
+      }
+    } else {
+      for (size_t j = 0; j < result.size(); ++j) {
+        result[j] /= sum_query_weights_;
+      }
     }
     return result;
   }
