@@ -2002,6 +2002,19 @@ def test_reference_chain(rng):
     assert len(evals_result["valid_1"]["rmse"]) == 20
 
 
+def assert_contribs_sum_to_raw_score(booster, X):
+    raw_score = booster.predict(X, raw_score=True)
+    # per class, num_features contributions and the expected value
+    contribs = booster.predict(X, pred_contrib=True).reshape(*raw_score.shape, -1)
+    np.testing.assert_allclose(contribs.sum(axis=-1), raw_score, rtol=1e-14, atol=1e-14)
+
+
+def tree_depth(node):
+    if "split_feature" not in node:
+        return 0
+    return 1 + max(tree_depth(node["left_child"]), tree_depth(node["right_child"]))
+
+
 def test_contribs():
     X, y = load_breast_cancer(return_X_y=True)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
@@ -2013,10 +2026,81 @@ def test_contribs():
     lgb_train = lgb.Dataset(X_train, y_train)
     gbm = lgb.train(params, lgb_train, num_boost_round=20)
 
-    assert (
-        np.linalg.norm(gbm.predict(X_test, raw_score=True) - np.sum(gbm.predict(X_test, pred_contrib=True), axis=1))
-        < 1e-4
+    assert_contribs_sum_to_raw_score(gbm, X_test)
+
+
+def test_contribs_with_missing_values(rng_fixed_seed):
+    X = rng_fixed_seed.normal(size=(500, 5))
+    X[rng_fixed_seed.random(500) < 0.2, 0] = np.nan
+    y = np.where(np.isnan(X[:, 0]), 3.0, X[:, 0]) + X[:, 1]
+    gbm = lgb.train({"objective": "regression", "verbose": -1}, lgb.Dataset(X, y), num_boost_round=20)
+    assert_contribs_sum_to_raw_score(gbm, X)
+
+
+def test_contribs_with_categorical_feature(rng_fixed_seed):
+    X = rng_fixed_seed.normal(size=(500, 5))
+    X[:, 0] = rng_fixed_seed.integers(0, 10, size=500)
+    category_effect = np.array([3.0, -1.0, 0.5, 2.0, -2.0, 1.0, 0.0, -0.5, 1.5, -1.5])
+    y = category_effect[X[:, 0].astype(int)] + X[:, 1]
+    gbm = lgb.train(
+        {"objective": "regression", "verbose": -1},
+        lgb.Dataset(X, y, categorical_feature=[0]),
+        num_boost_round=20,
     )
+    assert_contribs_sum_to_raw_score(gbm, X)
+
+
+def test_contribs_of_small_tree():
+    # one tree: x0 <= 0.5 ? (x1 <= 0.5 ? 0 : 4) : 10, with 2, 2 and 4 training rows in its leaves
+    X = np.array([[0, 0], [0, 0], [0, 1], [0, 1], [1, 0], [1, 0], [1, 1], [1, 1]], dtype=float)
+    y = np.array([0, 0, 4, 4, 10, 10, 10, 10], dtype=float)
+    params = {
+        "objective": "regression",
+        "num_leaves": 3,
+        "min_data_in_leaf": 1,
+        "learning_rate": 1.0,
+        "boost_from_average": False,
+        "verbose": -1,
+    }
+    gbm = lgb.train(params, lgb.Dataset(X, y), num_boost_round=1)
+    X_test = np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=float)
+    
+    expected = np.array(
+        [
+            # phi_x0, phi_x1, expected value
+            [-4.5, -1.5, 6.0],
+            [-3.5, 1.5, 6.0],
+            [4.5, -0.5, 6.0],
+            [3.5, 0.5, 6.0],
+        ]
+    )
+    np.testing.assert_allclose(gbm.predict(X_test, pred_contrib=True), expected, rtol=1e-14, atol=1e-14)
+
+
+@pytest.mark.parametrize("depth", [8, 16, 24, 32, 48, 64, 99])
+def test_contribs_numerically_stable_in_deep_trees(depth, rng_fixed_seed):
+    # One tree that splits off the sample with the largest label at each level, every time on a new feature.
+    # The labels are convex, so the largest label is always the farthest from the mean and has the best split.
+    num_features = 100
+    X = np.eye(num_features)
+    y = (np.arange(1, num_features + 1) / num_features) ** 2
+    params = {
+        "objective": "regression",
+        "num_leaves": depth + 1,
+        "max_depth": depth,
+        "min_data_in_leaf": 1,
+        "min_data_in_bin": 1,
+        "min_sum_hessian_in_leaf": 0.0,
+        "learning_rate": 1.0,
+        "boost_from_average": False,
+        "verbose": -1,
+    }
+    gbm = lgb.train(params, lgb.Dataset(X, y), num_boost_round=1)
+    assert tree_depth(gbm.dump_model()["tree_info"][0]["tree_structure"]) == depth
+    # a row that follows the chain down to the deepest leaf, and rows that leave it early
+    X_test = np.vstack([np.zeros(num_features), (rng_fixed_seed.random((100, num_features)) < 0.5).astype(float)])
+
+    assert_contribs_sum_to_raw_score(gbm, X_test)
 
 
 # Seed 0 reproduces a sparse/dense rounding mismatch when FMA is enabled.
@@ -2042,7 +2126,7 @@ def test_contribs_sparse(data_seed):
     contribs_dense = gbm.predict(X_test.toarray(), pred_contrib=True)
     # validate the values are the same
     np.testing.assert_allclose(contribs_csr.toarray(), contribs_dense)
-    assert np.linalg.norm(gbm.predict(X_test, raw_score=True) - np.sum(contribs_dense, axis=1)) < 1e-4
+    assert_contribs_sum_to_raw_score(gbm, X_test.toarray())
     # validate using CSC matrix
     X_test_csc = X_test.tocsc()
     contribs_csc = gbm.predict(X_test_csc, pred_contrib=True)
@@ -2081,8 +2165,7 @@ def test_contribs_sparse_multiclass(data_seed):
         (contribs_csr_array.shape[0], contribs_csr_array.shape[1] * contribs_csr_array.shape[2])
     )
     np.testing.assert_allclose(contribs_csr_arr_re, contribs_dense)
-    contribs_dense_re = contribs_dense.reshape(contribs_csr_array.shape)
-    assert np.linalg.norm(gbm.predict(X_test, raw_score=True) - np.sum(contribs_dense_re, axis=2)) < 1e-4
+    assert_contribs_sum_to_raw_score(gbm, X_test.toarray())
     # validate using CSC matrix
     X_test_csc = X_test.tocsc()
     contribs_csc = gbm.predict(X_test_csc, pred_contrib=True)
