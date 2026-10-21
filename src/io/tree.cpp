@@ -954,9 +954,9 @@ void Tree::TreeSHAP(const double *feature_values, double *phi,
   } else {
     const int hot_index = Decision(feature_values[split_feature_[node]], node);
     const int cold_index = (hot_index == left_child_[node] ? right_child_[node] : left_child_[node]);
-    const double w = data_count(node);
-    const double hot_zero_fraction = data_count(hot_index) / w;
-    const double cold_zero_fraction = data_count(cold_index) / w;
+    const double w = data_weight(node);
+    const double hot_zero_fraction = data_weight(hot_index) / w;
+    const double cold_zero_fraction = data_weight(cold_index) / w;
     double incoming_zero_fraction = 1;
     double incoming_one_fraction = 1;
 
@@ -1009,9 +1009,9 @@ void Tree::TreeSHAPByMap(const std::unordered_map<int, double>& feature_values, 
   } else {
     const int hot_index = Decision(feature_values.count(split_feature_[node]) > 0 ? feature_values.at(split_feature_[node]) : 0.0f, node);
     const int cold_index = (hot_index == left_child_[node] ? right_child_[node] : left_child_[node]);
-    const double w = data_count(node);
-    const double hot_zero_fraction = data_count(hot_index) / w;
-    const double cold_zero_fraction = data_count(cold_index) / w;
+    const double w = data_weight(node);
+    const double hot_zero_fraction = data_weight(hot_index) / w;
+    const double cold_zero_fraction = data_weight(cold_index) / w;
     double incoming_zero_fraction = 1;
     double incoming_one_fraction = 1;
 
@@ -1038,10 +1038,12 @@ void Tree::TreeSHAPByMap(const std::unordered_map<int, double>& feature_values, 
 
 double Tree::ExpectedValue() const {
   if (num_leaves_ == 1) return LeafOutput(0);
-  const double total_count = internal_count_[0];
+
+  const double total_weight = internal_weight_[0];
+
   double exp_value = 0.0;
   for (int i = 0; i < num_leaves(); ++i) {
-    exp_value += (leaf_count_[i] / total_count)*LeafOutput(i);
+    exp_value += (leaf_weight_[i] / total_weight)*LeafOutput(i);
   }
   return exp_value;
 }
