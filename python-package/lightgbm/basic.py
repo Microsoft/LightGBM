@@ -57,6 +57,7 @@ _ctypes_int_array = Union[
 _ctypes_float_ptr = Union[
     "ctypes._Pointer[ctypes.c_float]",
     "ctypes._Pointer[ctypes.c_double]",
+    "ctypes._Pointer[ctypes.c_int8]",
 ]
 _ctypes_float_array = Union[
     "ctypes.Array[ctypes._Pointer[ctypes.c_float]]",
@@ -173,7 +174,7 @@ def _get_sample_count(total_nrow: int, params: str) -> int:
 
 def _np2d_to_np1d(mat: np.ndarray) -> Tuple[np.ndarray, int]:
     dtype: "np.typing.DTypeLike"
-    if mat.dtype in (np.float32, np.float64):
+    if mat.dtype in (np.float32, np.float64, np.int8):
         dtype = mat.dtype
     else:
         dtype = np.float32
@@ -616,6 +617,7 @@ _C_API_DTYPE_FLOAT32 = 0
 _C_API_DTYPE_FLOAT64 = 1
 _C_API_DTYPE_INT32 = 2
 _C_API_DTYPE_INT64 = 3
+_C_API_DTYPE_INT8 = 4
 
 """Macro definition of data order in matrix"""
 _C_API_IS_COL_MAJOR = 0
@@ -664,7 +666,7 @@ def _convert_from_sliced_object(data: np.ndarray) -> np.ndarray:
 
 
 def _c_float_array(data: np.ndarray) -> Tuple[_ctypes_float_ptr, int, np.ndarray]:
-    """Get pointer of float numpy array / list."""
+    """Get pointer of float/int8 numpy array / list."""
     if _is_1d_list(data):
         data = np.asarray(data)
     if _is_numpy_1d_array(data):
@@ -677,8 +679,11 @@ def _c_float_array(data: np.ndarray) -> Tuple[_ctypes_float_ptr, int, np.ndarray
         elif data.dtype == np.float64:
             ptr_data = data.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
             type_data = _C_API_DTYPE_FLOAT64
+        elif data.dtype == np.int8:
+            ptr_data = data.ctypes.data_as(ctypes.POINTER(ctypes.c_int8))
+            type_data = _C_API_DTYPE_INT8
         else:
-            raise TypeError(f"Expected np.float32 or np.float64, met type({data.dtype})")
+            raise TypeError(f"Expected np.float32, np.float64 or np.int8, met type({data.dtype})")
     else:
         raise TypeError(f"Unknown type({type(data).__name__})")
     return (ptr_data, type_data, data)  # return `data` to avoid the temporary copy is freed

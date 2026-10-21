@@ -37,6 +37,7 @@ typedef void* ByteBufferHandle; /*!< \brief Handle of ByteBuffer. */
 #define C_API_DTYPE_FLOAT64 (1)  /*!< \brief float64 (double precision float). */
 #define C_API_DTYPE_INT32   (2)  /*!< \brief int32. */
 #define C_API_DTYPE_INT64   (3)  /*!< \brief int64. */
+#define C_API_DTYPE_INT8    (4)  /*!< \brief int8. */
 
 #define C_API_PREDICT_NORMAL     (0)  /*!< \brief Normal prediction, with transform (if needed). */
 #define C_API_PREDICT_RAW_SCORE  (1)  /*!< \brief Predict raw score. */

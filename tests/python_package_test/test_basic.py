@@ -1164,7 +1164,7 @@ def test_max_depth_warning_is_raised_if_max_depth_gte_5_and_num_leaves_omitted(c
 
 
 @pytest.mark.parametrize("order", ["C", "F"])
-@pytest.mark.parametrize("dtype", ["float32", "int64"])
+@pytest.mark.parametrize("dtype", ["float32", "int8", "int64"])
 def test_no_copy_in_dataset_from_numpy_2d(rng, order, dtype):
     X = rng.random(size=(100, 3))
     X = np.require(X, dtype=dtype, requirements=order)
@@ -1173,11 +1173,42 @@ def test_no_copy_in_dataset_from_numpy_2d(rng, order, dtype):
         assert layout == lgb.basic._C_API_IS_COL_MAJOR
     else:
         assert layout == lgb.basic._C_API_IS_ROW_MAJOR
-    if dtype == "float32":
+    if dtype in ("float32", "int8"):
         assert np.shares_memory(X, X1d)
     else:
         # makes a copy
         assert not np.shares_memory(X, X1d)
+
+
+def test_c_float_array_accepts_int8():
+    data = np.array([0, 1, 2, 3, 4], dtype=np.int8)
+    _, type_data, holder = lgb.basic._c_float_array(data)
+    assert type_data == lgb.basic._C_API_DTYPE_INT8
+    # int8 input is forwarded without a float conversion
+    assert holder.dtype == np.int8
+    assert np.shares_memory(data, holder)
+
+
+@pytest.mark.parametrize("dtype", [np.int16, np.int32, np.int64, np.uint8])
+def test_c_float_array_rejects_unsupported_int_dtypes(dtype):
+    data = np.array([0, 1, 2], dtype=dtype)
+    with pytest.raises(TypeError, match=r"Expected np\.float32, np\.float64 or np\.int8"):
+        lgb.basic._c_float_array(data)
+
+
+def test_dataset_from_int8_matches_float32(rng, tmp_path):
+    # values fit losslessly in both int8 and float32, so the resulting
+    # binned datasets must be identical regardless of the input dtype
+    X_int8 = rng.integers(low=0, high=5, size=(500, 4)).astype(np.int8)
+    y = rng.integers(low=0, high=2, size=500).astype(np.float64)
+
+    int8_path = tmp_path / "int8.txt"
+    lgb.Dataset(X_int8, y)._dump_text(int8_path)
+
+    float32_path = tmp_path / "float32.txt"
+    lgb.Dataset(X_int8.astype(np.float32), y)._dump_text(float32_path)
+
+    assert filecmp.cmp(int8_path, float32_path)
 
 
 def test_equal_datasets_from_row_major_and_col_major_data(tmp_path):

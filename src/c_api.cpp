@@ -2924,6 +2924,8 @@ RowFunctionFromDenseMatrix(const void* data, int num_row, int num_col, int data_
     return RowFunctionFromDenseMatrix_helper<float>(data, num_row, num_col, is_row_major);
   } else if (data_type == C_API_DTYPE_FLOAT64) {
     return RowFunctionFromDenseMatrix_helper<double>(data, num_row, num_col, is_row_major);
+  } else if (data_type == C_API_DTYPE_INT8) {
+    return RowFunctionFromDenseMatrix_helper<int8_t>(data, num_row, num_col, is_row_major);
   }
   Log::Fatal("Unknown data type in RowFunctionFromDenseMatrix");
   return nullptr;
