@@ -2064,7 +2064,7 @@ def test_contribs_of_small_tree():
     }
     gbm = lgb.train(params, lgb.Dataset(X, y), num_boost_round=1)
     X_test = np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=float)
-    
+
     expected = np.array(
         [
             # phi_x0, phi_x1, expected value
