@@ -7,6 +7,7 @@
 #define LIGHTGBM_SRC_OBJECTIVE_XENTROPY_OBJECTIVE_HPP_
 
 #include <LightGBM/meta.h>
+#include <LightGBM/network.h>
 #include <LightGBM/objective_function.h>
 #include <LightGBM/utils/common.h>
 
@@ -162,6 +163,10 @@ class CrossEntropy: public ObjectiveFunction {
         suml += label_[i];
       }
     }
+    if (Network::num_machines() > 1) {
+      suml = Network::GlobalSyncUpBySum(suml);
+      sumw = Network::GlobalSyncUpBySum(sumw);
+    }
     double pavg = suml / sumw;
     pavg = std::min(pavg, 1.0 - kEpsilon);
     pavg = std::max<double>(pavg, kEpsilon);
@@ -291,6 +296,10 @@ class CrossEntropyLambda: public ObjectiveFunction {
       for (data_size_t i = 0; i < num_data_; ++i) {
         suml += label_[i];
       }
+    }
+    if (Network::num_machines() > 1) {
+      suml = Network::GlobalSyncUpBySum(suml);
+      sumw = Network::GlobalSyncUpBySum(sumw);
     }
     double havg = suml / sumw;
     double initscore = std::log(std::expm1(havg));

@@ -7,6 +7,7 @@
 #define LIGHTGBM_SRC_OBJECTIVE_REGRESSION_OBJECTIVE_HPP_
 
 #include <LightGBM/meta.h>
+#include <LightGBM/network.h>
 #include <LightGBM/objective_function.h>
 #include <LightGBM/utils/array_args.h>
 
@@ -186,6 +187,10 @@ class RegressionL2loss: public ObjectiveFunction {
       for (data_size_t i = 0; i < num_data_; ++i) {
         suml += label_[i];
       }
+    }
+    if (Network::num_machines() > 1) {
+      suml = Network::GlobalSyncUpBySum(suml);
+      sumw = Network::GlobalSyncUpBySum(sumw);
     }
     return suml / sumw;
   }
