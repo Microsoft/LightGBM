@@ -1253,6 +1253,33 @@ def test_set_field_none_removes_field(rng, field_name):
     assert d.get_field(field_name) is None
 
 
+@pytest.mark.skipif(
+    BuildInfo.has_cuda,
+    reason="Positions in learning to rank is not supported in CUDA version yet",
+)
+def test_get_position_lazily_loads_from_field_when_not_cached(rng):
+    """Test that Dataset.get_position() falls back to get_field() when self.position isn't already cached."""
+    X = rng.uniform(size=(10, 1))
+    d = lgb.Dataset(X).construct()
+
+    # self.position is only populated by set_position()/Dataset(position=...), not by set_field()
+    assert d.position is None
+
+    position = [100, 20, 100, 10, 30, 10, 30, 10, 30, 30]
+    d.set_field("position", position)
+    assert d.position is None
+
+    # NOTE: "position" is rank-encoded to dense int32 ids on the C++ side,
+    # in order of first appearance: 100->0, 20->1, 10->2, 30->3
+    expected = np.array([0, 1, 0, 2, 3, 2, 3, 2, 3, 3], dtype=np.int32)
+    np_assert_array_equal(d.get_field("position"), expected, strict=True)
+
+    result = d.get_position()
+    np_assert_array_equal(result, expected, strict=True)
+    # the lazily-fetched value should now be cached on the instance
+    np_assert_array_equal(d.position, expected, strict=True)
+
+
 def test_booster_eval_adds_new_valid_dataset() -> None:
     X_train, X_test, y_train, y_test = train_test_split(
         *load_breast_cancer(return_X_y=True),
