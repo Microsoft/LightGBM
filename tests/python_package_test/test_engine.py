@@ -3702,6 +3702,213 @@ def test_extra_trees():
     assert err < err_new
 
 
+def _collect_split_features(tree_structure, out):
+    if "split_feature" in tree_structure:
+        out.add(tree_structure["split_feature"])
+        _collect_split_features(tree_structure["left_child"], out)
+        _collect_split_features(tree_structure["right_child"], out)
+
+
+def test_afs_disabled_by_default():
+    X, y = make_synthetic_regression(n_samples=200, n_features=20)
+    lgb_x = lgb.Dataset(X, label=y)
+    params = {"objective": "regression", "num_leaves": 15, "verbose": -1, "seed": 0}
+    est_default = lgb.train(params, lgb_x, num_boost_round=10)
+    params_explicit_off = {**params, "afs_enable": False}
+    est_explicit_off = lgb.train(params_explicit_off, lgb_x, num_boost_round=10)
+    np.testing.assert_allclose(est_default.predict(X), est_explicit_off.predict(X))
+
+
+def test_afs_full_ratio_matches_baseline():
+    # afs_feature_ratio=1.0 keeps every feature every tree, so predictions
+    # should be identical to training with AFS disabled entirely.
+    X, y = make_synthetic_regression(n_samples=200, n_features=20)
+    lgb_x = lgb.Dataset(X, label=y)
+    params = {"objective": "regression", "num_leaves": 15, "verbose": -1, "seed": 0}
+    est_baseline = lgb.train(params, lgb_x, num_boost_round=10)
+    params_afs = {**params, "afs_enable": True, "afs_feature_ratio": 1.0, "afs_warmup_trees": 0}
+    est_afs = lgb.train(params_afs, lgb_x, num_boost_round=10)
+    np.testing.assert_allclose(est_baseline.predict(X), est_afs.predict(X))
+
+
+def test_afs_restricts_features_after_warmup():
+    n_features = 50
+    afs_warmup_trees = 2
+    afs_feature_ratio = 0.2
+    num_to_keep = math.ceil(n_features * afs_feature_ratio)
+    X, y = make_synthetic_regression(n_samples=500, n_features=n_features, n_informative=n_features)
+    lgb_x = lgb.Dataset(X, label=y)
+    params = {
+        "objective": "regression",
+        "num_leaves": 31,
+        "verbose": -1,
+        "seed": 0,
+        "afs_enable": True,
+        "afs_feature_ratio": afs_feature_ratio,
+        "afs_warmup_trees": afs_warmup_trees,
+    }
+    est = lgb.train(params, lgb_x, num_boost_round=afs_warmup_trees + 5)
+    model = est.dump_model()
+    for tree_info in model["tree_info"][afs_warmup_trees:]:
+        used_features = set()
+        _collect_split_features(tree_info["tree_structure"], used_features)
+        assert len(used_features) <= num_to_keep
+    assert not np.any(np.isnan(est.predict(X)))
+
+
+def test_afs_stochastic():
+    X, y = make_synthetic_regression(n_samples=200, n_features=20)
+    lgb_x = lgb.Dataset(X, label=y)
+    params = {
+        "objective": "regression",
+        "num_leaves": 15,
+        "verbose": -1,
+        "seed": 0,
+        "afs_enable": True,
+        "afs_feature_ratio": 0.3,
+        "afs_warmup_trees": 2,
+        "afs_stochastic": True,
+        "afs_beta": 2.0,
+    }
+    est = lgb.train(params, lgb_x, num_boost_round=10)
+    assert not np.any(np.isnan(est.predict(X)))
+
+
+def test_afs_freeze_unselected():
+    X, y = make_synthetic_regression(n_samples=200, n_features=20)
+    lgb_x = lgb.Dataset(X, label=y)
+    params = {
+        "objective": "regression",
+        "num_leaves": 15,
+        "verbose": -1,
+        "seed": 0,
+        "afs_enable": True,
+        "afs_feature_ratio": 0.3,
+        "afs_warmup_trees": 2,
+        "afs_freeze_unselected": True,
+    }
+    est = lgb.train(params, lgb_x, num_boost_round=10)
+    assert not np.any(np.isnan(est.predict(X)))
+
+
+@pytest.mark.parametrize(
+    ("param_name", "param_value"),
+    [
+        ("afs_feature_ratio", 0.0),
+        ("afs_feature_ratio", 1.5),
+        ("afs_warmup_trees", -1),
+        ("afs_beta", -1.0),
+        ("afs_ema_alpha", 0.0),
+        ("afs_ema_alpha", 1.0),
+        ("afs_explore_c", -1.0),
+        ("afs_late_phase_frac", -0.1),
+        ("afs_late_phase_frac", 1.1),
+        ("afs_rotate_frac", -0.1),
+        ("afs_rotate_frac", 1.1),
+    ],
+)
+def test_afs_param_bounds_are_validated(param_name, param_value):
+    X, y = make_synthetic_regression(n_samples=100, n_features=10)
+    lgb_x = lgb.Dataset(X, label=y)
+    params = {"objective": "regression", "verbose": -1, "afs_enable": True, param_name: param_value}
+    with pytest.raises(lgb.basic.LightGBMError, match="Check failed"):
+        lgb.train(params, lgb_x, num_boost_round=1)
+
+
+def test_afs_explore_c_zero_equals_no_explore():
+    # afs_explore_c=0.0 (the default) must reduce to the plain gain-EMA selection,
+    # bit-identical to not setting the exploration bonus at all.
+    X, y = make_synthetic_regression(n_samples=300, n_features=30)
+    lgb_x = lgb.Dataset(X, label=y)
+    params = {
+        "objective": "regression",
+        "num_leaves": 15,
+        "verbose": -1,
+        "seed": 0,
+        "afs_enable": True,
+        "afs_feature_ratio": 0.3,
+        "afs_warmup_trees": 2,
+    }
+    est_no_explore = lgb.train(params, lgb_x, num_boost_round=10)
+    est_explicit_zero = lgb.train({**params, "afs_explore_c": 0.0}, lgb_x, num_boost_round=10)
+    np.testing.assert_allclose(est_no_explore.predict(X), est_explicit_zero.predict(X))
+
+
+def test_afs_explore_c_restricts_features_and_runs():
+    n_features = 50
+    afs_warmup_trees = 2
+    afs_feature_ratio = 0.2
+    num_to_keep = math.ceil(n_features * afs_feature_ratio)
+    X, y = make_synthetic_regression(n_samples=500, n_features=n_features, n_informative=n_features)
+    lgb_x = lgb.Dataset(X, label=y)
+    params = {
+        "objective": "regression",
+        "num_leaves": 31,
+        "verbose": -1,
+        "seed": 0,
+        "afs_enable": True,
+        "afs_feature_ratio": afs_feature_ratio,
+        "afs_warmup_trees": afs_warmup_trees,
+        "afs_explore_c": 1.0,
+    }
+    est = lgb.train(params, lgb_x, num_boost_round=afs_warmup_trees + 5)
+    model = est.dump_model()
+    for tree_info in model["tree_info"][afs_warmup_trees:]:
+        used_features = set()
+        _collect_split_features(tree_info["tree_structure"], used_features)
+        assert len(used_features) <= num_to_keep
+    assert not np.any(np.isnan(est.predict(X)))
+
+
+def test_afs_late_phase_rotation_runs():
+    n_features = 50
+    afs_warmup_trees = 2
+    afs_feature_ratio = 0.2
+    num_to_keep = math.ceil(n_features * afs_feature_ratio)
+    num_boost_round = afs_warmup_trees + 10
+    X, y = make_synthetic_regression(n_samples=500, n_features=n_features, n_informative=n_features)
+    lgb_x = lgb.Dataset(X, label=y)
+    params = {
+        "objective": "regression",
+        "num_leaves": 31,
+        "verbose": -1,
+        "seed": 0,
+        "afs_enable": True,
+        "afs_feature_ratio": afs_feature_ratio,
+        "afs_warmup_trees": afs_warmup_trees,
+        "afs_explore_c": 1.0,
+        "afs_late_phase_frac": 0.5,
+        "afs_rotate_frac": 0.5,
+    }
+    est = lgb.train(params, lgb_x, num_boost_round=num_boost_round)
+    model = est.dump_model()
+    # rotation swaps kept<->starved features but must never change how many are kept
+    for tree_info in model["tree_info"][afs_warmup_trees:]:
+        used_features = set()
+        _collect_split_features(tree_info["tree_structure"], used_features)
+        assert len(used_features) <= num_to_keep
+    assert not np.any(np.isnan(est.predict(X)))
+
+
+def test_afs_conflicts_with_enable_bundle_in_distributed_tree_learner():
+    # EFB (enable_bundle) packs multiple real features into a shared multi-value
+    # bin, which breaks AFS's per-feature ReduceScatter accounting once training
+    # is actually distributed (num_machines > 1). This must fail fast at config
+    # validation time rather than silently corrupting the histogram exchange.
+    X, y = make_synthetic_regression(n_samples=100, n_features=10)
+    lgb_x = lgb.Dataset(X, label=y)
+    params = {
+        "objective": "regression",
+        "verbose": -1,
+        "tree_learner": "data",
+        "num_machines": 2,
+        "afs_enable": True,
+        "enable_bundle": True,
+    }
+    with pytest.raises(lgb.basic.LightGBMError, match="enable_bundle"):
+        lgb.train(params, lgb_x, num_boost_round=1)
+
+
 def test_path_smoothing():
     # check path smoothing increases regularization
     X, y = make_synthetic_regression()

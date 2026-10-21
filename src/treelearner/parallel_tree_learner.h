@@ -63,6 +63,9 @@ class DataParallelTreeLearner: public TREELEARNER_T {
   void FindBestSplits(const Tree* tree) override;
   void FindBestSplitsFromHistograms(const std::vector<int8_t>& is_feature_used, bool use_subtract, const Tree* tree) override;
   void Split(Tree* tree, int best_Leaf, int* left_leaf, int* right_leaf) override;
+  // AFS distributed sync (see SerialTreeLearner hooks).
+  void SyncAfsGainsAcrossMachines() override;
+  void SyncAfsSelectedFeaturesAcrossMachines() override;
 
   inline data_size_t GetGlobalDataCountInLeaf(int leaf_idx) const override {
     if (leaf_idx >= 0) {
@@ -137,6 +140,9 @@ class VotingParallelTreeLearner: public TREELEARNER_T {
   void FindBestSplits(const Tree* tree) override;
   void FindBestSplitsFromHistograms(const std::vector<int8_t>& is_feature_used, bool use_subtract, const Tree* tree) override;
   void Split(Tree* tree, int best_Leaf, int* left_leaf, int* right_leaf) override;
+  // AFS distributed sync (see SerialTreeLearner hooks).
+  void SyncAfsGainsAcrossMachines() override;
+  void SyncAfsSelectedFeaturesAcrossMachines() override;
 
   inline data_size_t GetGlobalDataCountInLeaf(int leaf_idx) const override {
     if (leaf_idx >= 0) {

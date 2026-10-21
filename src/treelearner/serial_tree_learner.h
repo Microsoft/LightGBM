@@ -237,6 +237,32 @@ class SerialTreeLearner: public TreeLearner {
   std::unique_ptr<TrainingShareStates> share_state_;
   std::unique_ptr<CostEfficientGradientBoosting> cegb_;
   std::unique_ptr<GradientDiscretizer> gradient_discretizer_;
+  /*! \brief AFS: hook for distributed learners to synchronize per-feature split
+   *         gains across machines (Network::Allreduce SUM) before the EMA update,
+   *         so every machine computes a bit-identical gain EMA and therefore an
+   *         identical feature selection. No-op for serial / single-machine. */
+  virtual void SyncAfsGainsAcrossMachines() {}
+  /*! \brief AFS: hook for distributed learners to force an identical selected-feature
+   *         mask across machines after selection, so the per-feature histogram
+   *         ReduceScatter buffer layout agrees on every worker (otherwise the
+   *         collective op mismatches and deadlocks). No-op for serial. */
+  virtual void SyncAfsSelectedFeaturesAcrossMachines() {}
+  /*! \brief AFS: current tree index for tracking warmup */
+  int afs_tree_index_ = 0;
+  /*! \brief AFS: exponential moving average of per-feature gains */
+  std::vector<double> afs_gain_ema_;
+  /*! \brief AFS: per-feature max gain observed in current tree */
+  std::vector<double> afs_feature_gain_current_tree_;
+  /*! \brief AFS: which features are selected for current tree */
+  std::vector<int8_t> afs_selected_features_;
+  /*! \brief AFS: random generator for stochastic feature sampling */
+  std::unique_ptr<Random> afs_random_;
+  /*! \brief AFS: per-feature cumulative selection counter n_f (exploration visit count).
+   *         Incremented after each tree for every selected feature. Derived from the
+   *         already-synced afs_selected_features_ mask, so it stays bit-identical on
+   *         every worker with no new Sync hook. Reused by both the exploration bonus
+   *         (afs_explore_c) and late-phase complementary rotation. */
+  std::vector<int64_t> afs_select_count_;
 };
 
 inline data_size_t SerialTreeLearner::GetGlobalDataCountInLeaf(int leaf_idx) const {

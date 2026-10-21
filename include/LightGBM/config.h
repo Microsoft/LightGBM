@@ -394,6 +394,68 @@ struct Config {
   // desc = random seed for selecting thresholds when ``extra_trees`` is true
   int extra_seed = 6;
 
+  // desc = enable Adaptive Feature Screening (AFS) to speed up training by only building histograms for top-gain features
+  // desc = after a warmup period, AFS ranks features by their historical gain EMA and only evaluates the top fraction
+  bool afs_enable = false;
+
+  // check = >0.0
+  // check = <=1.0
+  // desc = used only when ``afs_enable`` is ``true``
+  // desc = fraction of features to keep after screening (e.g. 0.3 keeps top 30% features)
+  double afs_feature_ratio = 0.3;
+
+  // check = >=0
+  // desc = used only when ``afs_enable`` is ``true``
+  // desc = number of warmup trees where all features are evaluated to estimate per-feature gains
+  int afs_warmup_trees = 5;
+
+  // desc = used only when ``afs_enable`` is ``true``
+  // desc = enable stochastic gain-weighted random sampling instead of deterministic top-K selection
+  // desc = when enabled, features are sampled with probability proportional to gain EMA raised to the power of ``afs_beta``
+  bool afs_stochastic = false;
+
+  // check = >=0.0
+  // desc = used only when ``afs_stochastic`` is ``true``
+  // desc = concentration parameter controlling the exploration-exploitation tradeoff
+  // desc = 0 = uniform random sampling, larger values = more concentrated on high-gain features
+  double afs_beta = 1.0;
+
+  // check = >0.0
+  // check = <1.0
+  // desc = used only when ``afs_enable`` is ``true``
+  // desc = EMA smoothing parameter for tracking per-feature gains
+  double afs_ema_alpha = 0.3;
+
+  // desc = used only when ``afs_enable`` is ``true``
+  // desc = when true, do not decay EMA for features that were not selected (freeze their last-known estimate)
+  // desc = prevents permanent exclusion of features that were not evaluated
+  bool afs_freeze_unselected = false;
+
+  // check = >=0.0
+  // desc = used only when ``afs_enable`` is ``true``
+  // desc = exploration-bonus coefficient added to the selection score:
+  // desc = ``score_f = gnorm_f + afs_explore_c * sqrt(ln(t+1) / max(n_f, 1))`` where
+  // desc = ``gnorm_f`` is the per-feature gain EMA normalized by its current max, ``n_f`` is
+  // desc = the number of times feature f has been selected, and ``t`` is the current tree index
+  // desc = optimism-under-uncertainty restores tree-decorrelation lost by pure gain selection
+  // desc = 0 = identical to plain S-AFS selection (no exploration bonus)
+  double afs_explore_c = 0.0;
+
+  // check = >=0.0
+  // check = <=1.0
+  // desc = used only when ``afs_enable`` is ``true``
+  // desc = fraction of total iterations after which late-phase complementary rotation activates
+  // desc = (e.g. 0.8 = last 20% of trees); 0 = disabled
+  double afs_late_phase_frac = 0.0;
+
+  // check = >=0.0
+  // check = <=1.0
+  // desc = used only when ``afs_late_phase_frac`` > 0
+  // desc = fraction of the kept feature slots reserved, during the late phase, for the
+  // desc = least-frequently-selected (starved/complementary) features to mop up residual signal
+  // desc = 0 = disabled
+  double afs_rotate_frac = 0.0;
+
   // alias = early_stopping_rounds, early_stopping, n_iter_no_change
   // desc = will stop training if one metric of one validation data doesn't improve in last ``early_stopping_round`` rounds
   // desc = ``<= 0`` means disable

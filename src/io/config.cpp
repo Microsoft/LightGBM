@@ -377,6 +377,19 @@ void Config::CheckParamConflict(const std::unordered_map<std::string, std::strin
       Log::Fatal("Don't support forcedsplits in %s tree learner",
                  tree_learner.c_str());
     }
+    if (afs_enable && enable_bundle) {
+      // Exclusive Feature Bundling packs multiple real features into a shared
+      // multi-value bin. AFS screens/skips features per-tree and expects each
+      // worker's ReduceScatter block to be addressable by a single real feature
+      // index; a bundled feature's owner can no longer be inferred consistently
+      // across workers once screening starts, which corrupts the ReduceScatter
+      // buffer layout. Fail fast instead of silently changing the enable_bundle
+      // default for every user (including non-AFS ones).
+      Log::Fatal("Adaptive Feature Screening (afs_enable=true) is not currently supported together with "
+                 "Exclusive Feature Bundling (enable_bundle=true) in the '%s' tree learner. "
+                 "Set enable_bundle=false to use afs_enable with distributed training.",
+                 tree_learner.c_str());
+    }
   }
 
   // max_depth defaults to -1, so max_depth>0 implies "you explicitly overrode the default"

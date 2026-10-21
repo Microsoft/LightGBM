@@ -113,6 +113,19 @@ Tree* LinearTreeLearner<TREE_LEARNER_TYPE>::Train(const score_t* gradients, cons
     cur_depth = std::max(cur_depth, tree->leaf_depth(left_leaf));
   }
 
+  // AFS: update gain EMA after tree is built
+  if (this->config_->afs_enable) {
+    const double alpha = this->config_->afs_ema_alpha;
+    for (int f = 0; f < this->num_features_; ++f) {
+      if (this->config_->afs_freeze_unselected && !this->afs_selected_features_[f]) {
+        continue;
+      }
+      this->afs_gain_ema_[f] = alpha * this->afs_feature_gain_current_tree_[f]
+                              + (1.0 - alpha) * this->afs_gain_ema_[f];
+    }
+    this->afs_tree_index_++;
+  }
+
   bool has_nan = false;
   if (any_nan_) {
     for (int i = 0; i < tree->num_leaves() - 1 ; ++i) {

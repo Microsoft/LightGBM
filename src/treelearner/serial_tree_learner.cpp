@@ -11,7 +11,9 @@
 #include <LightGBM/utils/common.h>
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
+#include <numeric>
 #include <queue>
 #include <set>
 #include <string>
@@ -79,6 +81,25 @@ void SerialTreeLearner::Init(const Dataset* train_data, bool is_constant_hessian
   if (CostEfficientGradientBoosting::IsEnable(config_)) {
     cegb_.reset(new CostEfficientGradientBoosting(this));
     cegb_->Init();
+  }
+
+  // Initialize AFS (Adaptive Feature Screening) vectors
+  if (config_->afs_enable) {
+    afs_tree_index_ = 0;
+    afs_gain_ema_.resize(num_features_, 0.0);
+    afs_feature_gain_current_tree_.resize(num_features_, 0.0);
+    afs_selected_features_.resize(num_features_, 1);
+    afs_select_count_.assign(num_features_, 0);
+    if (config_->afs_stochastic) {
+      afs_random_.reset(new Random(config_->seed));
+      Log::Info("AFS enabled (stochastic): feature_ratio=%.2f, warmup_trees=%d, beta=%.2f, ema_alpha=%.2f",
+                config_->afs_feature_ratio, config_->afs_warmup_trees,
+                config_->afs_beta, config_->afs_ema_alpha);
+    } else {
+      Log::Info("AFS enabled: feature_ratio=%.2f, warmup_trees=%d, ema_alpha=%.2f",
+                config_->afs_feature_ratio, config_->afs_warmup_trees,
+                config_->afs_ema_alpha);
+    }
   }
 }
 
@@ -239,6 +260,37 @@ Tree* SerialTreeLearner::Train(const score_t* gradients, const score_t *hessians
     cur_depth = std::max(cur_depth, tree->leaf_depth(left_leaf));
   }
 
+  // AFS: update gain EMA after tree is built
+  if (config_->afs_enable) {
+    // Distributed: each worker only computed split gains for the features it owns
+    // (its ReduceScatter block). Allreduce-SUM reconstructs the full global gain
+    // vector on every worker (each feature is owned by exactly one worker), so the
+    // EMA below is bit-identical everywhere and the next tree's selection agrees.
+    // No-op for serial / single-machine.
+    SyncAfsGainsAcrossMachines();
+    const double alpha = config_->afs_ema_alpha;
+    for (int f = 0; f < num_features_; ++f) {
+      if (config_->afs_freeze_unselected && !afs_selected_features_[f]) {
+        // Unselected features: preserve last-known EMA estimate
+        // (no new information available — don't confuse "not evaluated" with "zero gain")
+        continue;
+      }
+      afs_gain_ema_[f] = alpha * afs_feature_gain_current_tree_[f]
+                        + (1.0 - alpha) * afs_gain_ema_[f];
+    }
+    // Exploration visit counts: increment for every feature selected in the tree just built.
+    // afs_selected_features_ here is the post-sync mask (SyncAfsSelectedFeatures...
+    // ran in BeforeTrain), so counts stay bit-identical across workers with no
+    // extra communication. During warmup the mask is all-ones, so every n_f grows
+    // uniformly and equals afs_warmup_trees when screening first runs.
+    for (int f = 0; f < num_features_; ++f) {
+      if (afs_selected_features_[f]) {
+        ++afs_select_count_[f];
+      }
+    }
+    afs_tree_index_++;
+  }
+
   if (config_->use_quantized_grad && config_->quant_train_renew_leaf) {
     gradient_discretizer_->RenewIntGradTreeOutput(tree.get(), config_, data_partition_.get(), gradients_, hessians_,
       [this] (int leaf_index) { return GetGlobalDataCountInLeaf(leaf_index); });
@@ -339,6 +391,136 @@ void SerialTreeLearner::BeforeTrain() {
   if (config_->use_quantized_grad && config_->tree_learner != std::string("data")) {
     gradient_discretizer_->SetNumBitsInHistogramBin<false>(0, -1, data_partition_->leaf_count(0), 0);
   }
+
+  // AFS: select features for this tree
+  if (config_->afs_enable) {
+    // Reset current tree gains
+    std::fill(afs_feature_gain_current_tree_.begin(),
+              afs_feature_gain_current_tree_.end(), 0.0);
+    if (afs_tree_index_ >= config_->afs_warmup_trees) {
+      int num_to_keep = std::max(1,
+          static_cast<int>(std::ceil(num_features_ * config_->afs_feature_ratio)));
+      num_to_keep = std::min(num_to_keep, num_features_);
+      std::fill(afs_selected_features_.begin(), afs_selected_features_.end(), 0);
+
+      const double eps = 1e-10;
+      // Unified per-feature selection score. With afs_explore_c == 0 this reduces to
+      // the plain gain EMA (legacy S-AFS). Otherwise it adds an exploration bonus
+      //   score_f = gnorm_f + c * sqrt(ln(t+1) / max(n_f, 1)),
+      // where gnorm_f = ema_f / (max_ema + eps) in [0,1] so the coefficient c is
+      // dataset-independent (raw gain magnitudes vary by scale/objective). This
+      // restores the tree-decorrelation that pure gain selection loses by giving
+      // chronically-unselected features a periodic optimism boost.
+      std::vector<double> score(num_features_);
+      const bool use_explore = config_->afs_explore_c > 0.0;
+      if (!use_explore) {
+        for (int i = 0; i < num_features_; ++i) score[i] = afs_gain_ema_[i];
+      } else {
+        double max_ema = 0.0;
+        for (int i = 0; i < num_features_; ++i) max_ema = std::max(max_ema, afs_gain_ema_[i]);
+        const double denom = max_ema + eps;
+        const double ln_t = std::log(static_cast<double>(afs_tree_index_) + 1.0);
+        const double c = config_->afs_explore_c;
+        for (int i = 0; i < num_features_; ++i) {
+          const double gnorm = afs_gain_ema_[i] / denom;
+          const double n_f = static_cast<double>(std::max<int64_t>(afs_select_count_[i], 1));
+          score[i] = gnorm + c * std::sqrt(ln_t / n_f);
+        }
+      }
+
+      if (config_->afs_stochastic && afs_random_) {
+        // --- S-AFS: score-weighted random sampling without replacement ---
+        const double beta = config_->afs_beta;
+        std::vector<double> weights(num_features_);
+        double sum_w = 0.0;
+        for (int i = 0; i < num_features_; ++i) {
+          // explore_c==0 reuses the EXACT legacy expression pow(ema+eps, beta) for
+          // bit-for-bit compatibility; the exploration path raises the (>=0) unified score.
+          const double base = use_explore ? std::max(score[i], eps) : (afs_gain_ema_[i] + eps);
+          weights[i] = std::pow(base, beta);
+          sum_w += weights[i];
+        }
+        // Sequential weighted sampling without replacement
+        int selected_count = 0;
+        double remaining_weight = sum_w;
+        while (selected_count < num_to_keep && remaining_weight > 0) {
+          double r = afs_random_->NextFloat() * remaining_weight;
+          double cumulative = 0.0;
+          for (int i = 0; i < num_features_; ++i) {
+            if (afs_selected_features_[i]) continue;
+            cumulative += weights[i];
+            if (cumulative >= r) {
+              afs_selected_features_[i] = 1;
+              remaining_weight -= weights[i];
+              selected_count++;
+              break;
+            }
+          }
+        }
+      } else {
+        // --- Deterministic top-K by score (== gain EMA when explore_c==0) ---
+        std::vector<int> sorted_indices(num_features_);
+        std::iota(sorted_indices.begin(), sorted_indices.end(), 0);
+        std::sort(sorted_indices.begin(), sorted_indices.end(),
+                  [&score](int a, int b) {
+                    if (score[a] != score[b]) return score[a] > score[b];
+                    return a < b;  // total order -> identical on every worker
+                  });
+        for (int i = 0; i < num_to_keep; ++i) {
+          afs_selected_features_[sorted_indices[i]] = 1;
+        }
+      }
+
+      // --- Direction C: late-phase complementary rotation ---
+      // In the last (1 - afs_late_phase_frac) of boosting, reserve a fraction of the
+      // kept slots for the most-starved (least-selected) features, to mop up residual
+      // signal carried by weak/complementary features. Pure function of mask + score +
+      // counts (NO RNG -> the compat RNG stream is untouched); each eviction is paired
+      // 1:1 with a promotion so |selected| stays exactly num_to_keep, and at least one
+      // score-driven feature always survives.
+      if (config_->afs_late_phase_frac > 0.0 && config_->afs_rotate_frac > 0.0) {
+        const double thresh = config_->afs_late_phase_frac
+                              * static_cast<double>(config_->num_iterations);
+        if (static_cast<double>(afs_tree_index_) >= thresh) {
+          int rotate_k = static_cast<int>(std::lround(
+              config_->afs_rotate_frac * static_cast<double>(num_to_keep)));
+          rotate_k = std::min(rotate_k, num_to_keep);
+          if (rotate_k > 0) {
+            std::vector<int> starved;   // currently unselected, most-starved first
+            std::vector<int> kept;      // currently selected, weakest score first
+            for (int i = 0; i < num_features_; ++i) {
+              if (afs_selected_features_[i]) kept.push_back(i);
+              else starved.push_back(i);
+            }
+            std::sort(starved.begin(), starved.end(), [this](int a, int b) {
+              if (afs_select_count_[a] != afs_select_count_[b])
+                return afs_select_count_[a] < afs_select_count_[b];
+              return a < b;
+            });
+            std::sort(kept.begin(), kept.end(), [&score](int a, int b) {
+              if (score[a] != score[b]) return score[a] < score[b];
+              return a > b;
+            });
+            int swaps = std::min(rotate_k, static_cast<int>(starved.size()));
+            swaps = std::min(swaps, static_cast<int>(kept.size()) - 1);  // keep >=1
+            for (int s = 0; s < swaps; ++s) {
+              afs_selected_features_[kept[s]] = 0;      // evict weakest kept
+              afs_selected_features_[starved[s]] = 1;   // promote most starved
+            }
+          }
+        }
+      }
+    } else {
+      // During warmup, use all features
+      std::fill(afs_selected_features_.begin(), afs_selected_features_.end(), 1);
+    }
+    // Distributed safety net: force every worker to adopt one rank's mask, so the
+    // per-feature histogram ReduceScatter buffer layout (built from this mask in
+    // DataParallelTreeLearner::BeforeTrain) is identical on all workers. Gain-sync
+    // above already makes the selection deterministic; this guarantees it even if
+    // any residual nondeterminism crept in. No-op for serial / single-machine.
+    SyncAfsSelectedFeaturesAcrossMachines();
+  }
 }
 
 bool SerialTreeLearner::BeforeFindBestSplit(const Tree* tree, int left_leaf, int right_leaf) {
@@ -396,6 +578,8 @@ void SerialTreeLearner::FindBestSplits(const Tree* tree, const std::set<int>* fo
   #pragma omp parallel for num_threads(OMP_NUM_THREADS()) schedule(static, 256) if (num_features_ >= 512)
   for (int feature_index = 0; feature_index < num_features_; ++feature_index) {
     if (!col_sampler_.is_feature_used_bytree()[feature_index] && (force_features == nullptr || force_features->find(feature_index) == force_features->end())) continue;
+    // AFS: skip features not selected by adaptive screening
+    if (config_->afs_enable && !afs_selected_features_[feature_index] && (force_features == nullptr || force_features->find(feature_index) == force_features->end())) continue;
     if (parent_leaf_histogram_array_ != nullptr
         && !parent_leaf_histogram_array_[feature_index].is_splittable()) {
       smaller_leaf_histogram_array_[feature_index].set_is_splittable(false);
@@ -993,6 +1177,11 @@ void SerialTreeLearner::ComputeBestSplitForFeature(
         constraints_->GetFeatureConstraint(leaf_splits->leaf_index(), feature_index), parent_output, &new_split);
   }
   new_split.feature = real_fidx;
+  // AFS: record per-feature gain for EMA update
+  if (config_->afs_enable && new_split.gain > 0) {
+    afs_feature_gain_current_tree_[feature_index] =
+        std::max(afs_feature_gain_current_tree_[feature_index], new_split.gain);
+  }
   if (cegb_ != nullptr) {
     new_split.gain -=
         cegb_->DeltaGain(feature_index, real_fidx, leaf_splits->leaf_index(),
