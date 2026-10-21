@@ -4,12 +4,12 @@
 [submodule "eigen"]
 	path = external_libs/eigen
 	url = https://gitlab.com/libeigen/eigen.git
+[submodule "external_libs/fast_float"]
+	path = external_libs/fast_float
+	url = https://github.com/fastfloat/fast_float.git
 [submodule "external_libs/fmt"]
 	path = external_libs/fmt
 	url = https://github.com/fmtlib/fmt.git
-[submodule "external_libs/fast_double_parser"]
-	path = external_libs/fast_double_parser
-	url = https://github.com/lemire/fast_double_parser.git
 [submodule "external_libs/nanoarrow"]
 	path = external_libs/nanoarrow
 	url = https://github.com/apache/arrow-nanoarrow.git

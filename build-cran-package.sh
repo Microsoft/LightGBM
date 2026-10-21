@@ -72,9 +72,10 @@ if ${BUILD_VIGNETTES} ; then
     cp docs/logo/LightGBM_logo_black_text.svg "${TEMP_R_DIR}/vignettes/"
 fi
 
+mkdir -p "${TEMP_R_DIR}/src/include/LightGBM/utils/fast_float"
 cp \
-    external_libs/fast_double_parser/include/fast_double_parser.h \
-    "${TEMP_R_DIR}/src/include/LightGBM/utils"
+    external_libs/fast_float/include/fast_float/*.h \
+    "${TEMP_R_DIR}/src/include/LightGBM/utils/fast_float"
 
 mkdir -p "${TEMP_R_DIR}/src/include/LightGBM/utils/fmt"
 cp \

@@ -14,6 +14,7 @@
 #include <string>
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -26,13 +27,14 @@
 #include <map>
 #include <memory>
 #include <sstream>
+#include <system_error>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #define FMT_HEADER_ONLY
-#include "fast_double_parser.h"
+#include "fast_float/fast_float.h"
 #include "fmt/format.h"
 
 #ifdef _MSC_VER
@@ -356,15 +358,47 @@ inline static const char* Atof(const char* p, double* out) {
   return p;
 }
 
-// Use fast_double_parse and strtod (if parse failed) to parse double.
+// Use fast_float and strtod (if parse failed) to parse double.
 inline static const char* AtofPrecise(const char* p, double* out) {
-  const char* end = fast_double_parser::parse_number(p, out);
-
-  if (end != nullptr) {
-    return end;
+  // "fast_float::from_chars" parses a character range, but the input here is a
+  // NUL-terminated string. The parsers in "src/io/parser.hpp" call this on a pointer
+  // into the middle of a line and resume from the returned pointer, so measuring the
+  // rest of the line for every field would make parsing one line quadratic in the
+  // number of fields. Walking over the characters a number can be made of bounds the
+  // scan by the length of the number instead. The set covers the digits, the sign,
+  // the decimal point and the exponent marker, plus the letters of "inf", "infinity"
+  // and "nan", and the parentheses of the "nan(n-char-sequence)" spelling that MSVC
+  // prints, which "strtod" used to consume in one piece.
+  const auto is_number_char = [](const char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+           || c == '+' || c == '-' || c == '.' || c == '(' || c == ')' || c == '_';
+  };
+  const char* end_of_number = p;
+  while (is_number_char(*end_of_number)) {
+    ++end_of_number;
   }
 
-  // Rare path: Not in RFC 7159 format. Possible "inf", "nan", etc. Fallback to standard library:
+  const fast_float::from_chars_result res = fast_float::from_chars(
+      p,
+      end_of_number,
+      *out,
+      fast_float::chars_format::general | fast_float::chars_format::allow_leading_plus);
+
+  if (res.ec == std::errc()) {
+    return res.ptr;
+  }
+  if (res.ec == std::errc::result_out_of_range) {
+    // fast_float already stored the value strtod() would have returned:
+    // +/-0.0 on underflow and +/-infinity on overflow.
+    if (!std::isfinite(*out)) {
+      Log::Warning("convert to double got underflow or overflow: %s", p);
+    }
+    return res.ptr;
+  }
+
+  // Rare path: something fast_float does not accept, such as leading whitespace.
+  // This is also how input that is not a number at all is reported. Fallback to
+  // standard library:
   char* end2;
   errno = 0;  // This is Required before calling strtod.
   *out = std::strtod(p, &end2);  // strtod is locale aware.
@@ -1121,7 +1155,7 @@ struct __StringToTHelper {
 *          has **less** floating point precision than ``__StringToTHelper``.
 *          Both versions are kept to maintain bit-for-bit the "legacy" LightGBM behaviour in terms of precision.
 *          Check ``StringToArrayFast`` and ``StringToArray`` for more details on this.
-* \note It is possible that ``fast_double_parser::parse_number`` is faster than ``Common::Atof``.
+* \note It is possible that ``fast_float::from_chars`` is faster than ``Common::Atof``.
 */
 template<typename T>
 struct __StringToTHelper<T, true> {
