@@ -75,6 +75,19 @@ C API
 
 Refer to `C API <./C-API.rst>`__ or the comments in `c\_api.h <https://github.com/lightgbm-org/LightGBM/blob/main/include/LightGBM/c_api.h>`__ file, from which the documentation is generated.
 
+Linting
+-------
+
+Every commit in the repository is tested with multiple static analyzers.
+
+When developing locally, run some of them using ``pre-commit`` <https://pre-commit.com/>.
+
+.. code-block:: bash
+
+    pre-commit run --all-files
+
+That command will check for some issues and automatically reformat the code.
+
 Tests
 -----
 

@@ -140,6 +140,12 @@ fi
 
 cd "${BUILD_DIRECTORY}"
 
+PYTEST_ARGS=(
+    -ra
+    --cov=lightgbm
+    --cov-fail-under=75
+)
+
 if [[ $TASK == "sdist" ]]; then
     sh ./build-python.sh sdist || exit 1
     sh .ci/check-python-dists.sh ./dist || exit 1
@@ -147,7 +153,7 @@ if [[ $TASK == "sdist" ]]; then
     if [[ $PRODUCES_ARTIFACTS == "true" ]]; then
         cp "./dist/lightgbm-${LGB_VER}.tar.gz" "${BUILD_ARTIFACTSTAGINGDIRECTORY}" || exit 1
     fi
-    pytest -ra ./tests/python_package_test || exit 1
+    pytest "${PYTEST_ARGS[@]}" ./tests/python_package_test || exit 1
     exit 0
 elif [[ $TASK == "bdist" ]]; then
     if [[ $OS_NAME == "macos" ]]; then
@@ -203,7 +209,7 @@ elif [[ $TASK == "bdist" ]]; then
         fi
     fi
     pip install -v --no-deps ./dist/*.whl || exit 1
-    pytest -ra ./tests || exit 1
+    pytest "${PYTEST_ARGS[@]}" ./tests || exit 1
     exit 0
 fi
 
@@ -219,13 +225,13 @@ if [[ $TASK == "gpu" ]]; then
             --config-settings=cmake.define.USE_GPU=ON \
             "./dist/lightgbm-${LGB_VER}.tar.gz" \
         || exit 1
-        pytest -ra ./tests/python_package_test || exit 1
+        pytest "${PYTEST_ARGS[@]}" ./tests/python_package_test || exit 1
         exit 0
     elif [[ $METHOD == "wheel" ]]; then
         sh ./build-python.sh bdist_wheel --gpu || exit 1
         sh ./.ci/check-python-dists.sh ./dist || exit 1
         pip install -v --no-deps "$(echo "./dist/lightgbm-${LGB_VER}"*.whl)" || exit 1
-        pytest -ra ./tests || exit 1
+        pytest "${PYTEST_ARGS[@]}" ./tests || exit 1
         exit 0
     elif [[ $METHOD == "source" ]]; then
         cmake -B build -S . -DUSE_GPU=ON
@@ -245,13 +251,13 @@ elif [[ $TASK == "cuda" ]]; then
             --config-settings=cmake.define.USE_CUDA=ON \
             "./dist/lightgbm-${LGB_VER}.tar.gz" \
         || exit 1
-        pytest -ra ./tests/python_package_test || exit 1
+        pytest "${PYTEST_ARGS[@]}" ./tests/python_package_test || exit 1
         exit 0
     elif [[ $METHOD == "wheel" ]]; then
         sh ./build-python.sh bdist_wheel --cuda || exit 1
         sh ./.ci/check-python-dists.sh ./dist || exit 1
         pip install -v --no-deps "$(echo "./dist/lightgbm-${LGB_VER}"*.whl)" || exit 1
-        pytest -ra ./tests || exit 1
+        pytest "${PYTEST_ARGS[@]}" ./tests || exit 1
         exit 0
     elif [[ $METHOD == "source" ]]; then
         # we want at least 1 CI job testing that manual override of CMAKE_CUDA_ARCHITECTURES works
@@ -271,13 +277,13 @@ elif [[ $TASK == "mpi" ]]; then
             --config-settings=cmake.define.USE_MPI=ON \
             "./dist/lightgbm-${LGB_VER}.tar.gz" \
         || exit 1
-        pytest -ra ./tests/python_package_test || exit 1
+        pytest "${PYTEST_ARGS[@]}" ./tests/python_package_test || exit 1
         exit 0
     elif [[ $METHOD == "wheel" ]]; then
         sh ./build-python.sh bdist_wheel --mpi || exit 1
         sh ./.ci/check-python-dists.sh ./dist || exit 1
         pip install -v --no-deps "$(echo "./dist/lightgbm-${LGB_VER}"*.whl)" || exit 1
-        pytest -ra ./tests || exit 1
+        pytest "${PYTEST_ARGS[@]}" ./tests || exit 1
         exit 0
     elif [[ $METHOD == "source" ]]; then
         cmake -B build -S . -DUSE_MPI=ON -DUSE_DEBUG=ON
@@ -300,8 +306,10 @@ if [[ "${TASK}" != "mpi" ]]; then
     PYTHONOPTIMIZE=2 python -c "import lightgbm; print(lightgbm.__version__)"
 fi
 
+python ./.ci/test-imports.py
+
 echo "running tests"
-pytest -ra ./tests || exit 1
+pytest "${PYTEST_ARGS[@]}" ./tests || exit 1
 
 if [[ $TASK == "regular" ]]; then
     if [[ $PRODUCES_ARTIFACTS == "true" ]]; then

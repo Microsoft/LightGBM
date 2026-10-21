@@ -42,6 +42,7 @@ pip>=24
 cloudpickle>=3.0.0
 psutil>=5.9.8
 pytest>=8.1.1
+pytest-cov>=7.0
 
 # other recursive dependencies, just
 # pinned here to help speed up solves
