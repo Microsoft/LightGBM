@@ -58,7 +58,7 @@ class CUDAGradientDiscretizer: public GradientDiscretizer, public NCCLInfo {
   void Init(const data_size_t num_data, const int num_leaves,
     const int num_features, const Dataset* train_data) override {
     GradientDiscretizer::Init(num_data, num_leaves, num_features, train_data);
-    discretized_gradients_and_hessians_.Resize(num_data * 2);
+    discretized_gradients_and_hessians_.Resize(num_data * 4);
     num_reduce_blocks_ = (num_data + CUDA_GRADIENT_DISCRETIZER_BLOCK_SIZE - 1) / CUDA_GRADIENT_DISCRETIZER_BLOCK_SIZE;
     grad_min_block_buffer_.Resize(num_reduce_blocks_);
     grad_max_block_buffer_.Resize(num_reduce_blocks_);
