@@ -439,10 +439,14 @@ void Config::CheckParamConflict(const std::unordered_map<std::string, std::strin
       Log::Fatal("Cannot use regression_l1 objective when fitting linear trees.");
     }
   }
-  // min_data_in_leaf must be at least 2 if path smoothing is active. This is because when the split is calculated
-  // the count is calculated using the proportion of hessian in the leaf which is rounded up to nearest int, so it can
-  // be 1 when there is actually no data in the leaf. In rare cases this can cause a bug because with path smoothing the
-  // calculated split gain can be positive even with zero gradient and hessian.
+  if (path_smooth > kEpsilon && path_smooth_hessian > kEpsilon) {
+    Log::Warning("Cannot use both path_smooth and path_smooth_hessian simultaneously. path_smooth will be ignored.");
+    path_smooth = 0;
+  }
+  // min_data_in_leaf must be at least 2 if count-based path smoothing is active. This is because when the split is
+  // calculated the count is calculated using the proportion of hessian in the leaf which is rounded up to nearest int,
+  // so it can be 1 when there is actually no data in the leaf. In rare cases this can cause a bug because with path
+  // smoothing the calculated split gain can be positive even with zero gradient and hessian.
   if (path_smooth > kEpsilon && min_data_in_leaf < 2) {
     min_data_in_leaf = 2;
     Log::Warning("min_data_in_leaf has been increased to 2 because this is required when path smoothing is active.");

@@ -35,8 +35,9 @@ CUDABestSplitFinder::CUDABestSplitFinder(
   max_cat_to_onehot_(config->max_cat_to_onehot),
   extra_trees_(config->extra_trees),
   extra_seed_(config->extra_seed),
-  use_smoothing_(config->path_smooth > 0),
-  path_smooth_(config->path_smooth),
+  use_smoothing_(config->effective_path_smooth() > 0),
+  path_smooth_(config->effective_path_smooth()),
+  path_smooth_use_hessian_(config->use_hessian_smoothing()),
   num_total_bin_(feature_hist_offsets.empty() ? 0 : static_cast<int>(feature_hist_offsets.back())),
   select_features_by_node_(select_features_by_node),
   cuda_hist_(cuda_hist) {
@@ -276,8 +277,9 @@ void CUDABestSplitFinder::ResetConfig(const Config* config, const hist_t* cuda_h
   max_cat_to_onehot_ = config->max_cat_to_onehot;
   extra_trees_ = config->extra_trees;
   extra_seed_ = config->extra_seed;
-  use_smoothing_ = (config->path_smooth > 0.0f);
-  path_smooth_ = config->path_smooth;
+  use_smoothing_ = (config->effective_path_smooth() > 0.0f);
+  path_smooth_ = config->effective_path_smooth();
+  path_smooth_use_hessian_ = config->use_hessian_smoothing();
   cuda_hist_ = cuda_hist;
 
   const int num_task_blocks = (num_tasks_ + NUM_TASKS_PER_SYNC_BLOCK - 1) / NUM_TASKS_PER_SYNC_BLOCK;

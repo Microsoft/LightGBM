@@ -197,9 +197,10 @@ class FeatureHistogram {
     is_splittable_ = false;
     output->monotone_type = meta_->monotone_type;
 
+    const double smoothing_weight = meta_->config->use_hessian_smoothing() ? sum_hessian : static_cast<double>(num_data);
     double gain_shift = GetLeafGain<USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
         sum_gradient, sum_hessian, meta_->config->lambda_l1, meta_->config->lambda_l2,
-        meta_->config->max_delta_step, meta_->config->path_smooth, num_data, parent_output);
+        meta_->config->max_delta_step, meta_->config->effective_path_smooth(), smoothing_weight, parent_output);
     *rand_threshold = 0;
     if (USE_RAND) {
       if (meta_->num_bin - 2 > 0) {
@@ -218,9 +219,10 @@ class FeatureHistogram {
     const uint32_t int_sum_hessian = static_cast<uint32_t>(sum_gradient_and_hessian & 0x00000000ffffffff);
     const double sum_gradient = static_cast<double>(int_sum_gradient) * grad_scale;
     const double sum_hessian = static_cast<double>(int_sum_hessian) * hess_scale;
+    const double smoothing_weight = meta_->config->use_hessian_smoothing() ? sum_hessian : static_cast<double>(num_data);
     double gain_shift = GetLeafGain<USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
         sum_gradient, sum_hessian, meta_->config->lambda_l1, meta_->config->lambda_l2,
-        meta_->config->max_delta_step, meta_->config->path_smooth, num_data, parent_output);
+        meta_->config->max_delta_step, meta_->config->effective_path_smooth(), smoothing_weight, parent_output);
     *rand_threshold = 0;
     if (USE_RAND) {
       if (meta_->num_bin - 2 > 0) {
@@ -264,7 +266,7 @@ class FeatureHistogram {
 
   template <bool USE_RAND, bool USE_MC, bool USE_L1, bool USE_MAX_OUTPUT>
   void FuncForNumricalL2() {
-    if (meta_->config->path_smooth > kEpsilon) {
+    if (meta_->config->effective_path_smooth() > kEpsilon) {
       FuncForNumricalL3<USE_RAND, USE_MC, USE_L1, USE_MAX_OUTPUT, true>();
     } else {
       FuncForNumricalL3<USE_RAND, USE_MC, USE_L1, USE_MAX_OUTPUT, false>();
@@ -488,7 +490,7 @@ class FeatureHistogram {
   void GatherInfoForThresholdNumerical(double sum_gradient, double sum_hessian,
                                        uint32_t threshold, data_size_t num_data,
                                        double parent_output, SplitInfo* output) {
-    bool use_smoothing = meta_->config->path_smooth > kEpsilon;
+    bool use_smoothing = meta_->config->effective_path_smooth() > kEpsilon;
     if (use_smoothing) {
       GatherInfoForThresholdNumericalInner<true>(sum_gradient, sum_hessian,
                                                  threshold, num_data,
@@ -550,15 +552,18 @@ class FeatureHistogram {
     double sum_left_gradient = sum_gradient - sum_right_gradient;
     double sum_left_hessian = sum_hessian - sum_right_hessian;
     data_size_t left_count = num_data - right_count;
+
+    const double left_smoothing = meta_->config->use_hessian_smoothing() ? sum_left_hessian : static_cast<double>(left_count);
+    const double right_smoothing = meta_->config->use_hessian_smoothing() ? sum_right_hessian : static_cast<double>(right_count);
     double current_gain =
         GetLeafGain<true, true, USE_SMOOTHING>(
             sum_left_gradient, sum_left_hessian, meta_->config->lambda_l1,
             meta_->config->lambda_l2, meta_->config->max_delta_step,
-            meta_->config->path_smooth, left_count, parent_output) +
+            meta_->config->effective_path_smooth(), left_smoothing, parent_output) +
         GetLeafGain<true, true, USE_SMOOTHING>(
             sum_right_gradient, sum_right_hessian, meta_->config->lambda_l1,
             meta_->config->lambda_l2, meta_->config->max_delta_step,
-            meta_->config->path_smooth, right_count, parent_output);
+            meta_->config->effective_path_smooth(), right_smoothing, parent_output);
 
     // gain with split is worse than without split
     if (std::isnan(current_gain) || current_gain <= min_gain_shift) {
@@ -573,15 +578,15 @@ class FeatureHistogram {
     output->left_output = CalculateSplittedLeafOutput<true, true, USE_SMOOTHING>(
         sum_left_gradient, sum_left_hessian, meta_->config->lambda_l1,
         meta_->config->lambda_l2, meta_->config->max_delta_step,
-        meta_->config->path_smooth, left_count, parent_output);
+        meta_->config->effective_path_smooth(), left_smoothing, parent_output);
     output->left_count = left_count;
     output->left_sum_gradient = sum_left_gradient;
     output->left_sum_hessian = sum_left_hessian - kEpsilon;
     output->right_output = CalculateSplittedLeafOutput<true, true, USE_SMOOTHING>(
         sum_gradient - sum_left_gradient, sum_hessian - sum_left_hessian,
         meta_->config->lambda_l1, meta_->config->lambda_l2,
-        meta_->config->max_delta_step, meta_->config->path_smooth,
-        right_count, parent_output);
+        meta_->config->max_delta_step, meta_->config->effective_path_smooth(),
+        right_smoothing, parent_output);
     output->right_count = num_data - left_count;
     output->right_sum_gradient = sum_gradient - sum_left_gradient;
     output->right_sum_hessian = sum_hessian - sum_left_hessian - kEpsilon;
@@ -592,7 +597,7 @@ class FeatureHistogram {
   void GatherInfoForThresholdCategorical(double sum_gradient,  double sum_hessian,
                                          uint32_t threshold, data_size_t num_data,
                                          double parent_output, SplitInfo* output) {
-    bool use_smoothing = meta_->config->path_smooth > kEpsilon;
+    bool use_smoothing = meta_->config->effective_path_smooth() > kEpsilon;
     if (use_smoothing) {
       GatherInfoForThresholdCategoricalInner<true>(sum_gradient, sum_hessian, threshold,
                                                    num_data, parent_output, output);
@@ -630,17 +635,20 @@ class FeatureHistogram {
     double sum_right_hessian = sum_hessian - sum_left_hessian;
     double sum_left_gradient = grad;
     double sum_right_gradient = sum_gradient - sum_left_gradient;
+
+    const double left_smoothing = meta_->config->use_hessian_smoothing() ? sum_left_hessian : static_cast<double>(left_count);
+    const double right_smoothing = meta_->config->use_hessian_smoothing() ? sum_right_hessian : static_cast<double>(right_count);
     // current split gain
     double current_gain =
         GetLeafGain<true, true, USE_SMOOTHING>(sum_right_gradient, sum_right_hessian,
                                       meta_->config->lambda_l1, l2,
                                       meta_->config->max_delta_step,
-                                      meta_->config->path_smooth, right_count,
+                                      meta_->config->effective_path_smooth(), right_smoothing,
                                       parent_output) +
         GetLeafGain<true, true, USE_SMOOTHING>(sum_left_gradient, sum_left_hessian,
                                       meta_->config->lambda_l1, l2,
                                       meta_->config->max_delta_step,
-                                      meta_->config->path_smooth, left_count,
+                                      meta_->config->effective_path_smooth(), left_smoothing,
                                       parent_output);
     if (std::isnan(current_gain) || current_gain <= min_gain_shift) {
       output->gain = kMinScore;
@@ -650,14 +658,14 @@ class FeatureHistogram {
     }
     output->left_output = CalculateSplittedLeafOutput<true, true, USE_SMOOTHING>(
         sum_left_gradient, sum_left_hessian, meta_->config->lambda_l1, l2,
-        meta_->config->max_delta_step, meta_->config->path_smooth, left_count,
+        meta_->config->max_delta_step, meta_->config->effective_path_smooth(), left_smoothing,
         parent_output);
     output->left_count = left_count;
     output->left_sum_gradient = sum_left_gradient;
     output->left_sum_hessian = sum_left_hessian - kEpsilon;
     output->right_output = CalculateSplittedLeafOutput<true, true, USE_SMOOTHING>(
         sum_right_gradient, sum_right_hessian, meta_->config->lambda_l1, l2,
-        meta_->config->max_delta_step, meta_->config->path_smooth, right_count,
+        meta_->config->max_delta_step, meta_->config->effective_path_smooth(), right_smoothing,
         parent_output);
     output->right_count = right_count;
     output->right_sum_gradient = sum_gradient - sum_left_gradient;
@@ -719,7 +727,7 @@ class FeatureHistogram {
   static double CalculateSplittedLeafOutput(double sum_gradients,
                                             double sum_hessians, double l1,
                                             double l2, double max_delta_step,
-                                            double smoothing, data_size_t num_data,
+                                            double smoothing, double smoothing_weight,
                                             double parent_output) {
     double ret;
     if (USE_L1) {
@@ -733,8 +741,8 @@ class FeatureHistogram {
       }
     }
     if (USE_SMOOTHING) {
-      ret = ret * (num_data / smoothing) / (num_data / smoothing + 1) \
-          + parent_output / (num_data / smoothing + 1);
+      ret = ret * (smoothing_weight / smoothing) / (smoothing_weight / smoothing + 1) \
+          + parent_output / (smoothing_weight / smoothing + 1);
     }
     return ret;
   }
@@ -743,9 +751,9 @@ class FeatureHistogram {
   static double CalculateSplittedLeafOutput(
       double sum_gradients, double sum_hessians, double l1, double l2,
       double max_delta_step, const BasicConstraint& constraints,
-      double smoothing, data_size_t num_data, double parent_output) {
+      double smoothing, double smoothing_weight, double parent_output) {
     double ret = CalculateSplittedLeafOutput<USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
-        sum_gradients, sum_hessians, l1, l2, max_delta_step, smoothing, num_data, parent_output);
+        sum_gradients, sum_hessians, l1, l2, max_delta_step, smoothing, smoothing_weight, parent_output);
     if (USE_MC) {
       if (ret < constraints.min) {
         ret = constraints.min;
@@ -766,27 +774,27 @@ class FeatureHistogram {
                               const FeatureConstraint* constraints,
                               int8_t monotone_constraint,
                               double smoothing,
-                              data_size_t left_count,
-                              data_size_t right_count,
+                              double left_smoothing_weight,
+                              double right_smoothing_weight,
                               double parent_output) {
     if (!USE_MC) {
       return GetLeafGain<USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(sum_left_gradients,
                                                                 sum_left_hessians, l1, l2,
                                                                 max_delta_step, smoothing,
-                                                                left_count, parent_output) +
+                                                                left_smoothing_weight, parent_output) +
              GetLeafGain<USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(sum_right_gradients,
                                                                 sum_right_hessians, l1, l2,
                                                                 max_delta_step, smoothing,
-                                                                right_count, parent_output);
+                                                                right_smoothing_weight, parent_output);
     } else {
       double left_output =
           CalculateSplittedLeafOutput<USE_MC, USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
               sum_left_gradients, sum_left_hessians, l1, l2, max_delta_step,
-              constraints->LeftToBasicConstraint(), smoothing, left_count, parent_output);
+              constraints->LeftToBasicConstraint(), smoothing, left_smoothing_weight, parent_output);
       double right_output =
           CalculateSplittedLeafOutput<USE_MC, USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
               sum_right_gradients, sum_right_hessians, l1, l2, max_delta_step,
-              constraints->RightToBasicConstraint(), smoothing, right_count, parent_output);
+              constraints->RightToBasicConstraint(), smoothing, right_smoothing_weight, parent_output);
       if (((monotone_constraint > 0) && (left_output > right_output)) ||
           ((monotone_constraint < 0) && (left_output < right_output))) {
         return 0;
@@ -801,7 +809,7 @@ class FeatureHistogram {
   template <bool USE_L1, bool USE_MAX_OUTPUT, bool USE_SMOOTHING>
   static double GetLeafGain(double sum_gradients, double sum_hessians,
                             double l1, double l2, double max_delta_step,
-                            double smoothing, data_size_t num_data, double parent_output) {
+                            double smoothing, double smoothing_weight, double parent_output) {
     if (!USE_MAX_OUTPUT && !USE_SMOOTHING) {
       if (USE_L1) {
         const double sg_l1 = ThresholdL1(sum_gradients, l1);
@@ -811,7 +819,7 @@ class FeatureHistogram {
       }
     } else {
       double output = CalculateSplittedLeafOutput<USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
-          sum_gradients, sum_hessians, l1, l2, max_delta_step, smoothing, num_data, parent_output);
+          sum_gradients, sum_hessians, l1, l2, max_delta_step, smoothing, smoothing_weight, parent_output);
       return GetLeafGainGivenOutput<USE_L1>(sum_gradients, sum_hessians, l1, l2, output);
     }
   }
@@ -843,6 +851,7 @@ class FeatureHistogram {
     data_size_t best_left_count = 0;
     uint32_t best_threshold = static_cast<uint32_t>(meta_->num_bin);
     const double cnt_factor = num_data / sum_hessian;
+
 
     BasicConstraint best_right_constraints;
     BasicConstraint best_left_constraints;
@@ -909,8 +918,9 @@ class FeatureHistogram {
             sum_left_gradient, sum_left_hessian, sum_right_gradient,
             sum_right_hessian, meta_->config->lambda_l1,
             meta_->config->lambda_l2, meta_->config->max_delta_step,
-            constraints, meta_->monotone_type, meta_->config->path_smooth,
-            left_count, right_count, parent_output);
+            constraints, meta_->monotone_type, meta_->config->effective_path_smooth(),
+            meta_->config->use_hessian_smoothing() ? sum_left_hessian : static_cast<double>(left_count),
+            meta_->config->use_hessian_smoothing() ? sum_right_hessian : static_cast<double>(right_count), parent_output);
         // gain with split is worse than without split
         if (current_gain <= min_gain_shift) {
           continue;
@@ -1002,8 +1012,9 @@ class FeatureHistogram {
             sum_left_gradient, sum_left_hessian, sum_right_gradient,
             sum_right_hessian, meta_->config->lambda_l1,
             meta_->config->lambda_l2, meta_->config->max_delta_step,
-            constraints, meta_->monotone_type, meta_->config->path_smooth, left_count,
-            right_count, parent_output);
+            constraints, meta_->monotone_type, meta_->config->effective_path_smooth(),
+            meta_->config->use_hessian_smoothing() ? sum_left_hessian : static_cast<double>(left_count),
+            meta_->config->use_hessian_smoothing() ? sum_right_hessian : static_cast<double>(right_count), parent_output);
         // gain with split is worse than without split
         if (current_gain <= min_gain_shift) {
           continue;
@@ -1031,14 +1042,16 @@ class FeatureHistogram {
     }
 
     if (is_splittable_ && best_gain > output->gain + min_gain_shift) {
+      const double best_left_smoothing = meta_->config->use_hessian_smoothing() ? best_sum_left_hessian : static_cast<double>(best_left_count);
+      const double best_right_smoothing = meta_->config->use_hessian_smoothing() ? (sum_hessian - best_sum_left_hessian) : static_cast<double>(num_data - best_left_count);
       // update split information
       output->threshold = best_threshold;
       output->left_output =
           CalculateSplittedLeafOutput<USE_MC, USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
               best_sum_left_gradient, best_sum_left_hessian,
               meta_->config->lambda_l1, meta_->config->lambda_l2,
-              meta_->config->max_delta_step, best_left_constraints, meta_->config->path_smooth,
-              best_left_count, parent_output);
+              meta_->config->max_delta_step, best_left_constraints, meta_->config->effective_path_smooth(),
+              best_left_smoothing, parent_output);
       output->left_count = best_left_count;
       output->left_sum_gradient = best_sum_left_gradient;
       output->left_sum_hessian = best_sum_left_hessian - kEpsilon;
@@ -1047,7 +1060,7 @@ class FeatureHistogram {
               sum_gradient - best_sum_left_gradient,
               sum_hessian - best_sum_left_hessian, meta_->config->lambda_l1,
               meta_->config->lambda_l2, meta_->config->max_delta_step,
-              best_right_constraints, meta_->config->path_smooth, num_data - best_left_count,
+              best_right_constraints, meta_->config->effective_path_smooth(), best_right_smoothing,
               parent_output);
       output->right_count = num_data - best_left_count;
       output->right_sum_gradient = sum_gradient - best_sum_left_gradient;
@@ -1077,6 +1090,7 @@ class FeatureHistogram {
     uint32_t best_threshold = static_cast<uint32_t>(meta_->num_bin);
     const double cnt_factor = static_cast<double>(num_data) /
       static_cast<double>(static_cast<uint32_t>(int_sum_gradient_and_hessian & 0x00000000ffffffff));
+
 
     BasicConstraint best_right_constraints;
     BasicConstraint best_left_constraints;
@@ -1165,8 +1179,9 @@ class FeatureHistogram {
             sum_left_gradient, sum_left_hessian + kEpsilon, sum_right_gradient,
             sum_right_hessian + kEpsilon, meta_->config->lambda_l1,
             meta_->config->lambda_l2, meta_->config->max_delta_step,
-            constraints, meta_->monotone_type, meta_->config->path_smooth,
-            left_count, right_count, parent_output);
+            constraints, meta_->monotone_type, meta_->config->effective_path_smooth(),
+            meta_->config->use_hessian_smoothing() ? (sum_left_hessian + kEpsilon) : static_cast<double>(left_count),
+            meta_->config->use_hessian_smoothing() ? (sum_right_hessian + kEpsilon) : static_cast<double>(right_count), parent_output);
         // gain with split is worse than without split
         if (current_gain <= min_gain_shift) {
           continue;
@@ -1277,8 +1292,9 @@ class FeatureHistogram {
             sum_left_gradient, sum_left_hessian + kEpsilon, sum_right_gradient,
             sum_right_hessian + kEpsilon, meta_->config->lambda_l1,
             meta_->config->lambda_l2, meta_->config->max_delta_step,
-            constraints, meta_->monotone_type, meta_->config->path_smooth, left_count,
-            right_count, parent_output);
+            constraints, meta_->monotone_type, meta_->config->effective_path_smooth(),
+            meta_->config->use_hessian_smoothing() ? (sum_left_hessian + kEpsilon) : static_cast<double>(left_count),
+            meta_->config->use_hessian_smoothing() ? (sum_right_hessian + kEpsilon) : static_cast<double>(right_count), parent_output);
         // gain with split is worse than without split
         if (current_gain <= min_gain_shift) {
           continue;
@@ -1323,14 +1339,16 @@ class FeatureHistogram {
       const double best_sum_right_hessian = static_cast<double>(int_best_sum_right_hessian) * hess_scale;
       const data_size_t best_left_count = Common::RoundInt(static_cast<double>(int_best_sum_left_hessian) * cnt_factor);
       const data_size_t best_right_count = Common::RoundInt(static_cast<double>(int_best_sum_right_hessian) * cnt_factor);
+      const double best_left_smoothing = meta_->config->use_hessian_smoothing() ? best_sum_left_hessian : static_cast<double>(best_left_count);
+      const double best_right_smoothing = meta_->config->use_hessian_smoothing() ? best_sum_right_hessian : static_cast<double>(best_right_count);
       // update split information
       output->threshold = best_threshold;
       output->left_output =
           CalculateSplittedLeafOutput<USE_MC, USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
               best_sum_left_gradient, best_sum_left_hessian,
               meta_->config->lambda_l1, meta_->config->lambda_l2,
-              meta_->config->max_delta_step, best_left_constraints, meta_->config->path_smooth,
-              best_left_count, parent_output);
+              meta_->config->max_delta_step, best_left_constraints, meta_->config->effective_path_smooth(),
+              best_left_smoothing, parent_output);
       output->left_count = best_left_count;
       output->left_sum_gradient = best_sum_left_gradient;
       output->left_sum_hessian = best_sum_left_hessian;
@@ -1340,7 +1358,7 @@ class FeatureHistogram {
               best_sum_right_gradient,
               best_sum_right_hessian, meta_->config->lambda_l1,
               meta_->config->lambda_l2, meta_->config->max_delta_step,
-              best_right_constraints, meta_->config->path_smooth, best_right_count,
+              best_right_constraints, meta_->config->effective_path_smooth(), best_right_smoothing,
               parent_output);
       output->right_count = best_right_count;
       output->right_sum_gradient = best_sum_right_gradient;
@@ -1514,7 +1532,8 @@ class HistogramPool {
         old_config->monotone_constraints != config->monotone_constraints ||
         old_config->extra_trees != config->extra_trees ||
         old_config->max_delta_step != config->max_delta_step ||
-        old_config->path_smooth != config->path_smooth) {
+        old_config->path_smooth != config->path_smooth ||
+        old_config->path_smooth_hessian != config->path_smooth_hessian) {
 #pragma omp parallel for num_threads(OMP_NUM_THREADS()) schedule(static)
       for (int i = 0; i < cache_size_; ++i) {
         for (int j = 0; j < train_data->num_features(); ++j) {

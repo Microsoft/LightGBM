@@ -232,10 +232,12 @@ void GradientDiscretizer::RenewIntGradTreeOutput(
     for (int leaf_id = 0; leaf_id < tree->num_leaves(); ++leaf_id) {
       const double sum_gradient = global_leaf_grad_hess_stats[2 * leaf_id];
       const double sum_hessian = global_leaf_grad_hess_stats[2 * leaf_id + 1];
+      const double smoothing_count_global = config->use_hessian_smoothing() ?
+        sum_hessian : static_cast<double>(leaf_index_to_global_num_data(leaf_id));
       const double leaf_output = FeatureHistogram::CalculateSplittedLeafOutput<true, true, false>(
         sum_gradient, sum_hessian,
-        config->lambda_l1, config->lambda_l2, config->max_delta_step, config->path_smooth,
-        leaf_index_to_global_num_data(leaf_id), 0.0f);
+        config->lambda_l1, config->lambda_l2, config->max_delta_step, config->effective_path_smooth(),
+        smoothing_count_global, 0.0f);
       tree->SetLeafOutput(leaf_id, leaf_output);
     }
   } else {
@@ -251,9 +253,11 @@ void GradientDiscretizer::RenewIntGradTreeOutput(
         sum_gradient += grad;
         sum_hessian += hess;
       }
+      const double smoothing_count_local = config->use_hessian_smoothing() ?
+        sum_hessian : static_cast<double>(leaf_cnt);
       const double leaf_output = FeatureHistogram::CalculateSplittedLeafOutput<true, true, false>(sum_gradient, sum_hessian,
-        config->lambda_l1, config->lambda_l2, config->max_delta_step, config->path_smooth,
-        leaf_cnt, 0.0f);
+        config->lambda_l1, config->lambda_l2, config->max_delta_step, config->effective_path_smooth(),
+        smoothing_count_local, 0.0f);
       tree->SetLeafOutput(leaf_id, leaf_output);
     }
   }

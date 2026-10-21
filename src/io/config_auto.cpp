@@ -254,6 +254,7 @@ const std::unordered_set<std::string>& Config::parameter_set() {
   "cegb_penalty_feature_lazy",
   "cegb_penalty_feature_coupled",
   "path_smooth",
+  "path_smooth_hessian",
   "interaction_constraints",
   "verbosity",
   "input_model",
@@ -501,6 +502,9 @@ void Config::GetMembersFromString(const std::unordered_map<std::string, std::str
   GetDouble(params, "path_smooth", &path_smooth);
   CHECK_GE(path_smooth,  0.0);
 
+  GetDouble(params, "path_smooth_hessian", &path_smooth_hessian);
+  CHECK_GE(path_smooth_hessian,  0.0);
+
   GetString(params, "interaction_constraints", &interaction_constraints);
 
   GetInt(params, "verbosity", &verbosity);
@@ -740,6 +744,7 @@ std::string Config::SaveMembersToString() const {
   str_buf << "[cegb_penalty_feature_lazy: " << Common::Join(cegb_penalty_feature_lazy, ",") << "]\n";
   str_buf << "[cegb_penalty_feature_coupled: " << Common::Join(cegb_penalty_feature_coupled, ",") << "]\n";
   str_buf << "[path_smooth: " << path_smooth << "]\n";
+  str_buf << "[path_smooth_hessian: " << path_smooth_hessian << "]\n";
   str_buf << "[interaction_constraints: " << interaction_constraints << "]\n";
   str_buf << "[verbosity: " << verbosity << "]\n";
   str_buf << "[saved_feature_importance_type: " << saved_feature_importance_type << "]\n";
@@ -867,6 +872,7 @@ const std::unordered_map<std::string, std::vector<std::string>>& Config::paramet
     {"cegb_penalty_feature_lazy", {}},
     {"cegb_penalty_feature_coupled", {}},
     {"path_smooth", {}},
+    {"path_smooth_hessian", {}},
     {"interaction_constraints", {}},
     {"verbosity", {"verbose"}},
     {"input_model", {"model_input", "model_in"}},
@@ -1013,6 +1019,7 @@ const std::unordered_map<std::string, std::string>& Config::ParameterTypes() {
     {"cegb_penalty_feature_lazy", "vector<double>"},
     {"cegb_penalty_feature_coupled", "vector<double>"},
     {"path_smooth", "double"},
+    {"path_smooth_hessian", "double"},
     {"interaction_constraints", "vector<vector<int>>"},
     {"verbosity", "int"},
     {"input_model", "string"},

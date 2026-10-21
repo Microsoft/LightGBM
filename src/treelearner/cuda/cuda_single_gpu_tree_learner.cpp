@@ -178,10 +178,12 @@ Tree* CUDASingleGPUTreeLearner::Train(const score_t* gradients,
   std::unique_ptr<CUDATree> tree(new CUDATree(config_->num_leaves, track_branch_features,
     config_->linear_tree, gpu_device_id_, has_categorical_feature_));
   // set the root value by hand, as it is not handled by splits
+  const double cuda_root_smoothing = config_->use_hessian_smoothing() ?
+    leaf_sum_hessians_[smaller_leaf_index_] : static_cast<double>(num_data_);
   tree->SetLeafOutput(0, CUDALeafSplits::CalculateSplittedLeafOutput<true, false>(
     leaf_sum_gradients_[smaller_leaf_index_], leaf_sum_hessians_[smaller_leaf_index_],
-    config_->lambda_l1, config_->lambda_l2,  config_->path_smooth,
-    static_cast<data_size_t>(num_data_), 0));
+    config_->lambda_l1, config_->lambda_l2, config_->effective_path_smooth(),
+    cuda_root_smoothing, 0));
   tree->SyncLeafOutputFromHostToCUDA();
   for (int i = 0; i < config_->num_leaves - 1; ++i) {
     global_timer.Start("CUDASingleGPUTreeLearner::ConstructHistogramForLeaf");

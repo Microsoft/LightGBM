@@ -584,6 +584,15 @@ struct Config {
   // descl2 = note that the parent output ``w_p`` itself has smoothing applied, unless it is the root node, so that the smoothing effect accumulates with the tree depth
   double path_smooth = 0;
 
+  // check = >= 0.0
+  // desc = controls smoothing applied to tree nodes using the sum of hessians instead of the number of samples
+  // desc = works the same way as ``path_smooth`` but uses the sum of hessians as the weight, making it more appropriate when samples have different weights
+  // desc = has the same dimension as ``min_sum_hessian_in_leaf``
+  // desc = cannot be used simultaneously with ``path_smooth``; set one to ``0`` when using the other
+  // descl2 = the weight of each node is ``w * (h / path_smooth_hessian) / (h / path_smooth_hessian + 1) + w_p / (h / path_smooth_hessian + 1)``, where ``h`` is the sum of hessians in the node, ``w`` is the optimal node weight to minimise the loss (approximately ``-sum_gradients / sum_hessians``), and ``w_p`` is the weight of the parent node
+  // descl2 = note that the parent output ``w_p`` itself has smoothing applied, unless it is the root node, so that the smoothing effect accumulates with the tree depth
+  double path_smooth_hessian = 0;
+
   // desc = controls which features can appear in the same branch
   // desc = by default interaction constraints are disabled, to enable them you can specify
   // descl2 = for CLI, lists separated by commas, e.g. ``[0,1,2],[2,3]``
@@ -1156,6 +1165,13 @@ struct Config {
   #endif  // __NVCC__
 
   size_t file_load_progress_interval_bytes = size_t(10) * 1024 * 1024 * 1024;
+
+  double effective_path_smooth() const {
+    return path_smooth_hessian > kEpsilon ? path_smooth_hessian : path_smooth;
+  }
+  bool use_hessian_smoothing() const {
+    return path_smooth_hessian > kEpsilon;
+  }
 
   bool is_parallel = false;
   bool is_data_based_parallel = false;

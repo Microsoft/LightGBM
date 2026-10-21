@@ -196,6 +196,7 @@ class CUDABestSplitFinder {
   int extra_seed_;
   bool use_smoothing_;
   double path_smooth_;
+  bool path_smooth_use_hessian_;
   std::vector<cudaStream_t> cuda_streams_;
   // for best split find tasks
   std::vector<SplitFindTask> split_find_tasks_;

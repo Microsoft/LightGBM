@@ -1052,6 +1052,7 @@ test_that("all parameters are stored correctly with save_model_to_string()", {
         , "[cegb_penalty_feature_lazy: ]"
         , "[cegb_penalty_feature_coupled: ]"
         , "[path_smooth: 0]"
+        , "[path_smooth_hessian: 0]"
         , "[interaction_constraints: ]"
         , sprintf("[verbosity: %i]", .LGB_VERBOSITY)
         , "[saved_feature_importance_type: 0]"

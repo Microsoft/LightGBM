@@ -3717,6 +3717,22 @@ def test_path_smoothing():
     assert err < err_new
 
 
+def test_path_smoothing_hessian():
+    # check that path_smooth_hessian produces different results than path_smooth when samples have different weights
+    X, y = make_synthetic_regression()
+    rng = np.random.RandomState(42)
+    weight = rng.exponential(scale=2.0, size=len(y))
+    lgb_x = lgb.Dataset(X, label=y, weight=weight)
+    params = {"objective": "regression", "num_leaves": 32, "verbose": -1, "seed": 0, "path_smooth": 1}
+    est_default = lgb.train(params, lgb_x, num_boost_round=10)
+    pred_default = est_default.predict(X)
+    params_hessian = {"objective": "regression", "num_leaves": 32, "verbose": -1, "seed": 0, "path_smooth_hessian": 1}
+    est_hessian = lgb.train(params_hessian, lgb_x, num_boost_round=10)
+    pred_hessian = est_hessian.predict(X)
+    # predictions should differ when using hessian-based smoothing with non-uniform weights
+    assert not np.allclose(pred_default, pred_hessian)
+
+
 def test_trees_to_dataframe(rng):
     pytest.importorskip("pandas")
 

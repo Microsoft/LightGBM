@@ -75,7 +75,7 @@ class CUDALeafSplits: public NCCLInfo {
   template <bool USE_L1, bool USE_SMOOTHING>
   __device__ static double CalculateSplittedLeafOutput(double sum_gradients,
                                           double sum_hessians, double l1, double l2,
-                                          double path_smooth, data_size_t num_data,
+                                          double path_smooth, double num_data,
                                           double parent_output) {
     double ret;
     if (USE_L1) {
@@ -106,7 +106,7 @@ class CUDALeafSplits: public NCCLInfo {
   template <bool USE_L1, bool USE_SMOOTHING>
   __device__ static double GetLeafGain(double sum_gradients, double sum_hessians,
                           double l1, double l2,
-                          double path_smooth, data_size_t num_data,
+                          double path_smooth, double num_data,
                           double parent_output) {
     if (!USE_SMOOTHING) {
       if (USE_L1) {
@@ -129,8 +129,8 @@ class CUDALeafSplits: public NCCLInfo {
                             double sum_right_hessians,
                             double l1, double l2,
                             double path_smooth,
-                            data_size_t left_count,
-                            data_size_t right_count,
+                            double left_count,
+                            double right_count,
                             double parent_output) {
     return GetLeafGain<USE_L1, USE_SMOOTHING>(sum_left_gradients,
                       sum_left_hessians,

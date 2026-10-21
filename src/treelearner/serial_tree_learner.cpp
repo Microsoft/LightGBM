@@ -206,10 +206,12 @@ Tree* SerialTreeLearner::Train(const score_t* gradients, const score_t *hessians
   constraints_->ShareTreePointer(tree_ptr);
 
   // set the root value by hand, as it is not handled by splits
+  const double root_smoothing_weight = config_->use_hessian_smoothing() ?
+    smaller_leaf_splits_->sum_hessians() : static_cast<double>(num_data_);
   tree->SetLeafOutput(0, FeatureHistogram::CalculateSplittedLeafOutput<true, true, true, false>(
     smaller_leaf_splits_->sum_gradients(), smaller_leaf_splits_->sum_hessians(),
     config_->lambda_l1, config_->lambda_l2, config_->max_delta_step,
-    BasicConstraint(), config_->path_smooth, static_cast<data_size_t>(num_data_), 0));
+    BasicConstraint(), config_->effective_path_smooth(), root_smoothing_weight, 0));
 
   // root leaf
   int left_leaf = 0;
@@ -265,14 +267,16 @@ Tree* SerialTreeLearner::FitByExistingTree(const Tree* old_tree, const score_t* 
       sum_hess += hessians[idx];
     }
     double output;
-    if ((config_->path_smooth > kEpsilon) & (i > 0)) {
+    const double refit_smoothing_weight = config_->use_hessian_smoothing() ?
+      sum_hess : static_cast<double>(cnt_leaf_data);
+    if ((config_->effective_path_smooth() > kEpsilon) & (i > 0)) {
       output = FeatureHistogram::CalculateSplittedLeafOutput<true, true, true>(
           sum_grad, sum_hess, config_->lambda_l1, config_->lambda_l2,
-          config_->max_delta_step, config_->path_smooth, cnt_leaf_data, tree->leaf_parent(i));
+          config_->max_delta_step, config_->effective_path_smooth(), refit_smoothing_weight, tree->leaf_parent(i));
     } else {
       output = FeatureHistogram::CalculateSplittedLeafOutput<true, true, false>(
           sum_grad, sum_hess, config_->lambda_l1, config_->lambda_l2,
-          config_->max_delta_step, config_->path_smooth, cnt_leaf_data, 0);
+          config_->max_delta_step, config_->effective_path_smooth(), refit_smoothing_weight, 0);
     }
     auto old_leaf_output = tree->LeafOutput(i);
     auto new_leaf_output = output * tree->shrinkage();
@@ -1014,10 +1018,12 @@ double SerialTreeLearner::GetParentOutput(const Tree* tree, const LeafSplits* le
   double parent_output;
   if (tree->num_leaves() == 1) {
     // for root leaf the "parent" output is its own output because we don't apply any smoothing to the root
+    const double smoothing_weight = config_->use_hessian_smoothing() ?
+      leaf_splits->sum_hessians() : static_cast<double>(leaf_splits->num_data_in_leaf());
     parent_output = FeatureHistogram::CalculateSplittedLeafOutput<true, true, true, false>(
       leaf_splits->sum_gradients(), leaf_splits->sum_hessians(), config_->lambda_l1,
       config_->lambda_l2, config_->max_delta_step, BasicConstraint(),
-      config_->path_smooth, static_cast<data_size_t>(leaf_splits->num_data_in_leaf()), 0);
+      config_->effective_path_smooth(), smoothing_weight, 0);
   } else {
     parent_output = leaf_splits->weight();
   }
@@ -1043,10 +1049,12 @@ void SerialTreeLearner::RecomputeBestSplitForLeaf(Tree* tree, int leaf, SplitInf
 
   // can't use GetParentOutput because leaf_splits doesn't have weight property set
   double parent_output = 0;
-  if (config_->path_smooth > kEpsilon) {
+  if (config_->effective_path_smooth() > kEpsilon) {
+    const double smoothing_weight = config_->use_hessian_smoothing() ?
+      sum_hessians : static_cast<double>(num_data);
     parent_output = FeatureHistogram::CalculateSplittedLeafOutput<true, true, true, false>(
       sum_gradients, sum_hessians, config_->lambda_l1, config_->lambda_l2, config_->max_delta_step,
-      BasicConstraint(), config_->path_smooth, static_cast<data_size_t>(num_data), 0);
+      BasicConstraint(), config_->effective_path_smooth(), smoothing_weight, 0);
   }
 
   OMP_INIT_EX();

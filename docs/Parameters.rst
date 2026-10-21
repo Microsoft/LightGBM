@@ -675,6 +675,20 @@ Learning Control Parameters
 
       -  note that the parent output ``w_p`` itself has smoothing applied, unless it is the root node, so that the smoothing effect accumulates with the tree depth
 
+-  ``path_smooth_hessian`` :raw-html:`<a id="path_smooth_hessian" title="Permalink to this parameter" href="#path_smooth_hessian">&#x1F517;&#xFE0E;</a>`, default = ``0``, type = double, constraints: ``path_smooth_hessian >=  0.0``
+
+   -  controls smoothing applied to tree nodes using the sum of hessians instead of the number of samples
+
+   -  works the same way as ``path_smooth`` but uses the sum of hessians as the weight, making it more appropriate when samples have different weights
+
+   -  has the same dimension as ``min_sum_hessian_in_leaf``
+
+   -  cannot be used simultaneously with ``path_smooth``; set one to ``0`` when using the other
+
+      -  the weight of each node is ``w * (h / path_smooth_hessian) / (h / path_smooth_hessian + 1) + w_p / (h / path_smooth_hessian + 1)``, where ``h`` is the sum of hessians in the node, ``w`` is the optimal node weight to minimise the loss (approximately ``-sum_gradients / sum_hessians``), and ``w_p`` is the weight of the parent node
+
+      -  note that the parent output ``w_p`` itself has smoothing applied, unless it is the root node, so that the smoothing effect accumulates with the tree depth
+
 -  ``interaction_constraints`` :raw-html:`<a id="interaction_constraints" title="Permalink to this parameter" href="#interaction_constraints">&#x1F517;&#xFE0E;</a>`, default = ``""``, type = string
 
    -  controls which features can appear in the same branch

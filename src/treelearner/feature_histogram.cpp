@@ -30,7 +30,7 @@ void FeatureHistogram::FuncForCategorical() {
 
 template <bool USE_RAND, bool USE_MC>
 void FeatureHistogram::FuncForCategoricalL1() {
-  if (meta_->config->path_smooth > kEpsilon) {
+  if (meta_->config->effective_path_smooth() > kEpsilon) {
     FuncForCategoricalL2<USE_RAND, USE_MC, true>();
   } else {
     FuncForCategoricalL2<USE_RAND, USE_MC, false>();
@@ -223,7 +223,9 @@ void FeatureHistogram::FindBestThresholdCategoricalInner(double sum_gradient,
       double current_gain = GetSplitGains<USE_MC, USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
           sum_other_gradient, sum_other_hessian, grad, hess + kEpsilon,
           meta_->config->lambda_l1, l2, meta_->config->max_delta_step,
-          constraints, 0, meta_->config->path_smooth, other_count, cnt, parent_output);
+          constraints, 0, meta_->config->effective_path_smooth(),
+          meta_->config->use_hessian_smoothing() ? sum_other_hessian : static_cast<double>(other_count),
+          meta_->config->use_hessian_smoothing() ? (hess + kEpsilon) : static_cast<double>(cnt), parent_output);
       // gain with split is worse than without split
       if (current_gain <= min_gain_shift) {
         continue;
@@ -325,8 +327,9 @@ void FeatureHistogram::FindBestThresholdCategoricalInner(double sum_gradient,
         double current_gain = GetSplitGains<USE_MC, USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
             sum_left_gradient, sum_left_hessian, sum_right_gradient,
             sum_right_hessian, meta_->config->lambda_l1, l2,
-            meta_->config->max_delta_step, constraints, 0, meta_->config->path_smooth,
-            left_count, right_count, parent_output);
+            meta_->config->max_delta_step, constraints, 0, meta_->config->effective_path_smooth(),
+            meta_->config->use_hessian_smoothing() ? sum_left_hessian : static_cast<double>(left_count),
+            meta_->config->use_hessian_smoothing() ? sum_right_hessian : static_cast<double>(right_count), parent_output);
         if (current_gain <= min_gain_shift) {
           continue;
         }
@@ -344,18 +347,20 @@ void FeatureHistogram::FindBestThresholdCategoricalInner(double sum_gradient,
   }
 
   if (is_splittable_) {
+    const double best_left_smoothing = meta_->config->use_hessian_smoothing() ? best_sum_left_hessian : static_cast<double>(best_left_count);
+    const double best_right_smoothing = meta_->config->use_hessian_smoothing() ? (sum_hessian - best_sum_left_hessian) : static_cast<double>(num_data - best_left_count);
     output->left_output = CalculateSplittedLeafOutput<USE_MC, USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
         best_sum_left_gradient, best_sum_left_hessian,
         meta_->config->lambda_l1, l2, meta_->config->max_delta_step,
-        constraints->LeftToBasicConstraint(), meta_->config->path_smooth, best_left_count, parent_output);
+        constraints->LeftToBasicConstraint(), meta_->config->effective_path_smooth(), best_left_smoothing, parent_output);
     output->left_count = best_left_count;
     output->left_sum_gradient = best_sum_left_gradient;
     output->left_sum_hessian = best_sum_left_hessian - kEpsilon;
     output->right_output = CalculateSplittedLeafOutput<USE_MC, USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
         sum_gradient - best_sum_left_gradient,
         sum_hessian - best_sum_left_hessian, meta_->config->lambda_l1, l2,
-        meta_->config->max_delta_step, constraints->RightToBasicConstraint(), meta_->config->path_smooth,
-        num_data - best_left_count, parent_output);
+        meta_->config->max_delta_step, constraints->RightToBasicConstraint(), meta_->config->effective_path_smooth(),
+        best_right_smoothing, parent_output);
     output->right_count = num_data - best_left_count;
     output->right_sum_gradient = sum_gradient - best_sum_left_gradient;
     output->right_sum_hessian =
@@ -504,7 +509,9 @@ void FeatureHistogram::FindBestThresholdCategoricalIntInner(int64_t int_sum_grad
       double current_gain = GetSplitGains<USE_MC, USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
           sum_other_gradient, sum_other_hessian, grad, hess,
           meta_->config->lambda_l1, l2, meta_->config->max_delta_step,
-          constraints, 0, meta_->config->path_smooth, other_count, cnt, parent_output);
+          constraints, 0, meta_->config->effective_path_smooth(),
+          meta_->config->use_hessian_smoothing() ? sum_other_hessian : static_cast<double>(other_count),
+          meta_->config->use_hessian_smoothing() ? hess : static_cast<double>(cnt), parent_output);
       // gain with split is worse than without split
       if (current_gain <= min_gain_shift) {
         continue;
@@ -655,8 +662,9 @@ void FeatureHistogram::FindBestThresholdCategoricalIntInner(int64_t int_sum_grad
         double current_gain = GetSplitGains<USE_MC, USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
             sum_left_gradient, sum_left_hessian, sum_right_gradient,
             sum_right_hessian, meta_->config->lambda_l1, l2,
-            meta_->config->max_delta_step, constraints, 0, meta_->config->path_smooth,
-            left_count, right_count, parent_output);
+            meta_->config->max_delta_step, constraints, 0, meta_->config->effective_path_smooth(),
+            meta_->config->use_hessian_smoothing() ? sum_left_hessian : static_cast<double>(left_count),
+            meta_->config->use_hessian_smoothing() ? sum_right_hessian : static_cast<double>(right_count), parent_output);
         if (current_gain <= min_gain_shift) {
           continue;
         }
@@ -700,18 +708,20 @@ void FeatureHistogram::FindBestThresholdCategoricalIntInner(int64_t int_sum_grad
         best_sum_left_gradient_and_hessian;
     const int64_t best_sum_right_gradient_and_hessian_int64 = int_sum_gradient_and_hessian - best_sum_left_gradient_and_hessian_int64;
 
+    const double best_left_smoothing2 = meta_->config->use_hessian_smoothing() ? best_sum_left_hessian : static_cast<double>(best_left_count);
+    const double best_right_smoothing2 = meta_->config->use_hessian_smoothing() ? best_sum_right_hessian : static_cast<double>(best_right_count);
     output->left_output = CalculateSplittedLeafOutput<USE_MC, USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
         best_sum_left_gradient, best_sum_left_hessian,
         meta_->config->lambda_l1, l2, meta_->config->max_delta_step,
-        constraints->LeftToBasicConstraint(), meta_->config->path_smooth, best_left_count, parent_output);
+        constraints->LeftToBasicConstraint(), meta_->config->effective_path_smooth(), best_left_smoothing2, parent_output);
     output->left_count = best_left_count;
     output->left_sum_gradient = best_sum_left_gradient;
     output->left_sum_hessian = best_sum_left_hessian;
     output->right_output = CalculateSplittedLeafOutput<USE_MC, USE_L1, USE_MAX_OUTPUT, USE_SMOOTHING>(
         best_sum_right_gradient,
         best_sum_right_hessian, meta_->config->lambda_l1, l2,
-        meta_->config->max_delta_step, constraints->RightToBasicConstraint(), meta_->config->path_smooth,
-        best_right_count, parent_output);
+        meta_->config->max_delta_step, constraints->RightToBasicConstraint(), meta_->config->effective_path_smooth(),
+        best_right_smoothing2, parent_output);
     output->right_count = best_right_count;
     output->right_sum_gradient = best_sum_right_gradient;
     output->right_sum_hessian = best_sum_right_hessian;
