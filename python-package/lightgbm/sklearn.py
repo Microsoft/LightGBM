@@ -1200,7 +1200,7 @@ class LGBMModel(_LGBMModelBase):
             The predicted values.
         X_leaves : array-like of shape = [n_samples, n_trees] or shape = [n_samples, n_trees * n_classes]
             If ``pred_leaf=True``, the predicted leaf of every tree for each sample.
-        X_SHAP_values : array-like of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes] or list with n_classes length of such objects
+        X_SHAP_values : array-like of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes]
             If ``pred_contrib=True``, the feature contributions for each sample.
         """
         if not self.__sklearn_is_fitted__():
@@ -2210,7 +2210,7 @@ class LGBMClassifier(_LGBMClassifierBase, LGBMModel):
             The predicted values.
         X_leaves : array-like of shape = [n_samples, n_trees] or shape = [n_samples, n_trees * n_classes]
             If ``pred_leaf=True``, the predicted leaf of every tree for each sample.
-        X_SHAP_values : array-like of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes] or list with n_classes length of such objects
+        X_SHAP_values : array-like of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes]
             If ``pred_contrib=True``, the feature contributions for each sample.
         """
         result = self.predict_proba(
@@ -2282,7 +2282,7 @@ class LGBMClassifier(_LGBMClassifierBase, LGBMModel):
             The predicted values.
         X_leaves : array-like of shape = [n_samples, n_trees] or shape = [n_samples, n_trees * n_classes]
             If ``pred_leaf=True``, the predicted leaf of every tree for each sample.
-        X_SHAP_values : array-like of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes] or list with n_classes length of such objects
+        X_SHAP_values : array-like of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes]
             If ``pred_contrib=True``, the feature contributions for each sample.
         """
         result = super().predict(

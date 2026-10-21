@@ -120,7 +120,6 @@ _LGBM_PredictDataType = Union[
 _LGBM_PredictReturnType = Union[
     np.ndarray,
     scipy.sparse.spmatrix,
-    List[scipy.sparse.spmatrix],
 ]
 _LGBM_PredictSparseReturnType = Union[
     scipy.sparse.spmatrix,
@@ -1056,9 +1055,9 @@ class _InnerPredictor:
 
         Returns
         -------
-        result : numpy array, scipy.sparse or list of scipy.sparse
+        result : numpy array or scipy.sparse
             Prediction result.
-            Can be sparse or a list of sparse objects (each element represents predictions for one class) for feature contributions (when ``pred_contrib=True``).
+            If ``data`` is a sparse matrix, result will be a sparse matrix.
         """
         if isinstance(data, Dataset):
             raise TypeError("Cannot use Dataset instance for prediction, please use raw data instead")
@@ -1345,9 +1344,10 @@ class _InnerPredictor:
                 ctypes.c_int(data_type),
             )
         )
-        if len(cs_output_matrices) == 1:
-            return cs_output_matrices[0]
-        return cs_output_matrices
+        if is_csr:
+            return scipy.sparse.hstack(cs_output_matrices, format="csr")
+        else:
+            return scipy.sparse.hstack(cs_output_matrices, format="csc")
 
     def __inner_predict_csr(
         self,
@@ -1444,7 +1444,7 @@ class _InnerPredictor:
                 ctypes.byref(out_ptr_data),
             )
         )
-        matrices = self.__create_sparse_native(
+        out_mat = self.__create_sparse_native(
             cs=csr,
             out_shape=out_shape,
             out_ptr_indptr=out_ptr_indptr,
@@ -1455,7 +1455,7 @@ class _InnerPredictor:
             is_csr=True,
         )
         nrow = len(csr.indptr) - 1
-        return matrices, nrow
+        return out_mat, nrow
 
     def __pred_for_csr(
         self,
@@ -1555,7 +1555,7 @@ class _InnerPredictor:
                 ctypes.byref(out_ptr_data),
             )
         )
-        matrices = self.__create_sparse_native(
+        out_mat = self.__create_sparse_native(
             cs=csc,
             out_shape=out_shape,
             out_ptr_indptr=out_ptr_indptr,
@@ -1566,7 +1566,7 @@ class _InnerPredictor:
             is_csr=False,
         )
         nrow = csc.shape[0]
-        return matrices, nrow
+        return out_mat, nrow
 
     def __pred_for_csc(
         self,
@@ -4859,9 +4859,9 @@ class Booster:
 
         Returns
         -------
-        result : numpy array, scipy.sparse or list of scipy.sparse
+        result : numpy array or scipy.sparse
             Prediction result.
-            Can be sparse or a list of sparse objects (each element represents predictions for one class) for feature contributions (when ``pred_contrib=True``).
+            If ``data`` is a sparse matrix, result will be a sparse matrix.
         """
         predictor = _InnerPredictor.from_booster(
             booster=self,

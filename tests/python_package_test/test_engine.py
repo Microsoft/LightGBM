@@ -2070,31 +2070,25 @@ def test_contribs_sparse_multiclass(data_seed):
     lgb_train = lgb.Dataset(X_train, y_train)
     gbm = lgb.train(params, lgb_train, num_boost_round=20)
     contribs_csr = gbm.predict(X_test, pred_contrib=True)
-    assert isinstance(contribs_csr, list)
-    for perclass_contribs_csr in contribs_csr:
-        assert isspmatrix_csr(perclass_contribs_csr)
+    assert isspmatrix_csr(contribs_csr)
     # convert data to dense and get back same contribs
     contribs_dense = gbm.predict(X_test.toarray(), pred_contrib=True)
     # validate the values are the same
-    contribs_csr_array = np.swapaxes(np.array([sparse_array.toarray() for sparse_array in contribs_csr]), 0, 1)
-    contribs_csr_arr_re = contribs_csr_array.reshape(
-        (contribs_csr_array.shape[0], contribs_csr_array.shape[1] * contribs_csr_array.shape[2])
+    np.testing.assert_allclose(contribs_csr.toarray(), contribs_dense)
+    # values should sum to predictions
+    preds_by_class = np.hstack(
+        [
+            np.sum(contribs_dense[:, i * (n_features + 1) : (i + 1) * (n_features + 1)], axis=1).reshape(-1, 1)
+            for i in range(n_labels)
+        ]
     )
-    np.testing.assert_allclose(contribs_csr_arr_re, contribs_dense)
-    contribs_dense_re = contribs_dense.reshape(contribs_csr_array.shape)
-    assert np.linalg.norm(gbm.predict(X_test, raw_score=True) - np.sum(contribs_dense_re, axis=2)) < 1e-4
+    assert np.linalg.norm(gbm.predict(X_test, raw_score=True) - preds_by_class) < 1e-4
     # validate using CSC matrix
     X_test_csc = X_test.tocsc()
     contribs_csc = gbm.predict(X_test_csc, pred_contrib=True)
-    assert isinstance(contribs_csc, list)
-    for perclass_contribs_csc in contribs_csc:
-        assert isspmatrix_csc(perclass_contribs_csc)
+    assert isspmatrix_csc(contribs_csc)
     # validate the values are the same
-    contribs_csc_array = np.swapaxes(np.array([sparse_array.toarray() for sparse_array in contribs_csc]), 0, 1)
-    contribs_csc_array = contribs_csc_array.reshape(
-        (contribs_csc_array.shape[0], contribs_csc_array.shape[1] * contribs_csc_array.shape[2])
-    )
-    np.testing.assert_allclose(contribs_csc_array, contribs_dense)
+    np.testing.assert_allclose(contribs_csc.toarray(), contribs_dense)
 
 
 @pytest.mark.skipif(
