@@ -125,53 +125,56 @@ void test_predict_type(int predict_type, int num_predicts) {
         t.join();
     }
 
-    // Now let's run with the single row fast prediction API:
-    FastConfigHandle fast_configs[kNThreads];
-    for (int i = 0; i < kNThreads; i++) {
-        result = LGBM_BoosterPredictForMatSingleRowFastInit(
-            booster_handle,
-            predict_type,          // predict_type
-            0,                     // start_iteration
-            -1,                    // num_iteration
-            C_API_DTYPE_FLOAT64,
-            n_features,
-            "",
-            &fast_configs[i]);
-        EXPECT_EQ(0, result) << "LGBM_BoosterPredictForMatSingleRowFastInit result code: " << result;
-    }
+    const char* fast_config_parameters[] = {"", "predict_disable_fast_lock=true"};
+    for (const char* fast_config_parameter : fast_config_parameters) {
+        // Now let's run with the single row fast prediction API:
+        FastConfigHandle fast_configs[kNThreads];
+        for (int i = 0; i < kNThreads; i++) {
+            result = LGBM_BoosterPredictForMatSingleRowFastInit(
+                booster_handle,
+                predict_type,          // predict_type
+                0,                     // start_iteration
+                -1,                    // num_iteration
+                C_API_DTYPE_FLOAT64,
+                n_features,
+                fast_config_parameter,
+                &fast_configs[i]);
+            EXPECT_EQ(0, result) << "LGBM_BoosterPredictForMatSingleRowFastInit result code: " << result;
+        }
 
-    std::vector<double> single_row_output(output_size * test_set_size, -1);
-    std::vector<std::thread> single_row_threads(kNThreads);
-    int batch_size = (test_set_size + kNThreads - 1) / kNThreads;  // round up
-    for (int i = 0; i < kNThreads; i++) {
-        single_row_threads[i] = std::thread(
-            [
-                i, batch_size, test_set_size, output_size, n_features,
-                    test = &test[0], fast_configs = &fast_configs[0], single_row_output = &single_row_output[0]
-            ]() {
-                int result;
-                int64_t written;
-                for (int j = i * batch_size; j < std::min((i + 1) * batch_size, test_set_size); j++) {
-                    result = LGBM_BoosterPredictForMatSingleRowFast(
-                        fast_configs[i],
-                        &test[j * n_features],
-                        &written,
-                        &single_row_output[j * output_size]);
-                    EXPECT_EQ(0, result) << "LGBM_BoosterPredictForMatSingleRowFast result code: " << result;
-                    EXPECT_EQ(written, output_size) << "LGBM_BoosterPredictForMatSingleRowFast unexpected written output size";
-                }
-            });
-      }
-    for (std::thread& t : single_row_threads) {
-        t.join();
-    }
+        std::vector<double> single_row_output(output_size * test_set_size, -1);
+        std::vector<std::thread> single_row_threads(kNThreads);
+        int batch_size = (test_set_size + kNThreads - 1) / kNThreads;  // round up
+        for (int i = 0; i < kNThreads; i++) {
+            single_row_threads[i] = std::thread(
+                [
+                    i, batch_size, test_set_size, output_size, n_features,
+                        test = &test[0], fast_configs = &fast_configs[0], single_row_output = &single_row_output[0]
+                ]() {
+                    int result;
+                    int64_t written;
+                    for (int j = i * batch_size; j < std::min((i + 1) * batch_size, test_set_size); j++) {
+                        result = LGBM_BoosterPredictForMatSingleRowFast(
+                            fast_configs[i],
+                            &test[j * n_features],
+                            &written,
+                            &single_row_output[j * output_size]);
+                        EXPECT_EQ(0, result) << "LGBM_BoosterPredictForMatSingleRowFast result code: " << result;
+                        EXPECT_EQ(written, output_size) << "LGBM_BoosterPredictForMatSingleRowFast unexpected written output size";
+                    }
+                });
+        }
+        for (std::thread& t : single_row_threads) {
+            t.join();
+        }
 
-    EXPECT_EQ(single_row_output, mat_output) << "LGBM_BoosterPredictForMatSingleRowFast output mismatch with LGBM_BoosterPredictForMat";
+        EXPECT_EQ(single_row_output, mat_output) << "LGBM_BoosterPredictForMatSingleRowFast output mismatch with LGBM_BoosterPredictForMat";
 
-    // Free all:
-    for (int i = 0; i < kNThreads; i++) {
-        result = LGBM_FastConfigFree(fast_configs[i]);
-        EXPECT_EQ(0, result) << "LGBM_FastConfigFree result code: " << result;
+        // Free all:
+        for (int i = 0; i < kNThreads; i++) {
+            result = LGBM_FastConfigFree(fast_configs[i]);
+            EXPECT_EQ(0, result) << "LGBM_FastConfigFree result code: " << result;
+        }
     }
 
     result = LGBM_BoosterFree(booster_handle);

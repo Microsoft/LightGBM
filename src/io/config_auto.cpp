@@ -293,6 +293,7 @@ const std::unordered_set<std::string>& Config::parameter_set() {
   "predict_leaf_index",
   "predict_contrib",
   "predict_disable_shape_check",
+  "predict_disable_fast_lock",
   "pred_early_stop",
   "pred_early_stop_freq",
   "pred_early_stop_margin",
@@ -583,6 +584,8 @@ void Config::GetMembersFromString(const std::unordered_map<std::string, std::str
   GetBool(params, "predict_contrib", &predict_contrib);
 
   GetBool(params, "predict_disable_shape_check", &predict_disable_shape_check);
+
+  GetBool(params, "predict_disable_fast_lock", &predict_disable_fast_lock);
 
   GetBool(params, "pred_early_stop", &pred_early_stop);
 
@@ -906,6 +909,7 @@ const std::unordered_map<std::string, std::vector<std::string>>& Config::paramet
     {"predict_leaf_index", {"is_predict_leaf_index", "leaf_index"}},
     {"predict_contrib", {"is_predict_contrib", "contrib"}},
     {"predict_disable_shape_check", {}},
+    {"predict_disable_fast_lock", {}},
     {"pred_early_stop", {}},
     {"pred_early_stop_freq", {}},
     {"pred_early_stop_margin", {}},
@@ -1052,6 +1056,7 @@ const std::unordered_map<std::string, std::string>& Config::ParameterTypes() {
     {"predict_leaf_index", "bool"},
     {"predict_contrib", "bool"},
     {"predict_disable_shape_check", "bool"},
+    {"predict_disable_fast_lock", "bool"},
     {"pred_early_stop", "bool"},
     {"pred_early_stop_freq", "int"},
     {"pred_early_stop_margin", "double"},

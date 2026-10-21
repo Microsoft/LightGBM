@@ -139,13 +139,13 @@ struct SingleRowPredictor {
 
   void Predict(std::function<std::vector<std::pair<int, double>>(int row_idx)> get_row_fun,
                double* out_result, int64_t* out_len) const {
-    UNIQUE_LOCK(single_row_predictor_mutex)
-    yamc::shared_lock<yamc::alternate::shared_mutex> booster_shared_lock(booster_mutex);
-
-    auto one_row = get_row_fun(0);
-    single_row_predictor_inner.predict_function(one_row, out_result);
-
-    *out_len = single_row_predictor_inner.num_pred_in_one_row;
+    if (config.predict_disable_fast_lock) {
+      PredictInner(get_row_fun, out_result, out_len);
+    } else {
+      UNIQUE_LOCK(single_row_predictor_mutex)
+      yamc::shared_lock<yamc::alternate::shared_mutex> booster_shared_lock(booster_mutex);
+      PredictInner(get_row_fun, out_result, out_len);
+    }
   }
 
  public:
@@ -154,6 +154,14 @@ struct SingleRowPredictor {
   const int32_t num_cols;
 
  private:
+  void PredictInner(std::function<std::vector<std::pair<int, double>>(int row_idx)> get_row_fun,
+                    double* out_result, int64_t* out_len) const {
+    auto one_row = get_row_fun(0);
+    single_row_predictor_inner.predict_function(one_row, out_result);
+
+    *out_len = single_row_predictor_inner.num_pred_in_one_row;
+  }
+
   SingleRowPredictorInner single_row_predictor_inner;
 
   // Prevent the booster from being modified while we have a predictor relying on it during prediction

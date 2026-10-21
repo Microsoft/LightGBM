@@ -1056,6 +1056,16 @@ Predict Parameters
 
    -  **Note**: be very careful setting this parameter to ``true``
 
+-  ``predict_disable_fast_lock`` :raw-html:`<a id="predict_disable_fast_lock" title="Permalink to this parameter" href="#predict_disable_fast_lock">&#x1F517;&#xFE0E;</a>`, default = ``false``, type = bool
+
+   -  used only with C API fast single-row prediction functions, such as ``LGBM_BoosterPredictForMatSingleRowFast``
+
+   -  if ``true``, LightGBM will not acquire its internal locks during fast single-row prediction
+
+   -  useful for advanced applications that handle synchronization outside LightGBM and need to avoid per-call mutex overhead in low-latency fast single-row prediction
+
+   -  **Note**: only set this to ``true`` when you guarantee that the same fast-config handle is not used concurrently and that the booster is not modified or freed during prediction
+
 -  ``pred_early_stop`` :raw-html:`<a id="pred_early_stop" title="Permalink to this parameter" href="#pred_early_stop">&#x1F517;&#xFE0E;</a>`, default = ``false``, type = bool
 
    -  used only in ``prediction`` task
