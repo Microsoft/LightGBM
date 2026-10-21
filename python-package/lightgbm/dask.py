@@ -582,10 +582,18 @@ def _train(
     # Some passed-in parameters can be removed:
     #   * 'num_machines': set automatically from Dask worker list
     #   * 'num_threads': overridden to match nthreads on each Dask process
-    for param_alias in _ConfigAliases.get("num_machines", "num_threads"):
-        if param_alias in params:
-            _log_warning(f"Parameter {param_alias} will be ignored.")
-            params.pop(param_alias)
+    for param in ("num_machines", "num_threads"):
+        for param_alias in _ConfigAliases.get(param):
+            if param_alias in params:
+                value = params.pop(param_alias)
+                if param == "num_machines":
+                    _log_warning(f"Parameter '{param_alias}' will be ignored (determined from the Dask cluster).")
+                elif value not in (None, -1):
+                    _log_warning(
+                        f"Parameter '{param_alias}={value}' will be ignored. "
+                        "The number of threads is set by the Dask worker. "
+                        f"To avoid this warning, omit '{param_alias}' or set it to None or -1."
+                    )
 
     # Split arrays/dataframes into parts. Arrange parts into dicts to enforce co-locality
     data_parts = _split_to_parts(data=data, is_matrix=True)
@@ -970,7 +978,9 @@ def _predict(
         raise LightGBMError("dask is required for lightgbm.dask") from err
 
     if isinstance(data, dask.dataframe.DataFrame):
-        return data.map_partitions(
+        # Bind prediction options into the callable to give each mode distinct task keys.
+        # ref: https://github.com/dask/dask/pull/12603
+        predict_fn = partial(
             _predict_part,
             model=model,
             raw_score=raw_score,
@@ -978,7 +988,8 @@ def _predict(
             pred_leaf=pred_leaf,
             pred_contrib=pred_contrib,
             **kwargs,
-        ).values
+        )
+        return data.map_partitions(predict_fn).values
     elif isinstance(data, dask.array.Array):
         # for multi-class classification with sparse matrices, pred_contrib predictions
         # are returned as a list of sparse matrices (one per class)

@@ -5,6 +5,7 @@ import inspect
 import re
 import socket
 import textwrap
+import warnings
 from itertools import groupby
 from sys import platform
 from urllib.parse import urlparse
@@ -1200,6 +1201,55 @@ def test_model_and_local_version_are_picklable_whether_or_not_client_set_explici
             assert_eq(preds_orig_local, preds_loaded_model_local)
 
 
+def test_thread_parameter_warnings(cluster):
+    with Client(cluster) as client:
+        X = da.from_array(np.arange(40).reshape(20, 2), chunks=(10, 2))
+        y = da.from_array(np.arange(20), chunks=10)
+        common_params = {
+            "client": client,
+            "n_estimators": 1,
+            "num_leaves": 2,
+            "min_child_samples": 2,
+            "verbosity": -1,
+        }
+
+        # Default parameters.
+        model = lgb.DaskLGBMRegressor(**common_params)
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            model.fit(X, y)
+        assert [str(w.message) for w in recorded] == []
+        assert model.booster_.params["num_threads"] == 2
+
+        # Explicitly passing n_jobs=None.
+        model = lgb.DaskLGBMRegressor(**common_params, n_jobs=None)
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            model.fit(X, y)
+        assert [str(w.message) for w in recorded] == []
+        assert model.booster_.params["num_threads"] == 2
+
+        # Explicitly passing n_jobs=-1.
+        model = lgb.DaskLGBMRegressor(**common_params, n_jobs=-1)
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            model.fit(X, y)
+        assert [str(w.message) for w in recorded] == []
+        assert model.booster_.params["num_threads"] == 2
+
+        # Explicit thread and machine counts.
+        model = lgb.DaskLGBMRegressor(**common_params, n_jobs=3, num_machines=2)
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            model.fit(X, y)
+        assert [str(w.message) for w in recorded] == [
+            "Parameter 'num_machines' will be ignored (determined from the Dask cluster).",
+            "Parameter 'n_jobs=3' will be ignored. The number of threads is set by the Dask worker. "
+            "To avoid this warning, omit 'n_jobs' or set it to None or -1.",
+        ]
+        assert model.booster_.params["num_threads"] == 2
+
+
 def test_warns_and_continues_on_unrecognized_tree_learner(cluster):
     with Client(cluster) as client:
         X = da.random.random((1e3, 10))
@@ -1632,6 +1682,57 @@ def test_predict_returns_expected_dtypes(task, output, cluster):
         # pred_leavs: always int32
         preds_leaves = model.predict(dX_sample, pred_leaf=True).compute()
         assert preds_leaves.dtype == np.int32
+
+
+@pytest.mark.parametrize("task", tasks)
+@pytest.mark.parametrize("all_empty", [False, True])
+def test_predict_dataframe_modes_together(task, all_empty, cluster):
+    with Client(cluster) as client:
+        _, _, _, _, dX, dy, _, dg = _create_data(objective=task, output="dataframe-with-categorical", group=None)
+        model = task_to_dask_factory[task](
+            client=client, n_estimators=3, num_leaves=3, random_state=0, time_out=5, verbose=-1
+        )
+        model.fit(dX, dy, group=dg)
+
+        sample = dX.head(5)
+        empty = sample.iloc[:0]
+        parts = [empty, empty if all_empty else sample, empty]
+        prediction_data = dd.from_delayed([dask.delayed(part) for part in parts], meta=empty)
+        local_model = model.to_local()
+        prediction_options = [
+            {},
+            {"raw_score": True},
+            {"pred_leaf": True},
+            {"pred_contrib": True},
+            {"pred_leaf": True, "start_iteration": 1, "num_iteration": 1},
+            {"pred_contrib": True, "start_iteration": 1, "num_iteration": 1},
+            {"pred_leaf": True, "start_iteration": 1, "num_iteration": 2},
+            {"pred_leaf": True, "start_iteration": 2, "num_iteration": 1},
+        ]
+        predictions = []
+        expected_results = []
+        for options in prediction_options:
+            # predict()
+            expected = local_model.predict(sample, **options)
+            if all_empty:
+                expected = expected[:0]
+            predictions.append(model.predict(prediction_data, **options))
+            expected_results.append(expected)
+
+            # predict_proba() (classification-only)
+            if task.endswith("classification"):
+                expected = local_model.predict_proba(sample, **options)
+                if all_empty:
+                    expected = expected[:0]
+                predictions.append(model.predict_proba(prediction_data, **options))
+                expected_results.append(expected)
+        actual_results = dask.compute(*predictions)
+        for prediction, actual, expected in zip(predictions, actual_results, expected_results, strict=True):
+            assert prediction.ndim == expected.ndim
+            assert prediction.dtype == expected.dtype
+            assert actual.shape == expected.shape
+            assert actual.dtype == expected.dtype
+            np_assert_array_equal(actual, expected, strict=True)
 
 
 @pytest.mark.parametrize("output", data_output)

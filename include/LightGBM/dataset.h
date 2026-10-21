@@ -924,7 +924,8 @@ class Dataset {
         std::replace(feature_name.begin(), feature_name.end(), ' ', '_');
       }
       if (feature_name_set.count(feature_name) > 0) {
-        Log::Fatal("Feature (%s) appears more than one time.", feature_name.c_str());
+        Log::Fatal("After preprocessing (including replacing whitespace with '_'), multiple features named '%s' found in Dataset. "
+                   "Ensure that feature names are unique and do not contain whitespace.", feature_name.c_str());
       }
       feature_name_set.insert(feature_name);
     }

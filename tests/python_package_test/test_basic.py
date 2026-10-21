@@ -10,15 +10,22 @@ from pathlib import Path
 import numpy as np
 import pytest
 from scipy import sparse
-from sklearn.datasets import dump_svmlight_file, load_svmlight_file, make_blobs
-from sklearn.model_selection import train_test_split
 
 import lightgbm as lgb
 
-from .utils import BuildInfo, dummy_obj, load_breast_cancer, mse_obj, np_assert_array_equal
+from .utils import (
+    BuildInfo,
+    dummy_obj,
+    load_breast_cancer,
+    make_blobs,
+    mse_obj,
+    np_assert_array_equal,
+    train_test_split,
+)
 
 
 def test_basic(tmp_path):
+    sklearn = pytest.importorskip("sklearn")
     X_train, X_test, y_train, y_test = train_test_split(
         *load_breast_cancer(return_X_y=True), test_size=0.1, random_state=2
     )
@@ -60,7 +67,7 @@ def test_basic(tmp_path):
     bst.save_model(model_file)
     pred_from_matr = bst.predict(X_test)
     with open(tname, "w+b") as f:
-        dump_svmlight_file(X_test, y_test, f)
+        sklearn.datasets.dump_svmlight_file(X_test, y_test, f)
     pred_from_file = bst.predict(tname)
     np.testing.assert_allclose(pred_from_matr, pred_from_file)
 
@@ -88,11 +95,37 @@ def test_basic(tmp_path):
         lgb.basic.LightGBMError, bad_shape_error_msg, bst.predict, sparse.csc_matrix(bad_X_test)
     )
     with open(tname, "w+b") as f:
-        dump_svmlight_file(bad_X_test, y_test, f)
+        sklearn.datasets.dump_svmlight_file(bad_X_test, y_test, f)
     np.testing.assert_raises_regex(lgb.basic.LightGBMError, bad_shape_error_msg, bst.predict, tname)
     with open(tname, "w+b") as f:
-        dump_svmlight_file(X_test, y_test, f, zero_based=False)
+        sklearn.datasets.dump_svmlight_file(X_test, y_test, f, zero_based=False)
     np.testing.assert_raises_regex(lgb.basic.LightGBMError, bad_shape_error_msg, bst.predict, tname)
+
+
+def test_reset_parameter_on_loaded_model(tmp_path):
+    X, y = load_breast_cancer(return_X_y=True)
+    bst = lgb.train(
+        {"objective": "binary", "learning_rate": 0.1, "num_threads": 1}, lgb.Dataset(X, label=y), num_boost_round=2
+    )
+    model_file = tmp_path / "model.txt"
+    bst.save_model(model_file)
+    loaded = lgb.Booster(model_file=model_file)
+    expected = loaded.predict(X)
+    assert loaded.params["learning_rate"] == 0.1
+    assert "some_unrecognized_param" not in loaded.params
+    assert loaded._get_loaded_param() == loaded.params
+    expected_params = loaded.params.copy()
+
+    for params in [{"some_unrecognized_param": 123456789}, {"learning_rate": 0.2}]:
+        loaded.reset_parameter(params)
+        expected_params.update(params)
+        assert loaded.params == expected_params
+
+        # Reload to read the current C++ configuration instead of the parameters saved at load time.
+        reloaded = lgb.Booster(model_str=loaded.model_to_string())
+        assert reloaded.params["learning_rate"] == expected_params["learning_rate"]
+        assert "some_unrecognized_param" not in reloaded.params
+        np_assert_array_equal(loaded.predict(X), expected, strict=True)
 
 
 def test_booster_rollback_one_iter(rng):
@@ -316,8 +349,9 @@ def test_save_binary_raises_on_truncated_write(tmp_path, rng):
 
 
 def test_subset_group():
+    sklearn = pytest.importorskip("sklearn")
     rank_example_dir = Path(__file__).absolute().parents[2] / "examples" / "lambdarank"
-    X_train, y_train = load_svmlight_file(str(rank_example_dir / "rank.train"))
+    X_train, y_train = sklearn.datasets.load_svmlight_file(str(rank_example_dir / "rank.train"))
     q_train = np.loadtxt(str(rank_example_dir / "rank.train.query"))
     lgb_train = lgb.Dataset(X_train, y_train, group=q_train)
     assert len(lgb_train.get_group()) == 201
@@ -895,6 +929,81 @@ def test_no_copy_when_single_float_dtype_dataframe(dtype, feature_name, rng):
     assert np.shares_memory(X, built_data)
 
 
+@pytest.mark.parametrize("feature_name", [["x1"], [42], "auto"])
+@pytest.mark.parametrize("categories", ["seen", "unseen"])
+def test_categorical_code_conversion_doesnt_modify_original_data(feature_name, categories, rng):
+    pd = pytest.importorskip("pandas")
+    X = rng.choice(a=["a", "b"], size=(100, 1))
+    column_name = "a" if feature_name == "auto" else feature_name[0]
+    df = pd.DataFrame(X.copy(), columns=[column_name], dtype="category")
+    if categories == "seen":
+        pandas_categorical = [["a", "b"]]
+    else:
+        pandas_categorical = [["a"]]
+    data = lgb.basic._data_from_pandas(
+        data=df,
+        feature_name=feature_name,
+        categorical_feature="auto",
+        pandas_categorical=pandas_categorical,
+    )[0]
+    # check that the original data wasn't modified
+    np.testing.assert_equal(df[column_name], X[:, 0])
+    # check that the built data has the codes
+    if categories == "seen":
+        # if all categories were seen during training we just take the codes
+        codes = df[column_name].cat.codes
+    else:
+        # if we only saw 'a' during training we just replace its code
+        # and leave the rest as nan
+        a_code = df[column_name].cat.categories.get_loc("a")
+        codes = np.where(df[column_name] == "a", a_code, np.nan)
+    np.testing.assert_equal(codes, data[:, 0])
+
+
+def test_pandas_categorical_json_serialization_works(rng):
+    # Some 'numpy' types aren't JSON-serializable by default, this checks
+    # that having them in pandas_categorical doesn't cause issues for JSON
+    # serialization of models.
+    pd = pytest.importorskip("pandas")
+    df = pd.DataFrame(
+        {
+            "np_float": pd.Categorical(np.array([1.1, 2.2, 3.3], dtype=np.float32)),
+            "np_bool": pd.Categorical(np.array([True, False, False], dtype=np.bool_)),
+            "np_int": pd.Categorical(np.array([1, 2, 3], dtype=np.int64)),
+        }
+    )
+
+    # Confirm that the array dtypes also become the category dtypes,
+    # with some allowance for precision differences in older pandas versions,
+    # like 'np._bool_' arrays being stored as "Object" dtype.
+    assert df["np_float"].dtype.categories.dtype in (np.float32, np.float64)
+    assert df["np_bool"].dtype.categories.dtype in (np.bool_, np.dtype("O"))
+    assert df["np_int"].dtype.categories.dtype == np.int64
+
+    dtrain = lgb.Dataset(
+        df,
+        label=rng.random((df.shape[0],)),
+        categorical_feature=["np_float", "np_bool", "np_int"],
+    )
+    dtrain.construct()
+
+    bst = lgb.train(
+        params={
+            "objective": "regression",
+        },
+        train_set=dtrain,
+        num_boost_round=2,
+    )
+
+    # JSON serialization works
+    json_data = bst.dump_model()
+    assert json_data["pandas_categorical"] == [
+        [float(np.float32(1.1)), float(np.float32(2.2)), float(np.float32(3.3))],
+        [False, True],
+        [1, 2, 3],
+    ]
+
+
 @pytest.mark.parametrize("min_data_in_bin", [2, 10])
 def test_feature_num_bin(min_data_in_bin, rng):
     X = np.vstack(
@@ -980,6 +1089,24 @@ def test_set_feature_name_updates_has_non_default_feature_names(rng):
     ds.set_feature_name(["a", "b", "c"])
     assert ds._has_non_default_feature_names is True
     assert ds.get_feature_name() == ["a", "b", "c"]
+
+
+@pytest.mark.parametrize(
+    ("feature_name", "duplicate_name"),
+    [
+        (["a", "a"], "a"),
+        (["_", " "], "_"),
+        (["a b", "a_b"], "a_b"),
+    ],
+)
+def test_construct_raises_informative_error_on_duplicate_feature_names(rng, feature_name, duplicate_name):
+    X = rng.uniform(size=(10, len(feature_name)))
+    expected_error = (
+        f"After preprocessing (including replacing whitespace with '_'), multiple features named '{duplicate_name}' "
+        "found in Dataset. Ensure that feature names are unique and do not contain whitespace."
+    )
+    with pytest.raises(lgb.basic.LightGBMError, match=f"^{re.escape(expected_error)}$"):
+        lgb.Dataset(X, feature_name=feature_name).construct()
 
 
 # NOTE: this intentionally contains values where num_leaves <, ==, and > (max_depth^2)

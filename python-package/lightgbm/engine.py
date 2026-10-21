@@ -110,7 +110,7 @@ def train(
     train_set: Dataset,
     num_boost_round: int = 100,
     valid_sets: Optional[List[Dataset]] = None,
-    valid_names: Optional[List[str]] = None,
+    valid_names: Optional[Union[str, List[str]]] = None,
     feval: Optional[Union[_LGBM_CustomMetricFunction, List[_LGBM_CustomMetricFunction]]] = None,
     init_model: Optional[Union[str, Path, Booster]] = None,
     keep_training_booster: bool = False,
@@ -129,7 +129,7 @@ def train(
         Number of boosting iterations.
     valid_sets : list of Dataset, or None, optional (default=None)
         List of data to be evaluated on during training.
-    valid_names : list of str, or None, optional (default=None)
+    valid_names : str, list of str, or None, optional (default=None)
         Names of ``valid_sets``.
     feval : callable, list of callable, or None, optional (default=None)
         Customized evaluation function.
@@ -202,6 +202,15 @@ def train(
                     f"Item {i} has type '{type(valid_item).__name__}'."
                 )
 
+    if isinstance(valid_names, str):
+        valid_names = [valid_names]
+    if valid_names is not None:
+        for i, valid_name in enumerate(valid_names):
+            if not isinstance(valid_name, str):
+                raise TypeError(
+                    f"Every item in valid_names must be a string. Item {i} has type '{type(valid_name).__name__}'."
+                )
+
     # create predictor first
     params = copy.deepcopy(params)
     params = _choose_param_value(
@@ -249,8 +258,6 @@ def train(
     if valid_sets is not None:
         if isinstance(valid_sets, Dataset):
             valid_sets = [valid_sets]
-        if isinstance(valid_names, str):
-            valid_names = [valid_names]
         for i, valid_data in enumerate(valid_sets):
             # reduce cost for prediction training data
             if valid_data is train_set:

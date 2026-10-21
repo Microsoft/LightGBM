@@ -43,9 +43,10 @@ cloudpickle = "2.2.*"
 h5py = ">=3.10"
 ipywidgets = ">=8.1.2"
 jupyterlab = "4.5.*"
-pluggy = "1.0.*"
+pluggy = "1.2.*"
 psutil = "5.9.3.*"
 pytest = "7.4.*"
+pytest-cov = "6.*"
 
 # dask dependencies are not needed on Windows, so split out separately here
 [feature.py310.target.unix.dependencies]

@@ -4,7 +4,6 @@ import itertools
 import json
 import math
 import pickle
-import platform
 import random
 import re
 from pathlib import Path
@@ -2020,12 +2019,14 @@ def test_contribs():
     )
 
 
-def test_contribs_sparse():
+# Seed 0 reproduces a sparse/dense rounding mismatch when FMA is enabled.
+@pytest.mark.parametrize("data_seed", [None, 0], ids=["randomized", "fixed_seed"])
+def test_contribs_sparse(data_seed):
     n_features = 20
     n_samples = 100
     # generate CSR sparse dataset
     X, y = make_multilabel_classification(
-        n_samples=n_samples, sparse=True, n_features=n_features, n_classes=1, n_labels=2
+        n_samples=n_samples, sparse=True, n_features=n_features, n_classes=1, n_labels=2, random_state=data_seed
     )
     y = y.flatten()
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
@@ -2040,29 +2041,24 @@ def test_contribs_sparse():
     # convert data to dense and get back same contribs
     contribs_dense = gbm.predict(X_test.toarray(), pred_contrib=True)
     # validate the values are the same
-    if platform.machine() == "aarch64":
-        np.testing.assert_allclose(contribs_csr.toarray(), contribs_dense, rtol=1, atol=1e-12)
-    else:
-        np.testing.assert_allclose(contribs_csr.toarray(), contribs_dense)
+    np.testing.assert_allclose(contribs_csr.toarray(), contribs_dense)
     assert np.linalg.norm(gbm.predict(X_test, raw_score=True) - np.sum(contribs_dense, axis=1)) < 1e-4
     # validate using CSC matrix
     X_test_csc = X_test.tocsc()
     contribs_csc = gbm.predict(X_test_csc, pred_contrib=True)
     assert isspmatrix_csc(contribs_csc)
     # validate the values are the same
-    if platform.machine() == "aarch64":
-        np.testing.assert_allclose(contribs_csc.toarray(), contribs_dense, rtol=1, atol=1e-12)
-    else:
-        np.testing.assert_allclose(contribs_csc.toarray(), contribs_dense)
+    np.testing.assert_allclose(contribs_csc.toarray(), contribs_dense)
 
 
-def test_contribs_sparse_multiclass():
+@pytest.mark.parametrize("data_seed", [None, 0], ids=["randomized", "fixed_seed"])
+def test_contribs_sparse_multiclass(data_seed):
     n_features = 20
     n_samples = 100
     n_labels = 4
     # generate CSR sparse dataset
     X, y = make_multilabel_classification(
-        n_samples=n_samples, sparse=True, n_features=n_features, n_classes=1, n_labels=n_labels
+        n_samples=n_samples, sparse=True, n_features=n_features, n_classes=1, n_labels=n_labels, random_state=data_seed
     )
     y = y.flatten()
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
@@ -2084,10 +2080,7 @@ def test_contribs_sparse_multiclass():
     contribs_csr_arr_re = contribs_csr_array.reshape(
         (contribs_csr_array.shape[0], contribs_csr_array.shape[1] * contribs_csr_array.shape[2])
     )
-    if platform.machine() in {"aarch64", "ppc64le"}:
-        np.testing.assert_allclose(contribs_csr_arr_re, contribs_dense, rtol=1, atol=1e-12)
-    else:
-        np.testing.assert_allclose(contribs_csr_arr_re, contribs_dense)
+    np.testing.assert_allclose(contribs_csr_arr_re, contribs_dense)
     contribs_dense_re = contribs_dense.reshape(contribs_csr_array.shape)
     assert np.linalg.norm(gbm.predict(X_test, raw_score=True) - np.sum(contribs_dense_re, axis=2)) < 1e-4
     # validate using CSC matrix
@@ -2101,10 +2094,7 @@ def test_contribs_sparse_multiclass():
     contribs_csc_array = contribs_csc_array.reshape(
         (contribs_csc_array.shape[0], contribs_csc_array.shape[1] * contribs_csc_array.shape[2])
     )
-    if platform.machine() in {"aarch64", "ppc64le"}:
-        np.testing.assert_allclose(contribs_csc_array, contribs_dense, rtol=1, atol=1e-12)
-    else:
-        np.testing.assert_allclose(contribs_csc_array, contribs_dense)
+    np.testing.assert_allclose(contribs_csc_array, contribs_dense)
 
 
 @pytest.mark.skipif(
@@ -4895,6 +4885,41 @@ def test_train_raises_informative_error_if_any_valid_sets_are_not_dataset_object
             train_set=lgb.Dataset(X, y),
             valid_sets=[lgb.Dataset(X_valid, y), ([1.0], [2.0]), [5.6, 5.7, 5.8]],
         )
+
+
+def test_train_rejects_invalid_valid_names():
+    X, y = make_synthetic_regression(n_samples=100, n_features=2)
+    train_set = lgb.Dataset(X, label=y)
+    valid_set = lgb.Dataset(X.copy(), label=y.copy())
+    with pytest.raises(TypeError, match=r"Every item in valid_names must be a string\. Item 0 has type 'Dataset'\."):
+        lgb.train(
+            {"objective": "regression", "verbosity": -1, "num_threads": 1},
+            train_set,
+            num_boost_round=1,
+            valid_sets=[train_set, valid_set],
+            valid_names=[train_set, "valid"],
+        )
+    with pytest.raises(TypeError, match=r"Every item in valid_names must be a string\. Item 1 has type 'Dataset'\."):
+        lgb.train(
+            {"objective": "regression", "verbosity": -1, "num_threads": 1},
+            train_set,
+            num_boost_round=1,
+            valid_sets=[train_set, valid_set],
+            valid_names=["train", valid_set],
+        )
+
+
+def test_train_valid_names_accepts_str_subclass():
+    X, y = make_synthetic_regression(n_samples=100, n_features=2)
+    train_set = lgb.Dataset(X, label=y)
+    booster = lgb.train(
+        {"objective": "regression", "verbosity": -1, "num_threads": 1},
+        train_set,
+        num_boost_round=1,
+        valid_sets=[train_set],
+        valid_names=np.str_("flamingo"),
+    )
+    assert list(booster.best_score) == ["flamingo"]
 
 
 def test_train_raises_informative_error_for_params_of_wrong_type():

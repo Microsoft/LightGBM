@@ -348,6 +348,7 @@ instance/
 .scrapy
 
 # Sphinx documentation
+docs/CONTRIBUTING.md
 docs/_build/
 docs/pythonapi/
 *.flag

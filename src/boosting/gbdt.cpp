@@ -822,11 +822,11 @@ void GBDT::ResetConfig(const Config* config) {
   shrinkage_rate_ = new_config->learning_rate;
   if (tree_learner_ != nullptr) {
     tree_learner_->ResetConfig(new_config.get());
-  }
 
-  boosting_on_gpu_ = objective_function_ != nullptr && objective_function_->IsCUDAObjective() &&
-                    !data_sample_strategy_->IsHessianChange();  // for sample strategy with Hessian change, fall back to boosting on CPU
-  tree_learner_->ResetBoostingOnGPU(boosting_on_gpu_);
+    boosting_on_gpu_ = objective_function_ != nullptr && objective_function_->IsCUDAObjective() &&
+                      !data_sample_strategy_->IsHessianChange();  // for sample strategy with Hessian change, fall back to boosting on CPU
+    tree_learner_->ResetBoostingOnGPU(boosting_on_gpu_);
+  }
 
   if (train_data_ != nullptr) {
     data_sample_strategy_->ResetSampleConfig(new_config.get(), false);

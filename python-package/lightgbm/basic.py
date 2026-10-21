@@ -456,16 +456,6 @@ def _c_array(ctype: type, values: List[Any]) -> ctypes.Array:
     return (ctype * len(values))(*values)  # type: ignore[operator]
 
 
-def _json_default_with_numpy(obj: Any) -> Any:
-    """Convert numpy classes to JSON serializable objects."""
-    if isinstance(obj, (np.integer, np.floating, np.bool_)):
-        return obj.item()
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    else:
-        return obj
-
-
 def _to_string(x: Union[int, float, str, List]) -> str:
     if isinstance(x, list):
         val_list = ",".join(str(val) for val in x)
@@ -802,7 +792,7 @@ def _dump_pandas_categorical(
     pandas_categorical: Optional[List[List]],
     file_name: Optional[Union[str, Path]] = None,
 ) -> str:
-    categorical_json = json.dumps(pandas_categorical, default=_json_default_with_numpy)
+    categorical_json = json.dumps(pandas_categorical)
     pandas_str = f"\npandas_categorical:{categorical_json}\n"
     if file_name is not None:
         with open(file_name, "a") as f:
@@ -4802,12 +4792,7 @@ class Booster:
                 )
             )
         ret = json.loads(string_buffer.value.decode("utf-8"), object_hook=object_hook)
-        ret["pandas_categorical"] = json.loads(
-            json.dumps(
-                self.pandas_categorical,
-                default=_json_default_with_numpy,
-            )
-        )
+        ret["pandas_categorical"] = json.loads(json.dumps(self.pandas_categorical))
         return ret
 
     def predict(

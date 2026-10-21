@@ -195,7 +195,7 @@ jobs:
             produces-artifacts: 'true'
             artifact-name: 'macosx-amd64-wheel'
             python_version: '3.13'
-          - os: macos-14
+          - os: macos-15
             task: bdist
             compiler: clang
             method: wheel
@@ -311,7 +311,7 @@ jobs:
           python-version: ${{ matrix.python_version }}
       - name: Set up 'pixi' for jobs that need it
         if: matrix.pixi-env != ''
-        uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347  # v0.10.1
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e  # v0.10.2
         with:
           environments: ${{ matrix.pixi-env }}
       - name: Setup and run tests on Linux and macOS
@@ -457,6 +457,44 @@ jobs:
             python:3.14 \
             /bin/bash ./.ci/test-python-latest.sh
 
+  test-minimal-deps:
+    name: Python - minimal dependencies (manylinux_2_28, Python ${{ matrix.python_version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        python_version:
+          - '3.14'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 5
+          persist-credentials: false
+          submodules: true
+      - name: Create wheel
+        run: |
+          docker run \
+            --rm \
+            --env CMAKE_BUILD_PARALLEL_LEVEL=${{ env.CMAKE_BUILD_PARALLEL_LEVEL }} \
+            -v $(pwd):/opt/lgb-build \
+            -w /opt/lgb-build \
+            lightgbm/vsts-agent:manylinux_2_28_x86_64 \
+            /bin/bash -c '
+              export PATH=/opt/miniforge/bin:$PATH
+              pip install "build>=0.10"
+              sh ./build-python.sh bdist_wheel --nomp
+            '
+      - name: Test compatibility
+        run: |
+          docker run \
+            --rm \
+            -v $(pwd):/opt/lgb-build \
+            -w /opt/lgb-build \
+            python:${{ matrix.python_version }} \
+            /bin/bash ./.ci/test-python-minimal-deps.sh
+
   test-old-versions:
     name: Python - oldest supported versions (manylinux_2_28, Python ${{ matrix.python_version }})
     runs-on: ubuntu-latest
@@ -548,11 +586,12 @@ jobs:
       - test-latest-versions
       - test
       - test-linux-aarch64
+      - test-minimal-deps
       - test-old-versions
     permissions:
       statuses: read
     steps:
       - name: Note that all tests succeeded
-        uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe  # v1.2.2
+        uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35  # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}
