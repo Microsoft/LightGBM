@@ -240,13 +240,17 @@ Core Parameters
 
    -  refer to `Distributed Learning Guide <./Parallel-Learning-Guide.rst>`__ to get more details
 
--  ``num_threads`` :raw-html:`<a id="num_threads" title="Permalink to this parameter" href="#num_threads">&#x1F517;&#xFE0E;</a>`, default = ``0``, type = int, aliases: ``num_thread``, ``nthread``, ``nthreads``, ``n_jobs``
+-  ``num_threads`` :raw-html:`<a id="num_threads" title="Permalink to this parameter" href="#num_threads">&#x1F517;&#xFE0E;</a>`, default = ``None``, type = int, aliases: ``num_thread``, ``nthread``, ``nthreads``, ``n_jobs``
 
    -  used only in ``train``, ``prediction`` and ``refit`` tasks or in correspondent functions of language-specific packages
 
    -  number of threads for LightGBM
 
+   -  ``None`` means number of physical cores
+
    -  ``0`` means default number of threads in OpenMP
+
+   -  Negative integers are interpreted as following joblib's formula (``n_cpus + 1 + n_jobs``), just like scikit-learn (so e.g. -1 means using all cores, physical or logical).
 
    -  for the best speed, set this to the number of **real CPU cores**, not the number of threads (most CPUs use `hyper-threading <https://en.wikipedia.org/wiki/Hyper-threading>`__ to generate 2 threads per CPU core)
 
