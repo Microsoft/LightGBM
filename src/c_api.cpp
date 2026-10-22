@@ -332,6 +332,11 @@ class Booster {
       Log::Fatal(
           "Cannot change group_column after constructed Dataset handle.");
     }
+    if (new_param.count("position_column") &&
+        new_config.position_column != old_config.position_column) {
+      Log::Fatal(
+          "Cannot change position_column after constructed Dataset handle.");
+    }
     if (new_param.count("ignore_column") &&
         new_config.ignore_column != old_config.ignore_column) {
       Log::Fatal(
@@ -1126,13 +1131,14 @@ int LGBM_DatasetInitStreaming(DatasetHandle dataset,
                               int32_t has_weights,
                               int32_t has_init_scores,
                               int32_t has_queries,
+                              int32_t has_positions,
                               int32_t nclasses,
                               int32_t nthreads,
                               int32_t omp_max_threads) {
   API_BEGIN();
   auto p_dataset = reinterpret_cast<Dataset*>(dataset);
   auto num_data = p_dataset->num_data();
-  p_dataset->InitStreaming(num_data, has_weights, has_init_scores, has_queries, nclasses, nthreads, omp_max_threads);
+  p_dataset->InitStreaming(num_data, has_weights, has_init_scores, has_queries, has_positions, nclasses, nthreads, omp_max_threads);
   p_dataset->set_wait_for_manual_finish(true);
   API_END();
 }
@@ -1175,6 +1181,7 @@ int LGBM_DatasetPushRowsWithMetadata(DatasetHandle dataset,
                                      const float* weights,
                                      const double* init_scores,
                                      const int32_t* queries,
+                                     const int32_t* positions,
                                      int32_t tid) {
   API_BEGIN();
 #ifdef LABEL_T_USE_DOUBLE
@@ -1203,7 +1210,7 @@ int LGBM_DatasetPushRowsWithMetadata(DatasetHandle dataset,
   }
   OMP_THROW_EX();
 
-  p_dataset->InsertMetadataAt(start_row, nrow, labels, weights, init_scores, queries);
+  p_dataset->InsertMetadataAt(start_row, nrow, labels, weights, init_scores, queries, positions);
 
   if (!p_dataset->wait_for_manual_finish() && (start_row + nrow == p_dataset->num_data())) {
     p_dataset->FinishLoad();
@@ -1257,6 +1264,7 @@ int LGBM_DatasetPushRowsByCSRWithMetadata(DatasetHandle dataset,
                                           const float* weights,
                                           const double* init_scores,
                                           const int32_t* queries,
+                                          const int32_t* positions,
                                           int32_t tid) {
   API_BEGIN();
 #ifdef LABEL_T_USE_DOUBLE
@@ -1286,7 +1294,7 @@ int LGBM_DatasetPushRowsByCSRWithMetadata(DatasetHandle dataset,
   }
   OMP_THROW_EX();
 
-  p_dataset->InsertMetadataAt(static_cast<int32_t>(start_row), nrow, labels, weights, init_scores, queries);
+  p_dataset->InsertMetadataAt(static_cast<int32_t>(start_row), nrow, labels, weights, init_scores, queries, positions);
 
   if (!p_dataset->wait_for_manual_finish() && (start_row + nrow == static_cast<int64_t>(p_dataset->num_data()))) {
     p_dataset->FinishLoad();

@@ -927,6 +927,18 @@ Dataset Parameters
 
    -  **Note**: index starts from ``0`` and it doesn't count the label column when passing type is ``int``, e.g. when label is column\_0 and query\_id is column\_1, the correct parameter is ``query=0``
 
+-  ``position_column`` :raw-html:`<a id="position_column" title="Permalink to this parameter" href="#position_column">&#x1F517;&#xFE0E;</a>`, default = ``""``, type = int or string, aliases: ``position``, ``position_id``
+
+   -  used to specify the position/position id column
+
+   -  use number for index, e.g. ``position=0`` means column\_0 is the position id
+
+   -  add a prefix ``name:`` for column name, e.g. ``position=name:position_id``
+
+   -  **Note**: works only in case of loading data directly from text file
+
+   -  **Note**: index starts from ``0`` and it doesn't count the label column when passing type is ``int``, e.g. when label is column\_0 and position\_id is column\_1, the correct parameter is ``position=0``
+
 -  ``ignore_column`` :raw-html:`<a id="ignore_column" title="Permalink to this parameter" href="#ignore_column">&#x1F517;&#xFE0E;</a>`, default = ``""``, type = multi-int or string, aliases: ``ignore_feature``, ``blacklist``
 
    -  used to specify some ignoring columns in training

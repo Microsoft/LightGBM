@@ -1076,6 +1076,7 @@ test_that("all parameters are stored correctly with save_model_to_string()", {
         , "[label_column: ]"
         , "[weight_column: ]"
         , "[group_column: ]"
+        , "[position_column: ]"
         , "[ignore_column: ]"
         , "[categorical_feature: ]"
         , "[forcedbins_filename: ]"

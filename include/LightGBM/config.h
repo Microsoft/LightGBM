@@ -769,6 +769,15 @@ struct Config {
   // desc = **Note**: index starts from ``0`` and it doesn't count the label column when passing type is ``int``, e.g. when label is column\_0 and query\_id is column\_1, the correct parameter is ``query=0``
   std::string group_column = "";
 
+  // type = int or string
+  // alias = position, position_id
+  // desc = used to specify the position/position id column
+  // desc = use number for index, e.g. ``position=0`` means column\_0 is the position id
+  // desc = add a prefix ``name:`` for column name, e.g. ``position=name:position_id``
+  // desc = **Note**: works only in case of loading data directly from text file
+  // desc = **Note**: index starts from ``0`` and it doesn't count the label column when passing type is ``int``, e.g. when label is column\_0 and position\_id is column\_1, the correct parameter is ``position=0``
+  std::string position_column = "";
+
   // type = multi-int or string
   // alias = ignore_feature, blacklist
   // desc = used to specify some ignoring columns in training

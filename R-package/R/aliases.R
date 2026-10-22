@@ -29,6 +29,7 @@
         , "two_round"
         , "use_missing"
         , "weight_column"
+        , "position_column"
         , "zero_as_missing"
     )])
 }

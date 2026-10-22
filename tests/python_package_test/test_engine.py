@@ -896,6 +896,103 @@ def test_ranking_with_position_information_with_dataset_constructor(tmp_path):
     assert positions_from_get.shape == positions.shape
 
 
+# Appends queries and positions to the dataset file
+def append_queries_and_positions_to_file(file_dataset_in, file_query_in, positions, out_path):
+    queries = []
+    query_id = 0
+    with open(file_query_in, "r") as f:
+        for line in f:
+            query_count = int(line.strip())
+            queries.extend([query_id] * query_count)
+            query_id += 1
+    with open(file_dataset_in, "r") as f_in:
+        with open(out_path, "w") as f_out:
+            if positions is not None:
+                for line, query, position in zip(f_in, queries, positions, strict=True):
+                    f_out.write(f"{line.strip()} 301:{query} 302:{position}\n")
+            else:
+                for line, query in zip(f_in, queries, strict=True):
+                    # adding dummy position
+                    f_out.write(f"{line.strip()} 301:{query} 302:1\n")
+
+
+@pytest.mark.skipif(
+    BuildInfo.has_cuda,
+    reason="Positions in learning to rank is not supported in CUDA version yet",
+)
+def test_ranking_with_position_and_group_information_in_single_file(tmp_path):
+    rank_example_dir = Path(__file__).absolute().parents[2] / "examples" / "lambdarank"
+
+    # simulate position bias for the train dataset and put the train dataset with biased labels to temp directory
+    positions = simulate_position_bias(
+        str(rank_example_dir / "rank.train"),
+        str(rank_example_dir / "rank.train.query"),
+        str(tmp_path / "rank.intermediate"),
+        baseline_feature=34,
+    )
+
+    # append queries amd positions to the dataset file. They will have 301 and 302 feature indexes
+    append_queries_and_positions_to_file(
+        str(tmp_path / "rank.intermediate"),
+        str(rank_example_dir / "rank.train.query"),
+        positions,
+        str(tmp_path / "rank.train"),
+    )
+    append_queries_and_positions_to_file(
+        str(rank_example_dir / "rank.test"),
+        str(rank_example_dir / "rank.test.query"),
+        None,
+        str(tmp_path / "rank.test"),
+    )
+
+    # Training with single file
+    params = {
+        "objective": "lambdarank",
+        "verbose": -1,
+        "eval_at": [3],
+        "metric": "ndcg",
+        "bagging_freq": 1,
+        "bagging_fraction": 0.9,
+        "min_data_in_leaf": 50,
+        "min_sum_hessian_in_leaf": 5.0,
+        "num_threads": 1,
+        "gpu_use_dp": True,
+        "group_column": 301,
+        "position_column": 302,
+        "label_column": 0,
+    }
+
+    lgb_train = lgb.Dataset(str(tmp_path / "rank.train"), params=params)
+    lgb_valid = [lgb_train.create_valid(str(tmp_path / "rank.test"), params=params)]
+    gbm_unbiased_with_single_file = lgb.train(params, lgb_train, valid_sets=lgb_valid, num_boost_round=50)
+
+    # Training with query files and list of positions
+    params = {
+        "objective": "lambdarank",
+        "verbose": -1,
+        "eval_at": [3],
+        "metric": "ndcg",
+        "bagging_freq": 1,
+        "bagging_fraction": 0.9,
+        "min_data_in_leaf": 50,
+        "min_sum_hessian_in_leaf": 5.0,
+        "num_threads": 1,
+        "gpu_use_dp": True,
+        # ignore position and group column
+        "ignore_column": "301,302",
+    }
+    copyfile(str(rank_example_dir / "rank.train.query"), str(tmp_path / "rank.train.query"))
+    copyfile(str(rank_example_dir / "rank.test.query"), str(tmp_path / "rank.test.query"))
+    lgb_train = lgb.Dataset(str(tmp_path / "rank.train"), params=params, position=positions)
+    lgb_valid = [lgb_train.create_valid(str(tmp_path / "rank.test"))]
+    gbm_unbiased_with_multiple_files = lgb.train(params, lgb_train, valid_sets=lgb_valid, num_boost_round=50)
+    # the performance of the unbiased LambdaMART when using query files and list of positions should match the performance of the unbiased LambdaMART when using single file with group and position columns
+    assert (
+        gbm_unbiased_with_multiple_files.best_score["valid_0"]["ndcg@3"]
+        == gbm_unbiased_with_single_file.best_score["valid_0"]["ndcg@3"]
+    )
+
+
 def test_early_stopping():
     X, y = load_breast_cancer(return_X_y=True)
     params = {"objective": "binary", "metric": "binary_logloss", "verbose": -1}
@@ -1799,6 +1896,7 @@ def test_all_expected_params_are_written_out_to_model_text(tmp_path):
         "[label_column: ]",
         "[weight_column: ]",
         "[group_column: ]",
+        "[position_column: ]",
         "[ignore_column: ]",
         "[categorical_feature: ]",
         "[forcedbins_filename: ]",
@@ -3601,6 +3699,7 @@ def test_dataset_update_params(rng):
         "label_column": 0,
         "weight_column": 0,
         "group_column": 0,
+        "position_column": 0,
         "ignore_column": 0,
         "min_data_in_leaf": 10,
         "linear_tree": False,
@@ -3625,6 +3724,7 @@ def test_dataset_update_params(rng):
         "label_column": 1,
         "weight_column": 1,
         "group_column": 1,
+        "position_column": 1,
         "ignore_column": 1,
         "forcedbins_filename": "/some/path/forcedbins.json",
         "min_data_in_leaf": 2,

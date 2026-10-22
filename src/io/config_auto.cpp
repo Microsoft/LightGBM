@@ -140,6 +140,8 @@ const std::unordered_map<std::string, std::string>& Config::alias_table() {
   {"query_column", "group_column"},
   {"query", "group_column"},
   {"query_id", "group_column"},
+  {"position", "position_column"},
+  {"position_id", "position_column"},
   {"ignore_feature", "ignore_column"},
   {"blacklist", "ignore_column"},
   {"cat_feature", "categorical_feature"},
@@ -281,6 +283,7 @@ const std::unordered_set<std::string>& Config::parameter_set() {
   "label_column",
   "weight_column",
   "group_column",
+  "position_column",
   "ignore_column",
   "categorical_feature",
   "forcedbins_filename",
@@ -560,6 +563,8 @@ void Config::GetMembersFromString(const std::unordered_map<std::string, std::str
 
   GetString(params, "group_column", &group_column);
 
+  GetString(params, "position_column", &position_column);
+
   GetString(params, "ignore_column", &ignore_column);
 
   GetString(params, "categorical_feature", &categorical_feature);
@@ -764,6 +769,7 @@ std::string Config::SaveMembersToString() const {
   str_buf << "[label_column: " << label_column << "]\n";
   str_buf << "[weight_column: " << weight_column << "]\n";
   str_buf << "[group_column: " << group_column << "]\n";
+  str_buf << "[position_column: " << position_column << "]\n";
   str_buf << "[ignore_column: " << ignore_column << "]\n";
   str_buf << "[categorical_feature: " << categorical_feature << "]\n";
   str_buf << "[forcedbins_filename: " << forcedbins_filename << "]\n";
@@ -894,6 +900,7 @@ const std::unordered_map<std::string, std::vector<std::string>>& Config::paramet
     {"label_column", {"label"}},
     {"weight_column", {"weight"}},
     {"group_column", {"group", "group_id", "query_column", "query", "query_id"}},
+    {"position_column", {"position", "position_id"}},
     {"ignore_column", {"ignore_feature", "blacklist"}},
     {"categorical_feature", {"cat_feature", "categorical_column", "cat_column", "categorical_features"}},
     {"forcedbins_filename", {}},
@@ -1040,6 +1047,7 @@ const std::unordered_map<std::string, std::string>& Config::ParameterTypes() {
     {"label_column", "string"},
     {"weight_column", "string"},
     {"group_column", "string"},
+    {"position_column", "string"},
     {"ignore_column", "vector<int>"},
     {"categorical_feature", "vector<int>"},
     {"forcedbins_filename", "string"},

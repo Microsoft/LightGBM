@@ -709,6 +709,27 @@ def test_set_position_updates_self_position_with_remapped_int32_values():
     np_assert_array_equal(dtrain2.get_field("position"), expected, strict=True)
 
 
+@pytest.mark.skipif(
+    BuildInfo.has_cuda,
+    reason="Positions in learning to rank is not supported in CUDA version yet",
+)
+def test_string_position_file(capsys, tmp_path):
+    data_path = tmp_path / "data.txt"
+    data_path.write_text("0\t1\n1\t2\n0\t3\n1\t4\n", encoding="utf-8")
+    position_path = tmp_path / "data.txt.position"
+    position_path.write_text("top%n\nsidebar%s\ntop%n\nfooter%p\n", encoding="utf-8")
+
+    params = {"min_data_in_bin": 1, "min_data_in_leaf": 1, "verbosity": -1}
+    dataset = lgb.Dataset(data_path, params=params).construct()
+    np_assert_array_equal(dataset.get_position(), np.array([0, 1, 0, 2], dtype=np.int32), strict=True)
+    dataset.set_group([4])
+
+    lgb.train({**params, "objective": "lambdarank", "verbosity": 2}, dataset, num_boost_round=1)
+    log_lines = capsys.readouterr().out
+    for position_id in ("top%n", "sidebar%s", "footer%p"):
+        assert position_id in log_lines
+
+
 def test_choose_param_value():
     original_params = {
         "local_listen_port": 1234,

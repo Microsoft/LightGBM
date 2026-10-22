@@ -178,6 +178,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetCreateByReference(const DatasetHandle referenc
  * \param has_weights Whether the dataset has Metadata weights
  * \param has_init_scores Whether the dataset has Metadata initial scores
  * \param has_queries Whether the dataset has Metadata queries/groups
+ * \param has_positions Whether the dataset has Metadata positions
  * \param nclasses Number of initial score classes
  * \param nthreads Number of external threads that will use the PushRows APIs
  * \param omp_max_threads Maximum number of OpenMP threads (-1 for default)
@@ -187,6 +188,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetInitStreaming(DatasetHandle dataset,
                                                 int32_t has_weights,
                                                 int32_t has_init_scores,
                                                 int32_t has_queries,
+                                                int32_t has_positions,
                                                 int32_t nclasses,
                                                 int32_t nthreads,
                                                 int32_t omp_max_threads);
@@ -242,6 +244,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetPushRows(DatasetHandle dataset,
  * \param weight Optional pointer to array with nrow weights
  * \param init_score Optional pointer to array with nrow*nclasses initial scores, in column format
  * \param query Optional pointer to array with nrow query values
+ * \param position Optional pointer to array with nrow position values
  * \param tid The id of the calling thread, from 0...N-1 threads
  * \return 0 when succeed, -1 when failure happens
  */
@@ -255,6 +258,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetPushRowsWithMetadata(DatasetHandle dataset,
                                                        const float* weight,
                                                        const double* init_score,
                                                        const int32_t* query,
+                                                       const int32_t* position,
                                                        int32_t tid);
 
 /*!
@@ -297,6 +301,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetPushRowsByCSR(DatasetHandle dataset,
  * \param weight Optional pointer to array with nindptr-1 weights
  * \param init_score Optional pointer to array with (nindptr-1)*nclasses initial scores, in column format
  * \param query Optional pointer to array with nindptr-1 query values
+ * \param position Optional pointer to array with nindptr-1 position values
  * \param tid The id of the calling thread, from 0...N-1 threads
  * \return 0 when succeed, -1 when failure happens
  */
@@ -313,6 +318,7 @@ LIGHTGBM_C_EXPORT int LGBM_DatasetPushRowsByCSRWithMetadata(DatasetHandle datase
                                                             const float* weight,
                                                             const double* init_score,
                                                             const int32_t* query,
+                                                            const int32_t* position,
                                                             int32_t tid);
 
 /*!
