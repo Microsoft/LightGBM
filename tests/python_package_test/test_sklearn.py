@@ -2143,6 +2143,97 @@ def test_multiclass_custom_eval(use_weight):
         np.testing.assert_allclose(metric_value, eval_result[key]["custom_logloss"][-1])
 
 
+@pytest.mark.parametrize("use_weight", [True, False])
+def test_ranker_custom_objective_with_group(use_weight):
+    X, y, group_ids = make_ranking(n_samples=200, n_features=5, group=[20] * 10, random_state=42)
+    group = np.bincount(group_ids)
+    weight = np.full_like(y, 2, dtype=np.float64) if use_weight else None
+
+    seen = {}
+
+    def obj_with_group(y_true, y_pred, sample_weight, group):
+        seen["weight"] = sample_weight
+        seen["group"] = group
+        grad = y_pred - y_true
+        hess = np.ones_like(y_pred)
+        if sample_weight is not None:
+            grad = grad * sample_weight
+            hess = hess * sample_weight
+        return grad, hess
+
+    def obj_without_group(y_true, y_pred, sample_weight):
+        return obj_with_group(y_true, y_pred, sample_weight, None)
+
+    params = {"n_estimators": 5, "num_leaves": 7, "random_state": 42, "n_jobs": 1}
+    model = lgb.LGBMRanker(objective=obj_with_group, **params)
+    model.fit(X, y, group=group, sample_weight=weight)
+
+    # the 4-argument form must receive the query groups from the training Dataset.
+    # strict=False: lightgbm stores groups as int32 and weights as float32 internally.
+    np_assert_array_equal(seen["group"], group, strict=False)
+    if use_weight:
+        np_assert_array_equal(seen["weight"], weight, strict=False)
+    else:
+        assert seen["weight"] is None
+
+    # passing 'group' through must not otherwise change the objective's behavior
+    model_3_args = lgb.LGBMRanker(objective=obj_without_group, **params)
+    model_3_args.fit(X, y, group=group, sample_weight=weight)
+    np_assert_array_equal(model.predict(X), model_3_args.predict(X), strict=True)
+    assert callable(model.objective_)
+
+
+@pytest.mark.parametrize("use_weight", [True, False])
+def test_ranker_custom_eval_metric_with_group(use_weight):
+    X, y, group_ids = make_ranking(n_samples=200, n_features=5, group=[20] * 10, random_state=42)
+    X_valid, y_valid, group_ids_valid = make_ranking(n_samples=100, n_features=5, group=[25] * 4, random_state=7)
+    group = np.bincount(group_ids)
+    group_valid = np.bincount(group_ids_valid)
+    if use_weight:
+        weight = np.full_like(y, 2, dtype=np.float64)
+        weight_valid = np.full_like(y_valid, 3, dtype=np.float64)
+    else:
+        weight = None
+        weight_valid = None
+
+    seen = []
+
+    def eval_with_group(y_true, y_pred, sample_weight, group):
+        seen.append({"weight": sample_weight, "group": group})
+        # a metric that is only computable from the query groups: the number of groups
+        return "num_groups", float(len(group)), False
+
+    model = lgb.LGBMRanker(n_estimators=5, num_leaves=7, random_state=42, n_jobs=1)
+    model.fit(
+        X,
+        y,
+        group=group,
+        sample_weight=weight,
+        eval_X=(X, X_valid),
+        eval_y=(y, y_valid),
+        eval_names=["train", "valid"],
+        eval_group=[group, group_valid],
+        eval_sample_weight=[weight, weight_valid],
+        eval_metric=eval_with_group,
+    )
+
+    # the 4-argument form must receive each validation set's own query groups
+    eval_result = model.evals_result_
+    np.testing.assert_allclose(eval_result["train"]["num_groups"], [len(group)] * 5)
+    np.testing.assert_allclose(eval_result["valid"]["num_groups"], [len(group_valid)] * 5)
+
+    # the first two calls are the first boosting round, one per validation set
+    # strict=False: lightgbm stores groups as int32 and weights as float32 internally.
+    np_assert_array_equal(seen[0]["group"], group, strict=False)
+    np_assert_array_equal(seen[1]["group"], group_valid, strict=False)
+    if use_weight:
+        np_assert_array_equal(seen[0]["weight"], weight, strict=False)
+        np_assert_array_equal(seen[1]["weight"], weight_valid, strict=False)
+    else:
+        assert seen[0]["weight"] is None
+        assert seen[1]["weight"] is None
+
+
 def test_negative_n_jobs(tmp_path):
     n_threads = joblib.cpu_count()
     if n_threads <= 1:
