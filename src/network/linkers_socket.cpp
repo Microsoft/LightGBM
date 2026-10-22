@@ -213,6 +213,9 @@ void Linkers::Construct() {
           connect_fail_delay_time = static_cast<int>(connect_fail_delay_time * connect_fail_retry_delay_factor);
         }
       }
+      if (linkers_[out_rank] == nullptr) {
+        Log::Fatal("Failed to connect to rank %d after %d retries", out_rank, connect_fail_retry_cnt);
+      }
     }
   }
   // wait for listener
