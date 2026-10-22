@@ -1253,6 +1253,161 @@ def test_set_field_none_removes_field(rng, field_name):
     assert d.get_field(field_name) is None
 
 
+def test_set_categorical_feature_returns_self_if_value_is_unchanged(rng):
+    ds = lgb.Dataset(rng.uniform(size=(100, 3)), categorical_feature=[0], free_raw_data=False).construct()
+
+    assert ds.set_categorical_feature([0]) is ds
+
+    assert ds.categorical_feature == [0]
+    # the Dataset does not have to be re-constructed
+    assert ds._handle is not None
+
+
+def test_set_categorical_feature_sets_value_if_it_was_none(rng):
+    ds = lgb.Dataset(rng.uniform(size=(100, 3)), free_raw_data=False).construct()
+    ds.categorical_feature = None
+
+    assert ds.set_categorical_feature([0]) is ds
+
+    assert ds.categorical_feature == [0]
+    # the Dataset has to be re-constructed to take the new value into account
+    assert ds._handle is None
+
+
+def test_set_categorical_feature_ignores_auto_if_value_is_already_set(rng):
+    ds = lgb.Dataset(rng.uniform(size=(100, 3)), categorical_feature=[0], free_raw_data=False).construct()
+
+    assert ds.set_categorical_feature("auto") is ds
+
+    assert ds.categorical_feature == [0]
+    assert ds._handle is not None
+
+
+def test_set_categorical_feature_warns_if_value_is_overridden(rng):
+    ds = lgb.Dataset(rng.uniform(size=(100, 3)), categorical_feature=[0], free_raw_data=False).construct()
+
+    with pytest.warns(
+        UserWarning, match=r"categorical_feature in Dataset is overridden\.\nNew categorical_feature is \[1\]"
+    ):
+        assert ds.set_categorical_feature([1]) is ds
+
+    assert ds.categorical_feature == [1]
+    assert ds._handle is None
+
+
+def test_set_categorical_feature_raises_after_raw_data_was_freed(rng):
+    ds = lgb.Dataset(rng.uniform(size=(100, 3))).construct()
+    assert ds.data is None
+
+    with pytest.raises(lgb.basic.LightGBMError, match="Cannot set categorical feature after freed raw data"):
+        ds.set_categorical_feature([0])
+
+
+def _train_booster(X, y, params=None):
+    return lgb.train(
+        {"objective": "regression", "verbose": -1, **(params or {})},
+        lgb.Dataset(X, label=y),
+        num_boost_round=3,
+    )
+
+
+# NOTE: the Booster has to be kept alive by the caller, an _InnerPredictor created
+#       from it does not own the underlying Booster handle
+def _inner_predictor(bst):
+    return lgb.basic._InnerPredictor.from_booster(booster=bst, pred_parameter={})
+
+
+def test_set_predictor_returns_self_if_there_is_nothing_to_do(rng):
+    X = rng.uniform(size=(100, 3))
+    y = rng.uniform(size=(100,))
+    ds = lgb.Dataset(X, label=y, free_raw_data=False).construct()
+
+    # no predictor before and after
+    assert ds._set_predictor(None) is ds
+    assert ds._predictor is None
+    assert ds.init_score is None
+
+    bst = _train_booster(X, y)
+    predictor = _inner_predictor(bst)
+    ds._set_predictor(predictor)
+    assert ds.init_score is not None
+
+    # setting the very same predictor again must not recompute the init scores
+    ds.init_score = None
+    assert ds._set_predictor(predictor) is ds
+    assert ds.init_score is None
+
+
+def test_set_predictor_only_stores_predictor_if_dataset_is_not_constructed(rng):
+    X = rng.uniform(size=(100, 3))
+    y = rng.uniform(size=(100,))
+    bst = _train_booster(X, y)
+    predictor = _inner_predictor(bst)
+
+    ds = lgb.Dataset(X, label=y, free_raw_data=False)
+    assert ds._set_predictor(predictor) is ds
+
+    assert ds._predictor is predictor
+    assert ds.init_score is None
+
+
+def test_set_predictor_sets_init_score_from_raw_data(rng):
+    X = rng.uniform(size=(100, 3))
+    y = rng.uniform(size=(100,))
+    bst = _train_booster(X, y)
+    predictor = _inner_predictor(bst)
+
+    ds = lgb.Dataset(X, label=y, free_raw_data=False).construct()
+    ds._set_predictor(predictor)
+
+    np.testing.assert_allclose(ds.get_init_score(), predictor.predict(data=X, raw_score=True).ravel())
+
+
+def test_set_predictor_raises_after_raw_data_was_freed(rng):
+    X = rng.uniform(size=(100, 3))
+    y = rng.uniform(size=(100,))
+    bst = _train_booster(X, y)
+    predictor = _inner_predictor(bst)
+
+    ds = lgb.Dataset(X, label=y).construct()
+    assert ds.data is None
+
+    with pytest.raises(lgb.basic.LightGBMError, match="Cannot set predictor after freed raw data"):
+        ds._set_predictor(predictor)
+
+
+@pytest.mark.parametrize("num_class", [1, 3])
+def test_subset_of_file_based_dataset_gets_init_score_from_predictor(tmp_path, num_class, rng):
+    X = rng.uniform(size=(100, 3))
+    if num_class == 1:
+        params = {"objective": "binary"}
+        y = rng.integers(0, 2, size=(100,))
+    else:
+        params = {"objective": "multiclass", "num_class": num_class}
+        y = rng.integers(0, num_class, size=(100,))
+    data_path = tmp_path / "data.svm"
+    with open(data_path, "w+b") as f:
+        dump_svmlight_file(X, y, f)
+
+    bst = _train_booster(X, y, params=params)
+    predictor = _inner_predictor(bst)
+    assert predictor.num_class == num_class
+
+    ds = lgb.Dataset(str(data_path), free_raw_data=False).construct()
+    used_indices = [1, 3, 5, 7]
+    subset = ds.subset(used_indices=used_indices)
+    # the raw data of the subset is a file path, so init scores have to be
+    # computed on the whole file and then gathered for the used indices
+    subset._set_predictor(predictor)
+    subset.construct()
+
+    raw_scores = predictor.predict(data=str(data_path), raw_score=True, data_has_header=False)
+    expected = np.asarray(raw_scores).reshape(len(y), num_class)[used_indices]
+    if num_class == 1:
+        expected = expected.ravel()
+    np.testing.assert_allclose(subset.get_init_score(), expected)
+
+
 def test_booster_eval_adds_new_valid_dataset() -> None:
     X_train, X_test, y_train, y_test = train_test_split(
         *load_breast_cancer(return_X_y=True),
