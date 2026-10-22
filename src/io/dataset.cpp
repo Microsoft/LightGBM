@@ -229,6 +229,9 @@ std::vector<std::vector<int>> FindGroups(
     int conflict_cnt = 0;
     for (auto fidx : second_round_features) {
       features_in_group.back().push_back(fidx);
+      if (fidx >= num_sample_col) {
+        continue;
+      }
       if (!is_multi_val) {
         const int rest_max_cnt = single_val_max_conflict_cnt - conflict_cnt;
         const auto cnt =
