@@ -494,9 +494,14 @@ inline static std::vector<T> StringToArrayFast(const std::string& str, int n) {
     return std::vector<T>();
   }
   auto p_str = str.c_str();
+  auto p_end = p_str + str.size();
   __StringToTHelperFast<T, std::is_floating_point<T>::value> helper;
   std::vector<T> ret(n);
   for (int i = 0; i < n; ++i) {
+    p_str = Common::SkipSpaceAndTab(p_str);
+    if (p_str >= p_end) {
+      Log::Fatal("Malformed model file: not enough values in string for array of size %d", n);
+    }
     p_str = helper(p_str, &ret[i]);
   }
   return ret;
