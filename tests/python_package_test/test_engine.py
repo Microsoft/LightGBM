@@ -5025,3 +5025,14 @@ def test_equal_predict_from_row_major_and_col_major_data():
     preds_col = bst.predict(X_col)
 
     np.testing.assert_allclose(preds_row, preds_col)
+
+
+def test_inner_predictor_pickling() -> None:
+    X = np.random.default_rng(42).standard_normal((100, 4))
+    y = (X[:, 0] > 0).astype(float)
+    ds = lgb.Dataset(X, label=y, free_raw_data=False)
+    params = {"num_leaves": 4, "verbose": -1}
+
+    booster = lgb.train(params, ds, num_boost_round=3)
+    booster2 = lgb.train(params, ds, num_boost_round=3, init_model=booster)
+    pickle.dumps(booster2)
