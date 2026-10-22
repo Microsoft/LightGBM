@@ -1205,33 +1205,37 @@ inline static std::vector<T> StringToArray(const std::string& str, char delimite
 *       Correct usage will never incur in this problem:
 *         - The received buffer size shall be sufficient at all times for the input format string and value.
 */
-template <typename T>
-inline static void format_to_buf(char* buffer, const size_t buf_len, const char* format, const T value) {
-    auto result = fmt::format_to_n(buffer, buf_len, format, value);
-    if (result.size >= buf_len) {
-      Log::Fatal("Numerical conversion failed. Buffer is too small.");
-    }
-    buffer[result.size] = '\0';
-}
 
 template<typename T, bool is_float, bool high_precision>
 struct __TToStringHelper {
   void operator()(T value, char* buffer, size_t buf_len) const {
-    format_to_buf(buffer, buf_len, "{}", value);
+    auto result = fmt::format_to_n(buffer, buf_len, "{}", value);
+    if (result.size >= buf_len) {
+      Log::Fatal("Numerical conversion failed. Buffer is too small.");
+    }
+    buffer[result.size] = '\0';
   }
 };
 
 template<typename T>
 struct __TToStringHelper<T, true, false> {
   void operator()(T value, char* buffer, size_t buf_len) const {
-    format_to_buf(buffer, buf_len, "{:g}", value);
+    auto result = fmt::format_to_n(buffer, buf_len, "{:g}", value);
+    if (result.size >= buf_len) {
+      Log::Fatal("Numerical conversion failed. Buffer is too small.");
+    }
+    buffer[result.size] = '\0';
   }
 };
 
 template<typename T>
 struct __TToStringHelper<T, true, true> {
   void operator()(T value, char* buffer, size_t buf_len) const {
-    format_to_buf(buffer, buf_len, "{:.17g}", value);
+    auto result = fmt::format_to_n(buffer, buf_len, "{:.17g}", value);
+    if (result.size >= buf_len) {
+      Log::Fatal("Numerical conversion failed. Buffer is too small.");
+    }
+    buffer[result.size] = '\0';
   }
 };
 
