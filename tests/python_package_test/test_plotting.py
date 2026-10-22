@@ -264,14 +264,22 @@ def test_plot_tree(breast_cancer_split, matplotlib):
 def test_create_tree_digraph(tmp_path, breast_cancer_split):
     graphviz = pytest.importorskip("graphviz")
     X_train, _, y_train, _ = breast_cancer_split
-
     constraints = [-1, 1] * int(X_train.shape[1] / 2)
-    gbm = lgb.LGBMClassifier(n_estimators=10, num_leaves=3, verbose=-1, monotone_constraints=constraints)
+    gbm = lgb.LGBMClassifier(
+        n_estimators=10,
+        num_leaves=3,
+        verbose=-1,
+        monotone_constraints=constraints,
+        deterministic=True,
+        n_jobs=1,
+        force_row_wise=True,
+    )
     gbm.fit(X_train, y_train)
 
     with pytest.raises(IndexError, match="tree_index is out of range."):
         lgb.create_tree_digraph(gbm, tree_index=83)
 
+    # test basic graph attributes and show_info for internal nodes
     graph = lgb.create_tree_digraph(
         gbm,
         tree_index=3,
@@ -296,6 +304,35 @@ def test_create_tree_digraph(tmp_path, breast_cancer_split):
     assert "#ddffdd" in graph_body
     assert "data" not in graph_body
     assert "count" not in graph_body
+
+    # test internal_count
+    graph = lgb.create_tree_digraph(gbm, tree_index=0, show_info=["internal_count"])
+    graph_body = "".join(graph.body)
+    assert "count: 200" in graph_body, graph_body
+    assert "count: 512" in graph_body
+
+    # test data_percentage for internal and leaf nodes
+    graph = lgb.create_tree_digraph(gbm, tree_index=0, show_info=["data_percentage"])
+    graph_body = "".join(graph.body)
+    assert "60.94% of data" in graph_body
+    assert "9.77% of data" in graph_body
+    assert "29.30% of data" in graph_body
+    assert "39.06% of data" in graph_body
+    assert "100.00% of data" in graph_body
+
+    # test leaf_weight
+    graph = lgb.create_tree_digraph(gbm, tree_index=0, show_info=["leaf_weight"])
+    graph_body = "".join(graph.body)
+    assert "72.657 weight" in graph_body
+    assert "11.644 weight" in graph_body
+    assert "4.931 weight" in graph_body
+
+    # test leaf_count
+    graph = lgb.create_tree_digraph(gbm, tree_index=0, show_info=["leaf_count"])
+    graph_body = "".join(graph.body)
+    assert "count: 312" in graph_body
+    assert "count: 50" in graph_body
+    assert "count: 150" in graph_body
 
 
 def test_tree_with_categories_below_max_category_values(tmp_path):
