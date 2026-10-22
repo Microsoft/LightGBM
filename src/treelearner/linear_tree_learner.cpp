@@ -181,10 +181,11 @@ void LinearTreeLearner<TREE_LEARNER_TYPE>::GetLeafMap(Tree* tree) const {
 template<typename TREE_LEARNER_TYPE>
 template <bool HAS_NAN>
 void LinearTreeLearner<TREE_LEARNER_TYPE>::CalculateLinear(Tree* tree, bool is_refit, const score_t* gradients, const score_t* hessians, bool is_first_tree) const {
+  const bool refit_as_constant = !tree->is_linear();
   tree->SetIsLinear(true);
   int num_leaves = tree->num_leaves();
   int num_threads = OMP_NUM_THREADS();
-  if (is_first_tree) {
+  if (is_first_tree || refit_as_constant) {
     for (int leaf_num = 0; leaf_num < num_leaves; ++leaf_num) {
       tree->SetLeafConst(leaf_num, tree->LeafOutput(leaf_num));
     }

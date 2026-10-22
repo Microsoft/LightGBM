@@ -328,6 +328,12 @@ class Tree {
 
   inline void SetIsLinear(bool is_linear) {
     is_linear_ = is_linear;
+    if (is_linear_ && leaf_const_.empty()) {
+      leaf_coeff_.resize(num_leaves_);
+      leaf_const_ = std::vector<double>(num_leaves_, 0.0);
+      leaf_features_.resize(num_leaves_);
+      leaf_features_inner_.resize(num_leaves_);
+    }
   }
 
  protected:

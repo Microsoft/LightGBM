@@ -2503,6 +2503,17 @@ def test_refit_with_one_tree_multiclass_classification():
     assert isinstance(model_refit, lgb.Booster)
 
 
+def test_refit_with_linear_tree_and_single_class_label(rng):
+    X = rng.integers(low=0, high=10, size=(1_000, 5))
+    y = np.ones(shape=(X.shape[0],))
+    lgb_train = lgb.Dataset(X, label=y, categorical_feature=list(range(X.shape[1])))
+    params = {"objective": "binary", "num_leaves": 7, "linear_tree": True, "verbose": -1}
+    model = lgb.train(params, lgb_train, num_boost_round=2)
+    model_refit = model.refit(X, label=y, categorical_feature=list(range(X.shape[1])))
+    assert isinstance(model_refit, lgb.Booster)
+    assert np.all(np.isfinite(model_refit.predict(X)))
+
+
 def test_refit_dataset_params(rng):
     # check refit accepts dataset_params
     X, y = load_breast_cancer(return_X_y=True)
