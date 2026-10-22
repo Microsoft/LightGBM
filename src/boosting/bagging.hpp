@@ -8,6 +8,7 @@
 #define LIGHTGBM_SRC_BOOSTING_BAGGING_HPP_
 
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace LightGBM {
@@ -50,6 +51,11 @@ class BaggingSampleStrategy : public SampleStrategy {
           },
           bag_data_indices_.data());
         bag_data_cnt_ = left_cnt;
+        if (bag_data_cnt_ == 0) {
+          const auto pos = bagging_rands_[0].NextInt(0, num_data_);
+          std::swap(bag_data_indices_[0], bag_data_indices_[pos]);
+          bag_data_cnt_ = 1;
+        }
       } else {
         num_sampled_queries_ = bagging_runner_.Run<true>(
           num_queries_,
@@ -59,6 +65,12 @@ class BaggingSampleStrategy : public SampleStrategy {
             cur_left_count = BaggingHelper(cur_start, cur_cnt, left);
             return cur_left_count;
           }, bag_query_indices_.data());
+
+        if (num_sampled_queries_ == 0 && num_queries_ > 0) {
+          const auto pos = bagging_rands_[0].NextInt(0, num_queries_);
+          std::swap(bag_query_indices_[0], bag_query_indices_[pos]);
+          num_sampled_queries_ = 1;
+        }
 
         sampled_query_boundaries_[0] = 0;
         OMP_INIT_EX();
@@ -160,6 +172,11 @@ class BaggingSampleStrategy : public SampleStrategy {
                         + static_cast<data_size_t>((num_data_ - num_pos_data) * config_->neg_bagging_fraction);
       } else {
         bag_data_cnt_ = static_cast<data_size_t>(config_->bagging_fraction * num_data_);
+      }
+      if (bag_data_cnt_ == 0) {
+        Log::Warning("The bagging sample count rounds down to zero. Using at least one data point; increase %s.",
+                     balance_bagging_cond ? "pos_bagging_fraction or neg_bagging_fraction" : "bagging_fraction");
+        bag_data_cnt_ = 1;
       }
       bag_data_indices_.resize(num_data_);
       #ifdef USE_CUDA
