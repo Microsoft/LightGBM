@@ -270,6 +270,25 @@ class TcpSocket {
     listen(sockfd_, backlog);
   }
 
+  /*!
+   * \brief Check if error code indicates connection was closed by peer
+   * These errors are expected during distributed training shutdown
+   * See https://github.com/microsoft/LightGBM/issues/4074
+   */
+  static inline bool IsConnectionClosedError(int err_code) {
+#if defined(_WIN32)
+    return err_code == WSAECONNRESET ||    // Connection reset by peer
+           err_code == WSAECONNABORTED ||  // Connection aborted
+           err_code == WSAESHUTDOWN ||     // Socket shutdown
+           err_code == WSAENOTCONN;        // Not connected
+#else
+    return err_code == EPIPE ||        // Broken pipe
+           err_code == ECONNRESET ||   // Connection reset by peer
+           err_code == ENOTCONN ||     // Not connected
+           err_code == ESHUTDOWN;      // Socket shutdown
+#endif
+  }
+
   inline TcpSocket Accept() {
     SOCKET newfd = accept(sockfd_, NULL, NULL);
     if (newfd == INVALID_SOCKET) {
@@ -287,6 +306,12 @@ class TcpSocket {
     int cur_cnt = send(sockfd_, buf_, len, flag);
     if (cur_cnt == SOCKET_ERROR) {
       int err_code = GetLastError();
+      if (IsConnectionClosedError(err_code)) {
+        // Connection closed by peer - expected during shutdown
+        // Return SOCKET_ERROR to let caller handle gracefully
+        // See https://github.com/microsoft/LightGBM/issues/4074
+        return SOCKET_ERROR;
+      }
 #if defined(_WIN32)
       Log::Fatal("Socket send error (code: %d)", err_code);
 #else
@@ -300,6 +325,12 @@ class TcpSocket {
     int cur_cnt = recv(sockfd_, buf_ , len , flags);
     if (cur_cnt == SOCKET_ERROR) {
       int err_code = GetLastError();
+      if (IsConnectionClosedError(err_code)) {
+        // Connection closed by peer - expected during shutdown
+        // Return SOCKET_ERROR to let caller handle gracefully
+        // See https://github.com/microsoft/LightGBM/issues/4074
+        return SOCKET_ERROR;
+      }
 #if defined(_WIN32)
       Log::Fatal("Socket recv error (code: %d)", err_code);
 #else

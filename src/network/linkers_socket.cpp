@@ -155,6 +155,11 @@ void Linkers::ListenThread(int incoming_cnt) {
     int size_of_int = static_cast<int>(sizeof(int));
     while (read_cnt < size_of_int) {
       int cur_read_cnt = handler.Recv(buffer + read_cnt, size_of_int - read_cnt);
+      if (cur_read_cnt <= 0) {
+        // Connection closed during initialization
+        // See https://github.com/microsoft/LightGBM/issues/4074
+        throw std::runtime_error("Network connection closed during linker initialization");
+      }
       read_cnt += cur_read_cnt;
     }
     int* ptr_in_rank = reinterpret_cast<int*>(buffer);
