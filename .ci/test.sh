@@ -141,6 +141,11 @@ fi
 
 cd "${BUILD_DIRECTORY}"
 
+PYTEST_ARGS=(
+    -ra
+    --cov=lightgbm
+    --cov-fail-under=75
+)
 SITE_PACKAGES=$(python -c "import sysconfig; print(sysconfig.get_paths()['platlib'])")
 
 if [[ $TASK == "sdist" ]]; then
@@ -151,7 +156,7 @@ if [[ $TASK == "sdist" ]]; then
         cp "./dist/lightgbm-${LGB_VER}.tar.gz" "${BUILD_ARTIFACTSTAGINGDIRECTORY}" || exit 1
     fi
     ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
-    pytest -ra ./tests/python_package_test || exit 1
+    pytest  "${PYTEST_ARGS[@]}" ./tests/python_package_test || exit 1
     exit 0
 elif [[ $TASK == "bdist" ]]; then
     if [[ $OS_NAME == "macos" ]]; then
@@ -208,7 +213,7 @@ elif [[ $TASK == "bdist" ]]; then
     fi
     pip install -v --no-deps ./dist/*.whl || exit 1
     ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
-    pytest -ra ./tests || exit 1
+    pytest "${PYTEST_ARGS[@]}" ./tests || exit 1
     exit 0
 fi
 
@@ -225,14 +230,14 @@ if [[ $TASK == "gpu" ]]; then
             "./dist/lightgbm-${LGB_VER}.tar.gz" \
         || exit 1
         ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
-        pytest -ra ./tests/python_package_test || exit 1
+        pytest "${PYTEST_ARGS[@]}" ./tests/python_package_test || exit 1
         exit 0
     elif [[ $METHOD == "wheel" ]]; then
         sh ./build-python.sh bdist_wheel --gpu || exit 1
         sh ./.ci/check-python-dists.sh ./dist || exit 1
         pip install -v --no-deps "$(echo "./dist/lightgbm-${LGB_VER}"*.whl)" || exit 1
         ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
-        pytest -ra ./tests || exit 1
+        pytest "${PYTEST_ARGS[@]}" ./tests || exit 1
         exit 0
     elif [[ $METHOD == "source" ]]; then
         cmake -B build -S . -DUSE_GPU=ON
@@ -253,14 +258,14 @@ elif [[ $TASK == "cuda" ]]; then
             "./dist/lightgbm-${LGB_VER}.tar.gz" \
         || exit 1
         ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
-        pytest -ra ./tests/python_package_test || exit 1
+        pytest "${PYTEST_ARGS[@]}" ./tests/python_package_test || exit 1
         exit 0
     elif [[ $METHOD == "wheel" ]]; then
         sh ./build-python.sh bdist_wheel --cuda || exit 1
         sh ./.ci/check-python-dists.sh ./dist || exit 1
         pip install -v --no-deps "$(echo "./dist/lightgbm-${LGB_VER}"*.whl)" || exit 1
         ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
-        pytest -ra ./tests || exit 1
+        pytest "${PYTEST_ARGS[@]}" ./tests || exit 1
         exit 0
     elif [[ $METHOD == "source" ]]; then
         # we want at least 1 CI job testing that manual override of CMAKE_CUDA_ARCHITECTURES works
@@ -281,14 +286,14 @@ elif [[ $TASK == "mpi" ]]; then
             "./dist/lightgbm-${LGB_VER}.tar.gz" \
         || exit 1
         ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
-        pytest -ra ./tests/python_package_test || exit 1
+        pytest "${PYTEST_ARGS[@]}" ./tests/python_package_test || exit 1
         exit 0
     elif [[ $METHOD == "wheel" ]]; then
         sh ./build-python.sh bdist_wheel --mpi || exit 1
         sh ./.ci/check-python-dists.sh ./dist || exit 1
         pip install -v --no-deps "$(echo "./dist/lightgbm-${LGB_VER}"*.whl)" || exit 1
         ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
-        pytest -ra ./tests || exit 1
+        pytest "${PYTEST_ARGS[@]}" ./tests || exit 1
         exit 0
     elif [[ $METHOD == "source" ]]; then
         cmake -B build -S . -DUSE_MPI=ON -DUSE_DEBUG=ON
@@ -311,9 +316,11 @@ if [[ "${TASK}" != "mpi" ]]; then
     PYTHONOPTIMIZE=2 python -c "import lightgbm; print(lightgbm.__version__)"
 fi
 
+python ./.ci/test-imports.py
+
 echo "running tests"
 ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.*
-pytest -ra ./tests || exit 1
+pytest "${PYTEST_ARGS[@]}" ./tests || exit 1
 
 if [[ $TASK == "regular" ]]; then
     if [[ $PRODUCES_ARTIFACTS == "true" ]]; then
