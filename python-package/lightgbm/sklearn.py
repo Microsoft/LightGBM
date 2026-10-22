@@ -566,6 +566,7 @@ class LGBMModel(_LGBMModelBase):
         self._classes: Optional[np.ndarray] = None
         self._n_classes: int = -1
         self.set_params(**kwargs)
+        self.original_feature_name_: np.ndarray = np.array([], dtype=object)
 
     # scikit-learn 1.6 introduced an __sklearn__tags() method intended to replace _more_tags().
     # _more_tags() can be removed whenever lightgbm's minimum supported scikit-learn version
@@ -1132,6 +1133,8 @@ class LGBMModel(_LGBMModelBase):
         # is set BEFORE fitting.
         self._n_features = self._Booster.num_feature()
 
+        self.original_feature_name_ = train_set.original_feature_name_
+
         # This attribute informs self.features_in_, but isn't set until here
         # because Dataset.construct(), called by train(), is responsible for updating it.
         self._fitted_with_feature_names = train_set._has_non_default_feature_names
@@ -1388,7 +1391,7 @@ class LGBMModel(_LGBMModelBase):
                 "The training data did not have feature names "
                 "(e.g. was a numpy array rather than a pandas DataFrame)."
             )
-        return np.array(self.feature_name_)
+        return np.array(self.original_feature_name_, dtype=object)
 
     @feature_names_in_.deleter
     def feature_names_in_(self) -> None:

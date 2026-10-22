@@ -1804,7 +1804,7 @@ def test_feature_names_in_and_predict_warning(
         # feature_name_: always accessible, reflects actual names used internally
         # feature_names_in_: absent when no named features, present otherwise
         if fit_X_type in types_with_feat_names:
-            np_assert_array_equal(model.feature_names_in_, np.array(col_names), strict=True)
+            np_assert_array_equal(model.feature_names_in_, np.array(col_names, dtype=object), strict=True)
             assert model.feature_name_ == col_names
         else:
             assert model.feature_name_ == default_names
@@ -1835,9 +1835,9 @@ def test_feature_names_in_and_predict_warning(
     model = lgb.LGBMClassifier(n_estimators=2, num_leaves=3).fit(X_fit, y, feature_name=custom_names)
 
     # feature names from keyword arg should be used, not any from the input data
-    np_assert_array_equal(model.feature_names_in_, np.array(custom_names), strict=True)
+    np_assert_array_equal(model.feature_names_in_, np.array(custom_names, dtype=object), strict=True)
     assert model.feature_name_ == custom_names
-    np_assert_array_equal(model.feature_names_in_, np.array(custom_names), strict=True)
+    np_assert_array_equal(model.feature_names_in_, np.array(custom_names, dtype=object), strict=True)
     assert model.n_features_in_ == n_features
 
     # predict() should not raise a warning if input has feature names
@@ -1890,6 +1890,32 @@ def parametrize_with_checks(estimator, *args, **kwargs):
 def _get_expected_failed_tests(estimator):
     return estimator._more_tags()["_xfail_checks"]
 
+
+def test_feature_names_in_():
+    """
+    Test that feature_names_in_ returns the same feature names as the input.
+    """
+    pd = pytest.importorskip("pandas")
+
+    X = pd.DataFrame(
+        {
+            "feature age": [1.0, 2.0, 3.0, 4.0],
+            "body mass index": [5.0, 6.0, 7.0, 8.0],
+        }
+    )
+    y = np.array([0, 1, 0, 1])
+
+    model = lgb.LGBMClassifier(
+        n_estimators=2,
+        num_leaves=3,
+        verbosity=-1,
+    ).fit(X, y)
+
+    np_assert_array_equal(
+        model.feature_names_in_,
+        X.columns.to_numpy(dtype=object),
+        strict=True,
+    )
 
 @parametrize_with_checks(
     [ExtendedLGBMClassifier(), ExtendedLGBMRegressor(), lgb.LGBMClassifier(), lgb.LGBMRegressor()],
