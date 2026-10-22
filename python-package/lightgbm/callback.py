@@ -238,8 +238,9 @@ class _ResetParameterCallback:
                     "Only list and callable values are supported "
                     "as a mapping from boosting round index to new parameter value."
                 )
-            if new_param != env.params.get(key, None):
-                new_parameters[key] = new_param
+            # Always update parameters to ensure compatibility with sklearn interface
+            # The booster's reset_parameter method handles whether the parameter actually changes
+            new_parameters[key] = new_param
         if new_parameters:
             if isinstance(env.model, Booster):
                 env.model.reset_parameter(new_parameters)

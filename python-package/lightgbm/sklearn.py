@@ -1037,6 +1037,29 @@ class LGBMModel(_LGBMModelBase):
             else:
                 sample_weight = np.multiply(sample_weight, class_sample_weight)  # type: ignore[arg-type]
 
+        # Filter out booster-specific parameters from dataset parameters
+        from .basic import _ConfigAliases
+        
+        # Get all booster parameter names to exclude from dataset
+        booster_params = set()
+        # Common booster parameters that should not be in dataset
+        booster_param_names = [
+            'boosting', 'learning_rate', 'num_leaves', 'max_depth', 'min_split_gain',
+            'min_child_weight', 'min_child_samples', 'subsample', 'subsample_freq',
+            'colsample_bytree', 'colsample_bynode', 'colsample_bylevel', 'reg_alpha',
+            'reg_lambda', 'random_state', 'n_estimators', 'num_iterations',
+            'feature_fraction', 'bagging_fraction', 'feature_fraction_bynode',
+            'bagging_freq', 'lambda_l1', 'lambda_l2', 'min_gain_to_split',
+            'min_data_in_leaf', 'min_sum_hessian_in_leaf', 'max_delta_step',
+            'max_bin', 'max_depth', 'min_data_in_bin', 'bin_construct_sample_cnt'
+        ]
+        
+        for param_name in booster_param_names:
+            booster_params.update(_ConfigAliases.get_sorted(param_name))
+        
+        # Filter dataset parameters
+        dataset_params = {k: v for k, v in params.items() if k not in booster_params}
+
         train_set = Dataset(
             data=_X,
             label=_y,
@@ -1045,7 +1068,7 @@ class LGBMModel(_LGBMModelBase):
             init_score=init_score,
             categorical_feature=categorical_feature,
             feature_name=feature_name,
-            params=params,
+            params=dataset_params,
         )
 
         valid_sets: List[Dataset] = []
@@ -1091,6 +1114,28 @@ class LGBMModel(_LGBMModelBase):
                         name="eval_group",
                         i=i,
                     )
+                    # Filter out booster-specific parameters from dataset parameters
+                    from .basic import _ConfigAliases
+                    
+                    # Get all booster parameter names to exclude from dataset
+                    booster_params = set()
+                    booster_param_names = [
+                        'boosting', 'learning_rate', 'num_leaves', 'max_depth', 'min_split_gain',
+                        'min_child_weight', 'min_child_samples', 'subsample', 'subsample_freq',
+                        'colsample_bytree', 'colsample_bynode', 'colsample_bylevel', 'reg_alpha',
+                        'reg_lambda', 'random_state', 'n_estimators', 'num_iterations',
+                        'feature_fraction', 'bagging_fraction', 'feature_fraction_bynode',
+                        'bagging_freq', 'lambda_l1', 'lambda_l2', 'min_gain_to_split',
+                        'min_data_in_leaf', 'min_sum_hessian_in_leaf', 'max_delta_step',
+                        'max_bin', 'max_depth', 'min_data_in_bin', 'bin_construct_sample_cnt'
+                    ]
+                    
+                    for param_name in booster_param_names:
+                        booster_params.update(_ConfigAliases.get_sorted(param_name))
+                    
+                    # Filter dataset parameters
+                    valid_dataset_params = {k: v for k, v in params.items() if k not in booster_params}
+
                     valid_set = Dataset(
                         data=valid_data[0],
                         label=valid_data[1],
@@ -1098,7 +1143,7 @@ class LGBMModel(_LGBMModelBase):
                         group=valid_group,
                         init_score=valid_init_score,
                         categorical_feature="auto",
-                        params=params,
+                        params=valid_dataset_params,
                     )
 
                 valid_sets.append(valid_set)
