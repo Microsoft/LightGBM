@@ -154,7 +154,7 @@ class FeatureGroup {
   }
 
   /*! \brief Destructor */
-  ~FeatureGroup() {}
+  virtual ~FeatureGroup() {}
 
   /*!
    * \brief Load the overall definition of the feature group from binary serialized data
@@ -288,7 +288,10 @@ class FeatureGroup {
   }
 
   inline void CopySubrowByCol(const FeatureGroup* full_feature, const data_size_t* used_indices, data_size_t num_used_indices, int fidx) {
+    Log::Warning("in CopySubrowByCol");
     if (!is_multi_val_) {
+      Log::Warning("is not multi val");
+      Log::Warning("full_feature->bin_data_.get() = %ld", full_feature->bin_data_.get());
       bin_data_->CopySubrow(full_feature->bin_data_.get(), used_indices, num_used_indices);
     } else {
       multi_bin_data_[fidx]->CopySubrow(full_feature->multi_bin_data_[fidx].get(), used_indices, num_used_indices);
@@ -345,14 +348,14 @@ class FeatureGroup {
     num_feature_ += other->num_feature_;
   }
 
-  inline BinIterator* SubFeatureIterator(int sub_feature) {
+  virtual inline BinIterator* SubFeatureIterator(int sub_feature) const {
     uint32_t most_freq_bin = bin_mappers_[sub_feature]->GetMostFreqBin();
     if (!is_multi_val_) {
       uint32_t min_bin = bin_offsets_[sub_feature];
       uint32_t max_bin = bin_offsets_[sub_feature + 1] - 1;
       return bin_data_->GetIterator(min_bin, max_bin, most_freq_bin);
     } else {
-      int addi = bin_mappers_[sub_feature]->GetMostFreqBin() == 0 ? 0 : 1;
+      int addi = most_freq_bin == 0 ? 0 : 1;
       uint32_t min_bin = 1;
       uint32_t max_bin = bin_mappers_[sub_feature]->num_bin() - 1 + addi;
       return multi_bin_data_[sub_feature]->GetIterator(min_bin, max_bin,
@@ -375,7 +378,7 @@ class FeatureGroup {
     }
   }
 
-  inline BinIterator* FeatureGroupIterator() {
+  virtual inline BinIterator* FeatureGroupIterator() {
     if (is_multi_val_) {
       return nullptr;
     }
@@ -583,32 +586,32 @@ class FeatureGroup {
     }
   }
 
- private:
-  void CreateBinData(int num_data, bool is_multi_val, bool force_dense, bool force_sparse) {
+ protected:
+  virtual void CreateBinData(int num_data, bool is_multi_val, bool force_dense, bool force_sparse) {
     if (is_multi_val) {
       multi_bin_data_.clear();
       for (int i = 0; i < num_feature_; ++i) {
         int addi = bin_mappers_[i]->GetMostFreqBin() == 0 ? 0 : 1;
-        if (bin_mappers_[i]->sparse_rate() >= kSparseThreshold) {
-          multi_bin_data_.emplace_back(Bin::CreateSparseBin(
-              num_data, bin_mappers_[i]->num_bin() + addi));
-        } else {
+        // if (bin_mappers_[i]->sparse_rate() >= kSparseThreshold) {
+        //   multi_bin_data_.emplace_back(Bin::CreateSparseBin(
+        //       num_data, bin_mappers_[i]->num_bin() + addi));
+        // } else {
           multi_bin_data_.emplace_back(
               Bin::CreateDenseBin(num_data, bin_mappers_[i]->num_bin() + addi));
-        }
+        // }
       }
       is_multi_val_ = true;
     } else {
-      if (force_sparse ||
-          (!force_dense && num_feature_ == 1 &&
-           bin_mappers_[0]->sparse_rate() >= kSparseThreshold)) {
-        is_sparse_ = true;
-        bin_data_.reset(Bin::CreateSparseBin(num_data, num_total_bin_));
-      } else {
+      // if (force_sparse ||
+      //     (!force_dense && num_feature_ == 1 &&
+      //      bin_mappers_[0]->sparse_rate() >= kSparseThreshold)) {
+      //   is_sparse_ = true;
+      //   bin_data_.reset(Bin::CreateSparseBin(num_data, num_total_bin_));
+      // } else {
         is_sparse_ = false;
         bin_data_.reset(Bin::CreateDenseBin(num_data, num_total_bin_));
-      }
-      is_multi_val_ = false;
+      // }
+      // is_multi_val_ = false;
     }
   }
 

@@ -417,6 +417,8 @@ set(
       src/io/parser.cpp
       src/io/train_share_states.cpp
       src/io/tree.cpp
+      src/io/pairwise_lambdarank_bin.cpp
+      src/io/pairwise_ranking_feature_group.cpp
       src/metric/dcg_calculator.cpp
       src/metric/metric.cpp
       src/network/linker_topo.cpp
@@ -424,6 +426,7 @@ set(
       src/network/linkers_socket.cpp
       src/network/network.cpp
       src/objective/objective_function.cpp
+      src/objective/rank_objective.cpp
       src/treelearner/data_parallel_tree_learner.cpp
       src/treelearner/feature_histogram.cpp
       src/treelearner/feature_parallel_tree_learner.cpp

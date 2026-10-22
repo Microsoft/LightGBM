@@ -213,6 +213,17 @@ class Metadata {
     const int32_t* queries);
 
   /*!
+  * \brief Build metadata for ranking with pairwise features from metadata of an existing ranking dataset
+  * \param metadata Reference to metadata of the existing ranking dataset
+  * \param pairing_approach The pairing approach of this dataset
+  * \param random_pairing_k The number of random pairs per document when using ``random_k`` or ``top_n_random_k`` pairing approach
+  * \param top_pairing_n The number of top n relevant documents when using ``top_n_random_k`` pairing approach
+  * \param relevance_pairing_m The number of top m relevant documents with different relevance score when using ``top_n_random_k`` pairing approach
+  * \return The number of paired data
+  */
+  data_size_t BuildPairwiseFeatureRanking(const Metadata& metadata, const std::string& pairing_approach, const data_size_t random_pairing_k, const data_size_t top_pairing_n, const data_size_t relevance_pairing_m);
+
+  /*!
   * \brief Perform any extra operations after all data has been loaded
   */
   void FinishLoad();
@@ -261,15 +272,56 @@ class Metadata {
   }
 
   /*!
+  * \brief Get the pairwise item index map within query in ranking with pairwise features
+  * \return Pointer to the pairwise item index map within query
+  */
+  inline const std::pair<data_size_t, data_size_t>* paired_ranking_item_index_map() const {
+    if (!paired_ranking_item_index_map_.empty()) {
+      return paired_ranking_item_index_map_.data();
+    } else {
+      return nullptr;
+    }
+  }
+
+  /*!
+  * \brief Get the pairwise item global index map in ranking with pairwise features
+  * \return Pointer to the pairwise item global index map
+  */
+  inline const std::pair<data_size_t, data_size_t>* paired_ranking_item_global_index_map() const {
+    if (!paired_ranking_item_global_index_map_.empty()) {
+      return paired_ranking_item_global_index_map_.data();
+    } else {
+      return nullptr;
+    }
+  }
+
+  inline data_size_t paired_ranking_item_index_map_size() const {
+    return static_cast<data_size_t>(paired_ranking_item_index_map_.size());
+  }
+
+  /*!
   * \brief Get data boundaries on queries, if not exists, will return nullptr
   *        we assume data will order by query,
   *        the interval of [query_boundaris[i], query_boundaris[i+1])
   *        is the data indices for query i.
+  *        When pairwise ranking, this points to the paired query boundaries.
   * \return Pointer of data boundaries on queries
   */
   inline const data_size_t* query_boundaries() const {
     if (!query_boundaries_.empty()) {
       return query_boundaries_.data();
+    } else {
+      return nullptr;
+    }
+  }
+
+  /*!
+  * \brief Used in pairwise ranking. Pointwise query boundaries.
+  * \return Pointer of data boundaries on queries
+  */
+  inline const data_size_t* pairwise_query_boundaries() const {
+    if (!pairwise_query_boundaries_.empty()) {
+      return pairwise_query_boundaries_.data();
     } else {
       return nullptr;
     }
@@ -318,6 +370,10 @@ class Metadata {
       return static_cast<int>(num_init_score_ / num_data_);
     }
     return 1;
+  }
+
+  inline bool query_load_from_file() const {
+    return query_load_from_file_;
   }
 
   /*! \brief Disable copy */
@@ -372,7 +428,7 @@ class Metadata {
   data_size_t num_weights_;
   /*! \brief Number of positions, used to check correct position file */
   data_size_t num_positions_;
-  /*! \brief Label data */
+  /*! \brief Label data. In pairwise ranking, the label_ refer to the labels of the original unpaired dataset. */
   std::vector<label_t> label_;
   /*! \brief Weights data */
   std::vector<label_t> weights_;
@@ -382,6 +438,8 @@ class Metadata {
   std::vector<std::string> position_ids_;
   /*! \brief Query boundaries */
   std::vector<data_size_t> query_boundaries_;
+  /*! \brief Original query boundaries, used in pairwise ranking */
+  std::vector<data_size_t> pairwise_query_boundaries_;
   /*! \brief Query weights */
   std::vector<label_t> query_weights_;
   /*! \brief Number of queries */
@@ -392,6 +450,12 @@ class Metadata {
   std::vector<double> init_score_;
   /*! \brief Queries data */
   std::vector<data_size_t> queries_;
+  /*! \brief Mode for pairwise ranking */
+  PairwiseRankingMode pairwise_ranking_mode_ = PairwiseRankingMode::kRelevance;
+  /*! \brief Pairwise data index within query to original data indices for ranking with pairwise features  */
+  std::vector<std::pair<data_size_t, data_size_t>> paired_ranking_item_index_map_;
+  /*! \brief Pairwise global data index to original data indices for ranking with pairwise features  */
+  std::vector<std::pair<data_size_t, data_size_t>> paired_ranking_item_global_index_map_;
   /*! \brief mutex for threading safe call */
   std::mutex mutex_;
   bool weight_load_from_file_;
@@ -677,15 +741,18 @@ class Dataset {
 
   void CopySubrowToDevice(const Dataset* fullset, const data_size_t* used_indices, data_size_t num_used_indices, bool need_meta_data, int gpu_device_id);
 
-  MultiValBin* GetMultiBinFromSparseFeatures(const std::vector<uint32_t>& offsets) const;
+  MultiValBin* GetMultiBinFromSparseFeatures(const std::vector<uint32_t>& offsets, const bool use_pairwise_ranking) const;
 
-  MultiValBin* GetMultiBinFromAllFeatures(const std::vector<uint32_t>& offsets) const;
+  MultiValBin* GetMultiBinFromAllFeatures(const std::vector<uint32_t>& offsets, const bool use_pairwise_ranking, const bool use_raw_data_in_pairwise_ranking_diff, const bool use_pairwise_bin_lookup) const;
 
   template <bool USE_QUANT_GRAD, int HIST_BITS>
   TrainingShareStates* GetShareStates(
       score_t* gradients, score_t* hessians,
       const std::vector<int8_t>& is_feature_used, bool is_constant_hessian,
-      bool force_col_wise, bool force_row_wise, const int num_grad_quant_bins) const;
+      bool force_col_wise, bool force_row_wise, const int num_grad_quant_bins,
+      const bool use_pairwise_ranking,
+      const bool use_raw_data_in_pairwise_ranking_diff,
+      const bool use_pairwise_bin_lookup) const;
 
   LIGHTGBM_EXPORT void FinishLoad();
 
@@ -721,6 +788,8 @@ class Dataset {
   LIGHTGBM_EXPORT void CopyFeatureMapperFrom(const Dataset* dataset);
 
   LIGHTGBM_EXPORT void CreateValid(const Dataset* dataset);
+
+  LIGHTGBM_EXPORT void CreatePairWiseRankingData(const Dataset* dataset, const bool is_validation, const Config& config);
 
   void InitTrain(const std::vector<int8_t>& is_feature_used,
                  TrainingShareStates* share_state) const;
@@ -800,6 +869,13 @@ class Dataset {
       return 1;
     } else {
       return 0;
+    }
+  }
+
+  void PrintGroupFeatureInfo(int group_index) const {
+    for (int sub_feature = 0; sub_feature < group_feature_cnt_[group_index]; ++sub_feature) {
+      const BinMapper* bin_mapper = feature_groups_[group_index]->bin_mappers_[sub_feature].get();
+      Log::Warning("sub_feature = %d, missing_type = %d, most_freq_bin = %d", sub_feature, bin_mapper->missing_type(), bin_mapper->GetMostFreqBin());
     }
   }
 
@@ -1025,6 +1101,24 @@ class Dataset {
 
   void CreateCUDAColumnData();
 
+  /*! \brief Create differential features for pairwise lambdarank
+   * \param sample_values sampled values from the file
+   * \param sample_indices sampled data indices from the file
+   * \param bin_mappers bin mappers of the original features
+   * \param filter_cnt filter count for bin finding
+   * \param num_total_sample_data number of all sampled data
+   * \param differential_feature_bin_mappers output differential feature bin mapppers
+   */
+  void CreatePairwiseRankingDifferentialFeatures(
+    const std::vector<std::vector<double>>& sample_values,
+    const std::vector<std::vector<int>>& sample_indices,
+    const std::vector<std::unique_ptr<const BinMapper>>& bin_mappers,
+    const data_size_t num_total_sample_data,
+    const data_size_t* query_boundaries,
+    const data_size_t num_queries,
+    std::vector<std::unique_ptr<BinMapper>>* differential_feature_bin_mappers,
+    const Config& config) const;
+
   void CopySubrowHostPart(const Dataset* fullset, const data_size_t* used_indices, data_size_t num_used_indices, bool need_meta_data);
 
   std::string data_filename_;
@@ -1082,6 +1176,23 @@ class Dataset {
   #endif  // USE_CUDA
 
   std::string parser_config_str_;
+
+  /*! \brief stored sampled features, for creating differential features in pairwise lambdarank */
+  std::shared_ptr<std::vector<std::vector<double>>> sampled_values_;
+  /*! \brief stored sampled data indices, for creating differential features in pairwise lambdarank */
+  std::shared_ptr<std::vector<std::vector<data_size_t>>> sampled_indices_;
+  /*! \brief stored number of totally sampled data, for creating differential features in pairwise lambdarank */
+  data_size_t num_total_sampled_data_;
+  /*! \brief stored query boundaries from training dataset, for creating differential features in pairwise lambdarank */
+  const data_size_t* train_query_boundaries_;
+  /*! \brief stored number of queries from training dataset, for creating differential features in pairwise lambdarank */
+  data_size_t train_num_queries_;
+  /*! \brief stored number of differential features used in training dataset, for creating differential features in pairwise lambdarank */
+  data_size_t num_used_differential_features_;
+  /*! \brief stored number of differential feature groups used in training dataset, for creating differential features in pairwise lambdarank */
+  data_size_t num_used_differential_groups_;
+  /*! \brief map differential feature index to inner feature index of original dataset */
+  std::vector<int> used_differential_feature_to_inner_feature_index_;
 };
 
 }  // namespace LightGBM

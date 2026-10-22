@@ -1262,6 +1262,54 @@ inline static std::string ArrayToString(const std::vector<T>& arr, size_t n) {
   return str_buf.str();
 }
 
+class SigmoidCache {
+public:
+  SigmoidCache(){}
+
+  void Init(double sigmoid) {
+    sigmoid_ = sigmoid;
+    // get boundary
+    min_sigmoid_input_ = min_sigmoid_input_ / sigmoid_ / 2;
+    max_sigmoid_input_ = -min_sigmoid_input_;
+    sigmoid_table_.resize(_sigmoid_bins);
+    // get score to bin factor
+    sigmoid_table_idx_factor_ =
+      _sigmoid_bins / (max_sigmoid_input_ - min_sigmoid_input_);
+    // cache
+    for (size_t i = 0; i < _sigmoid_bins; ++i) {
+      const double score = i / sigmoid_table_idx_factor_ + min_sigmoid_input_;
+      sigmoid_table_[i] = 1.0f / (1.0f + std::exp(score * sigmoid_));
+    }
+  }
+
+  double compute(double score) const {
+    if (score <= min_sigmoid_input_) {
+      // too small, use lower bound
+      return sigmoid_table_[0];
+    }
+    else if (score >= max_sigmoid_input_) {
+      // too large, use upper bound
+      return sigmoid_table_[_sigmoid_bins - 1];
+    }
+    else {
+      return sigmoid_table_[static_cast<size_t>((score - min_sigmoid_input_) *
+        sigmoid_table_idx_factor_)];
+    }
+  }
+private:
+  /*! \brief Sigmoid param */
+  double sigmoid_;
+  /*! \brief Cache result for sigmoid transform to speed up */
+  std::vector<double> sigmoid_table_;
+  /*! \brief Number of bins in simoid table */
+  size_t _sigmoid_bins = 1024 * 1024;
+  /*! \brief Minimal input of sigmoid table */
+  double min_sigmoid_input_ = -50;
+  /*! \brief Maximal input of Sigmoid table */
+  double max_sigmoid_input_ = 50;
+  /*! \brief Factor that covert score to bin in Sigmoid table */
+  double sigmoid_table_idx_factor_;
+};
 
 }  // namespace CommonC
 

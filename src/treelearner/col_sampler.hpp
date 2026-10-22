@@ -90,6 +90,7 @@ class ColSampler {
   }
 
   std::vector<int8_t> GetByNode(const Tree* tree, int leaf) {
+    // Log::Warning("GetByNode step 0");
     // get interaction constraints for current branch
     std::unordered_set<int> allowed_features;
     if (!interaction_constraints_.empty()) {
@@ -113,6 +114,7 @@ class ColSampler {
       }
     }
 
+    // Log::Warning("GetByNode step 1");
     std::vector<int8_t> ret(train_data_->num_features(), 0);
     if (fraction_bynode_ >= 1.0f) {
       if (interaction_constraints_.empty()) {
@@ -127,6 +129,7 @@ class ColSampler {
         return ret;
       }
     }
+    // Log::Warning("GetByNode step 2");
     if (need_reset_bytree_) {
       auto used_feature_cnt = GetCnt(used_feature_indices_.size(), fraction_bynode_);
       std::vector<int>* allowed_used_feature_indices;
@@ -178,6 +181,7 @@ class ColSampler {
         ret[inner_feature_index] = 1;
       }
     }
+    // Log::Warning("GetByNode step 3");
     return ret;
   }
 

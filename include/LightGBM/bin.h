@@ -16,6 +16,7 @@
 #include <functional>
 #include <sstream>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace LightGBM {
@@ -172,6 +173,9 @@ class BinMapper {
   * \return bin for this feature value
   */
   inline uint32_t ValueToBin(double value) const;
+  inline uint32_t ValueToBin(double value, uint32_t min_bin, uint32_t max_bin) const;
+  inline uint32_t ValueToBinWithPairwiseRange(double value, uint32_t first_bin, uint32_t second_bin) const;
+  inline std::pair<uint32_t, uint32_t> GetPairwiseBinRange(uint32_t first_bin, uint32_t second_bin) const;
 
   /*!
   * \brief Get the default bin when value is 0
@@ -184,6 +188,17 @@ class BinMapper {
   inline uint32_t GetMostFreqBin() const {
     return most_freq_bin_;
   }
+
+  inline bool HasPairwiseBinRanges() const {
+    return pairwise_bin_num_ > 0 &&
+      pairwise_bin_ranges_.size() ==
+      static_cast<size_t>(pairwise_bin_num_) * pairwise_bin_num_ * 2;
+  }
+
+  void InitPairwiseBinRanges(uint32_t num_original_bin);
+
+  void SetPairwiseBinRange(uint32_t first_bin, uint32_t second_bin,
+                           uint32_t min_bin, uint32_t max_bin);
 
   /*!
   * \brief Construct feature value to bin mapper according feature values
@@ -257,6 +272,8 @@ class BinMapper {
   uint32_t default_bin_;
 
   uint32_t most_freq_bin_;
+  uint32_t pairwise_bin_num_;
+  std::vector<uint32_t> pairwise_bin_ranges_;
 };
 
 /*! \brief Iterator for one bin column */
@@ -306,6 +323,10 @@ class Bin {
   * \return Iterator of this bin
   */
   virtual BinIterator* GetIterator(uint32_t min_bin, uint32_t max_bin, uint32_t most_freq_bin) const = 0;
+
+  virtual BinIterator* GetUnpairedIterator(uint32_t /* min_bin */, uint32_t /* max_bin */, uint32_t /* most_freq_bin */) const {
+    return nullptr;
+  }
 
   /*!
   * \brief Save binary data to file
@@ -469,6 +490,64 @@ class Bin {
   static Bin* CreateSparseBin(data_size_t num_data, int num_bin);
 
   /*!
+  * \brief Create object for bin data of the first feature in pair, used for pairwise ranking, for an original dense bin
+  * \param num_data Size of the pairwise dataset
+  * \param num_bin Number of bin
+  * \param paired_ranking_item_index_map Map from data index to the original index for items in the pair
+  * \return The bin data object
+  */
+  static Bin* CreateDensePairwiseRankingFirstBin(data_size_t num_original_data, int num_bin, data_size_t num_pairs, const std::pair<data_size_t, data_size_t>* paired_ranking_item_index_map);
+
+  /*!
+  * \brief Create object for bin data of the first feature in pair, used for pairwise ranking, for an original sparse bin
+  * \param num_data Size of the pairwise dataset
+  * \param num_bin Number of bin
+  * \param paired_ranking_item_index_map Map from data index to the original index for items in the pair
+  * \return The bin data object
+  */
+  static Bin* CreateSparsePairwiseRankingFirstBin(data_size_t num_original_data, int num_bin, data_size_t num_pairs, const std::pair<data_size_t, data_size_t>* paired_ranking_item_index_map);
+
+  /*!
+  * \brief Create object for bin data of the second feature in pair, used for pairwise ranking, for an original dense bin
+  * \param num_data Size of the pairwise dataset
+  * \param num_bin Number of bin
+  * \param paired_ranking_item_index_map Map from data index to the original index for items in the pair
+  * \return The bin data object
+  */
+  static Bin* CreateDensePairwiseRankingSecondBin(data_size_t num_original_data, int num_bin, data_size_t num_pairs, const std::pair<data_size_t, data_size_t>* paired_ranking_item_index_map);
+
+  /*!
+  * \brief Create object for bin data of the second feature in pair, used for pairwise ranking, for an original sparse bin
+  * \param num_data Size of the pairwise dataset
+  * \param num_bin Number of bin
+  * \param paired_ranking_item_index_map Map from data index to the original index for items in the pair
+  * \return The bin data object
+  */
+  static Bin* CreateSparsePairwiseRankingSecondBin(data_size_t num_original_data, int num_bin, data_size_t num_pairs, const std::pair<data_size_t, data_size_t>* paired_ranking_item_index_map);
+
+  /*!
+  * \brief Create object for bin data of the differential feature in pair, used for pairwise ranking, for an original dense bin
+  * \param num_data Size of the pairwise dataset
+  * \param num_bin Number of bin
+  * \param paired_ranking_item_index_map Map from data index to the original index for items in the pair
+  * \param diff_bin_mappers Bin mappers for differential features in this group
+  * \param bin_offsets Bin offsets in feature group
+  * \return The bin data object
+  */
+  static Bin* CreateDensePairwiseRankingDiffBin(data_size_t num_original_data, int num_bin, data_size_t num_pairs, const std::pair<data_size_t, data_size_t>* paired_ranking_item_index_map, const std::vector<std::unique_ptr<const BinMapper>>* diff_bin_mappers, const std::vector<std::unique_ptr<const BinMapper>>* ori_bin_mappers, const std::vector<uint32_t>* bin_offsets, const std::vector<uint32_t>* diff_bin_offsets, const std::vector<float>* raw_values);
+
+  /*!
+  * \brief Create object for bin data of the differential feature in pair, used for pairwise ranking, for an original sparse bin
+  * \param num_data Size of the pairwise dataset
+  * \param num_bin Number of bin
+  * \param paired_ranking_item_index_map Map from data index to the original index for items in the pair
+  * \param diff_bin_mappers Bin mappers for differential features in this group
+  * \param bin_offsets Bin offsets in feature group
+  * \return The bin data object
+  */
+  static Bin* CreateSparsePairwiseRankingDiffBin(data_size_t num_original_data, int num_bin, data_size_t num_pairs, const std::pair<data_size_t, data_size_t>* paired_ranking_item_index_map, const std::vector<std::unique_ptr<const BinMapper>>* diff_bin_mappers, const std::vector<std::unique_ptr<const BinMapper>>* ori_bin_mappers, const std::vector<uint32_t>* bin_offsets, const std::vector<uint32_t>* diff_bin_offsets, const std::vector<float>* raw_values);
+
+  /*!
   * \brief Deep copy the bin
   */
   virtual Bin* Clone() = 0;
@@ -476,6 +555,8 @@ class Bin {
   virtual const void* GetColWiseData(uint8_t* bit_type, bool* is_sparse, std::vector<BinIterator*>* bin_iterator, const int num_threads) const = 0;
 
   virtual const void* GetColWiseData(uint8_t* bit_type, bool* is_sparse, BinIterator** bin_iterator) const = 0;
+
+  int group_index_ = -1;
 };
 
 
@@ -496,6 +577,8 @@ class MultiValBin {
   virtual void CopySubrow(const MultiValBin* full_bin,
                           const data_size_t* used_indices,
                           data_size_t num_used_indices) = 0;
+
+  virtual void DumpContent() const {}
 
   virtual MultiValBin* CreateLike(data_size_t num_data, int num_bin,
                                   int num_feature,
@@ -590,12 +673,22 @@ class MultiValBin {
   virtual bool IsSparse() = 0;
 
   static MultiValBin* CreateMultiValBin(data_size_t num_data, int num_bin,
-                                        int num_feature, double sparse_rate, const std::vector<uint32_t>& offsets);
+                                        int num_feature, double sparse_rate, const std::vector<uint32_t>& offsets, const bool use_pairwise_ranking,
+                                        const std::pair<data_size_t, data_size_t>* paired_ranking_item_global_index_map, const std::vector<const BinMapper*> diff_feature_bin_mappers,
+                                        const std::vector<const BinMapper*> original_feature_bin_mappers, const bool use_pairwise_bin_lookup,
+                                        const std::vector<std::vector<float>>* raw_data,
+                                        const std::vector<uint32_t>& all_offsets, const std::vector<int>& diff_feature_to_original_feature_slot,
+                                        const std::vector<int>& diff_feature_to_raw_feature_index);
 
   static MultiValBin* CreateMultiValDenseBin(data_size_t num_data, int num_bin,
-                                             int num_feature, const std::vector<uint32_t>& offsets);
+                                             int num_feature, const std::vector<uint32_t>& offsets, const bool use_pairwise_ranking,
+                                             const std::pair<data_size_t, data_size_t>* paired_ranking_item_global_index_map, const std::vector<const BinMapper*> diff_feature_bin_mappers,
+                                             const std::vector<const BinMapper*> original_feature_bin_mappers, const bool use_pairwise_bin_lookup,
+                                             const std::vector<std::vector<float>>* raw_data,
+                                             const std::vector<uint32_t>& all_offsets, const std::vector<int>& diff_feature_to_original_feature_slot,
+                                        const std::vector<int>& diff_feature_to_raw_feature_index);
 
-  static MultiValBin* CreateMultiValSparseBin(data_size_t num_data, int num_bin, double estimate_element_per_row);
+  static MultiValBin* CreateMultiValSparseBin(data_size_t num_data, int num_bin, double estimate_element_per_row, const bool use_pairwise_ranking, const std::pair<data_size_t, data_size_t>* paired_ranking_item_global_index_map);
 
   static constexpr double multi_val_bin_sparse_threshold = 0.25f;
 
@@ -610,23 +703,42 @@ class MultiValBin {
   #endif  // USE_CUDA
 };
 
-inline uint32_t BinMapper::ValueToBin(double value) const {
+inline uint32_t BinMapper::ValueToBin(double value, uint32_t min_bin, uint32_t max_bin) const {
   if (std::isnan(value)) {
     if (bin_type_ == BinType::CategoricalBin) {
       return 0;
     } else if (missing_type_ == MissingType::NaN) {
-      return num_bin_ - 1;
+      return static_cast<uint32_t>(num_bin_ - 1);
     } else {
       value = 0.0f;
     }
   }
   if (bin_type_ == BinType::NumericalBin) {
-    // binary search to find bin
-    int l = 0;
-    int r = num_bin_ - 1;
+    uint32_t lower = min_bin;
+    uint32_t upper = max_bin;
     if (missing_type_ == MissingType::NaN) {
-      r -= 1;
+      const uint32_t nan_bin = static_cast<uint32_t>(num_bin_ - 1);
+      if (lower >= nan_bin) {
+        return nan_bin;
+      }
+      if (upper >= nan_bin) {
+        upper = nan_bin - 1;
+      }
     }
+    if (lower > upper) {
+      lower = upper;
+    }
+    constexpr uint32_t kLinearSearchThreshold = 8;
+    if (upper - lower <= kLinearSearchThreshold) {
+      for (uint32_t bin = lower; bin < upper; ++bin) {
+        if (value <= bin_upper_bound_[bin]) {
+          return bin;
+        }
+      }
+      return upper;
+    }
+    int l = static_cast<int>(lower);
+    int r = static_cast<int>(upper);
     while (l < r) {
       int m = (r + l - 1) / 2;
       if (value <= bin_upper_bound_[m]) {
@@ -635,7 +747,56 @@ inline uint32_t BinMapper::ValueToBin(double value) const {
         l = m + 1;
       }
     }
-    return l;
+    return static_cast<uint32_t>(l);
+  } else {
+    int int_value = static_cast<int>(value);
+    if (int_value < 0) {
+      return 0;
+    }
+    if (categorical_2_bin_.count(int_value)) {
+      return categorical_2_bin_.at(int_value);
+    } else {
+      return 0;
+    }
+  }
+}
+
+inline std::pair<uint32_t, uint32_t> BinMapper::GetPairwiseBinRange(uint32_t first_bin, uint32_t second_bin) const {
+  uint32_t max_bin = static_cast<uint32_t>(num_bin_ - 1);
+  if (missing_type_ == MissingType::NaN && max_bin > 0) {
+    --max_bin;
+  }
+  if (!HasPairwiseBinRanges() || first_bin >= pairwise_bin_num_ || second_bin >= pairwise_bin_num_) {
+    return std::make_pair(0u, max_bin);
+  }
+  const size_t offset = (static_cast<size_t>(first_bin) * pairwise_bin_num_ + second_bin) * 2;
+  return std::make_pair(pairwise_bin_ranges_[offset], pairwise_bin_ranges_[offset + 1]);
+}
+
+inline uint32_t BinMapper::ValueToBinWithPairwiseRange(double value, uint32_t first_bin, uint32_t second_bin) const {
+  if (!HasPairwiseBinRanges()) {
+    return ValueToBin(value);
+  }
+  const auto bin_range = GetPairwiseBinRange(first_bin, second_bin);
+  return ValueToBin(value, bin_range.first, bin_range.second);
+}
+
+inline uint32_t BinMapper::ValueToBin(double value) const {
+  if (std::isnan(value)) {
+    if (bin_type_ == BinType::CategoricalBin) {
+      return 0;
+    } else if (missing_type_ == MissingType::NaN) {
+      return static_cast<uint32_t>(num_bin_ - 1);
+    } else {
+      value = 0.0f;
+    }
+  }
+  if (bin_type_ == BinType::NumericalBin) {
+    uint32_t max_bin = static_cast<uint32_t>(num_bin_ - 1);
+    if (missing_type_ == MissingType::NaN && max_bin > 0) {
+      --max_bin;
+    }
+    return ValueToBin(value, 0, max_bin);
   } else {
     int int_value = static_cast<int>(value);
     // convert negative value to NaN bin

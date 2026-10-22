@@ -146,6 +146,9 @@ __global__ void CUDAInitValuesKernel4(
     cuda_struct->sum_of_hessians = sum_of_hessians;
     cuda_struct->sum_of_gradients_hessians = sum_of_gradients_hessians;
     cuda_struct->num_data_in_leaf = num_data;
+    cuda_sum_of_gradients[0] = sum_of_gradients;
+    cuda_sum_of_hessians[0] = sum_of_hessians;
+    cuda_sum_of_gradients_hessians[0] = sum_of_gradients_hessians;
     const bool use_l1 = lambda_l1 > 0.0f;
     if (!use_l1) {
       // no smoothing on root node

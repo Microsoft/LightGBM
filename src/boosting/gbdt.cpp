@@ -358,6 +358,8 @@ bool GBDT::TrainOneIter(const score_t* gradients, const score_t* hessians) {
     for (int cur_tree_id = 0; cur_tree_id < num_tree_per_iteration_; ++cur_tree_id) {
       init_scores[cur_tree_id] = BoostFromAverage(cur_tree_id, true);
     }
+    data_sample_strategy_->Bagging(iter_, tree_learner_.get(), gradients_.data(), hessians_.data());
+    objective_function_->SetDataIndices(data_sample_strategy_->bag_data_indices().data());
     Boosting();
     gradients = gradients_pointer_;
     hessians = hessians_pointer_;
@@ -412,6 +414,7 @@ bool GBDT::TrainOneIter(const score_t* gradients, const score_t* hessians) {
       new_tree.reset(tree_learner_->Train(grad, hess, is_first_tree));
     }
 
+
     if (new_tree->num_leaves() > 1) {
       should_continue = true;
       auto score_ptr = train_score_updater_->score() + offset;
@@ -445,6 +448,7 @@ bool GBDT::TrainOneIter(const score_t* gradients, const score_t* hessians) {
     // add model
     models_.push_back(std::move(new_tree));
   }
+
 
   if (!should_continue) {
     Log::Warning("Stopped training because there are no more leaves that meet the split requirements");

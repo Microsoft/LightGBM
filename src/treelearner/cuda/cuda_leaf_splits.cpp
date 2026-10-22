@@ -64,6 +64,13 @@ void CUDALeafSplits::InitValues(
   CopyFromCUDADeviceToHost<double>(root_sum_gradients, cuda_sum_of_gradients_buffer_.RawData(), 1, __FILE__, __LINE__);
   CopyFromCUDADeviceToHost<double>(root_sum_hessians, cuda_sum_of_hessians_buffer_.RawData(), 1, __FILE__, __LINE__);
   SynchronizeCUDADevice(__FILE__, __LINE__);
+
+  int32_t root_sum_int_gradients = 0;
+  int32_t root_sum_int_hessians = 0;
+  CopyFromCUDADeviceToHost<int32_t>(&root_sum_int_gradients, reinterpret_cast<const int32_t*>(cuda_sum_of_gradients_hessians_buffer_.RawData()), 1, __FILE__, __LINE__);
+  CopyFromCUDADeviceToHost<int32_t>(&root_sum_int_hessians, reinterpret_cast<const int32_t*>(cuda_sum_of_gradients_hessians_buffer_.RawData()) + 1, 1, __FILE__, __LINE__);
+
+  Log::Warning("root_sum_gradients = %f, root_sum_hessians = %f, root_sum_int_gradients = %d, root_sum_int_hessians = %d", *root_sum_gradients, *root_sum_hessians, root_sum_int_gradients, root_sum_int_hessians);
 }
 
 void CUDALeafSplits::Resize(const data_size_t num_data) {

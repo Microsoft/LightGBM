@@ -159,6 +159,10 @@ void GradientDiscretizer::DiscretizeGradients(
       }
     }
   }
+
+  for (size_t i = 0; i < 100; ++i) {
+    Log::Warning("i = %ld, grad = %d, hess = %d", i, discretized_int8[2 * i + 1], discretized_int8[2 * i]);
+  }
 }
 
 template <bool IS_GLOBAL>

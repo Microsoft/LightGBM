@@ -567,8 +567,11 @@ class DenseBin : public Bin {
 
   void CopySubrow(const Bin* full_bin, const data_size_t* used_indices,
                   data_size_t num_used_indices) override {
+    Log::Warning("is dense");
     auto other_bin = dynamic_cast<const DenseBin<VAL_T, IS_4BIT>*>(full_bin);
+    Log::Warning("other bin created");
     if (IS_4BIT) {
+      Log::Warning("is 4 bit");
       const data_size_t rest = num_used_indices & 1;
       for (int i = 0; i < num_used_indices - rest; i += 2) {
         data_size_t idx = used_indices[i];
@@ -587,6 +590,7 @@ class DenseBin : public Bin {
       }
     } else {
       for (int i = 0; i < num_used_indices; ++i) {
+        CHECK_LT(used_indices[i], data_.size());
         data_[i] = other_bin->data_[used_indices[i]];
       }
     }
@@ -606,7 +610,7 @@ class DenseBin : public Bin {
 
   const void* GetColWiseData(uint8_t* bit_type, bool* is_sparse, BinIterator** bin_iterator) const override;
 
- private:
+ protected:
   data_size_t num_data_;
 #ifdef USE_CUDA
   std::vector<VAL_T, CHAllocator<VAL_T>> data_;

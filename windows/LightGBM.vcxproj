@@ -254,6 +254,7 @@
     <ClInclude Include="..\include\LightGBM\dataset.h" />
     <ClInclude Include="..\include\LightGBM\dataset_loader.h" />
     <ClInclude Include="..\include\LightGBM\feature_group.h" />
+    <ClInclude Include="..\include\LightGBM\pairwise_ranking_feature_group.h" />
     <ClInclude Include="..\include\LightGBM\meta.h" />
     <ClInclude Include="..\include\LightGBM\metric.h" />
     <ClInclude Include="..\include\LightGBM\network.h" />
@@ -289,6 +290,7 @@
     <ClInclude Include="..\src\io\multi_val_sparse_bin.hpp" />
     <ClInclude Include="..\src\io\parser.hpp" />
     <ClInclude Include="..\src\io\sparse_bin.hpp" />
+    <ClInclude Include="..\src\io\pairwise_lambdarank_bin.hpp" />
     <ClInclude Include="..\src\metric\binary_metric.hpp" />
     <ClInclude Include="..\src\metric\map_metric.hpp" />
     <ClInclude Include="..\src\metric\rank_metric.hpp" />
@@ -334,6 +336,8 @@
     <ClCompile Include="..\src\io\parser.cpp" />
     <ClCompile Include="..\src\io\train_share_states.cpp" />
     <ClCompile Include="..\src\io\tree.cpp" />
+    <ClCompile Include="..\src\io\pairwise_lambdarank_bin.cpp" />
+    <ClCompile Include="..\src\io\pairwise_ranking_feature_group.cpp" />
     <ClCompile Include="..\src\metric\dcg_calculator.cpp" />
     <ClCompile Include="..\src\metric\metric.cpp" />
     <ClCompile Include="..\src\network\network.cpp" />
@@ -341,6 +345,7 @@
     <ClCompile Include="..\src\network\linkers_socket.cpp" />
     <ClCompile Include="..\src\network\linker_topo.cpp" />
     <ClCompile Include="..\src\objective\objective_function.cpp" />
+    <ClCompile Include="..\src\objective\rank_objective.cpp" />
     <ClCompile Include="..\src\main.cpp" />
     <ClCompile Include="..\src\treelearner\data_parallel_tree_learner.cpp" />
     <ClCompile Include="..\src\treelearner\feature_histogram.cpp" />

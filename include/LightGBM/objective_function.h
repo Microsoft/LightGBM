@@ -135,7 +135,45 @@ class ObjectiveFunction {
     const Config& config);
 
   #endif  // USE_CUDA
+
+  virtual void SetDataIndices(const data_size_t* used_data_indices) const { used_data_indices_ = used_data_indices; }
+
+ private:
+  mutable const data_size_t* used_data_indices_ = nullptr;
 };
+
+void UpdatePointwiseScoresForOneQuery(double* score_pointwise, const double* score_pairwise, data_size_t cnt_pointwise,
+  const std::pair<data_size_t, data_size_t>* paired_index_map,  
+  const std::vector<std::vector<std::pair<short, data_size_t>>>& right2left2pair_map, const std::vector<std::vector<std::pair<short, data_size_t>>>& left2right2pair_map,
+  int truncation_level, double sigma, const CommonC::SigmoidCache& sigmoid_cache, bool model_indirect_comparison, bool model_conditional_rel,
+  bool indirect_comparison_above_only, bool logarithmic_discounts, bool hard_pairwise_preference, int indirect_comparison_max_rank, double indirect_comparison_weight, double l2_pairwise_diff_weight);
+
+inline data_size_t get_pair_index(const std::vector<std::pair<short, data_size_t>>& vec, short key) noexcept
+{
+  constexpr size_t LINEAR_THRESHOLD = 20; // tune experimentally
+
+  if (vec.size() < LINEAR_THRESHOLD) {
+    // Linear scan with branchless equality
+    for (const auto& p : vec) {
+      // (p.first == key) evaluates to 1 or 0 → mask result
+      short match = (p.first == key);
+      if (match) return p.second;
+    }
+    return static_cast<short>(-1);
+  }
+
+  // Binary search for larger vectors
+  auto it = std::lower_bound(
+    vec.begin(), vec.end(),
+    key,
+    [](const auto& p, short k) noexcept { return p.first < k; }
+  );
+
+  // Branchless equality for final check
+  return (it != vec.end() && it->first == key)
+    ? it->second
+    : static_cast<data_size_t>(-1);
+}
 
 }  // namespace LightGBM
 

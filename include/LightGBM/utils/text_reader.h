@@ -339,6 +339,147 @@ class TextReader {
     });
   }
 
+  /*!
+  * \brief Read all data and process by query boundaries for ranking tasks
+  * \param process_fun Process function that receives query index and lines for that query
+  * \param query_boundaries Array defining query boundaries [0, 10, 15, 30] means 3 queries
+  * \param num_queries Number of queries
+  * \return Total number of lines processed
+  */
+  INDEX_T ReadAllAndProcessParallelByQuery(
+      const std::function<void(INDEX_T, INDEX_T, const std::vector<std::string>&)>& process_fun,
+      const data_size_t* query_boundaries, 
+      data_size_t num_queries) {
+    
+    if (query_boundaries == nullptr || num_queries == 0) {
+      // Fall back to regular processing if no query boundaries
+      return ReadAllAndProcessParallel([&process_fun](INDEX_T start_idx, const std::vector<std::string>& lines) {
+        process_fun(0, start_idx, lines);
+      });
+    }
+
+    last_line_ = "";
+    INDEX_T total_cnt = 0;
+    size_t bytes_read = 0;
+    INDEX_T used_cnt = 0;
+    
+    // Buffer to accumulate lines for each query
+    std::vector<std::vector<std::string>> query_buffers(num_queries);
+    std::vector<INDEX_T> query_line_counts(num_queries, 0);
+    
+    // Current query index
+    INDEX_T current_query = 0;
+    
+    PipelineReader::Read(filename_, skip_bytes_,
+        [&process_fun, &query_boundaries, &num_queries, &total_cnt, &bytes_read, &used_cnt, 
+         &query_buffers, &query_line_counts, &current_query, this]
+    (const char* buffer_process, size_t read_cnt) {
+      size_t cnt = 0;
+      size_t i = 0;
+      size_t last_i = 0;
+      INDEX_T start_idx = used_cnt;
+      
+      // skip the break between \r and \n
+      if (last_line_.size() == 0 && buffer_process[0] == '\n') {
+        i = 1;
+        last_i = i;
+      }
+      
+      while (i < read_cnt) {
+        if (buffer_process[i] == '\n' || buffer_process[i] == '\r') {
+          std::string current_line;
+          if (last_line_.size() > 0) {
+            last_line_.append(buffer_process + last_i, i - last_i);
+            current_line = last_line_;
+            last_line_ = "";
+          } else {
+            current_line = std::string(buffer_process + last_i, i - last_i);
+          }
+          
+          // Find which query this line belongs to
+          while (current_query < num_queries - 1 && 
+                 used_cnt >= query_boundaries[current_query + 1]) {
+            current_query++;
+          }
+          
+          // Add line to appropriate query buffer
+          if (current_query < num_queries) {
+            query_buffers[current_query].push_back(current_line);
+            query_line_counts[current_query]++;
+          }
+          
+          ++cnt;
+          ++i;
+          ++total_cnt;
+          ++used_cnt;
+          
+          // skip end of line
+          while ((buffer_process[i] == '\n' || buffer_process[i] == '\r') && i < read_cnt) { ++i; }
+          last_i = i;
+        } else {
+          ++i;
+        }
+      }
+      
+      // Process complete queries that are ready
+      for (INDEX_T q = 0; q < num_queries; ++q) {
+        if (query_line_counts[q] > 0 && 
+            (q == num_queries - 1 || used_cnt >= query_boundaries[q + 1])) {
+          // This query is complete, process it
+          INDEX_T query_start = query_boundaries[q];
+          INDEX_T query_end = (q == num_queries - 1) ? used_cnt : query_boundaries[q + 1];
+          process_fun(q, query_start, query_buffers[q]);
+          
+          // Clear the buffer for this query
+          query_buffers[q].clear();
+          query_line_counts[q] = 0;
+        }
+      }
+      
+      if (last_i != read_cnt) {
+        last_line_.append(buffer_process + last_i, read_cnt - last_i);
+      }
+
+      size_t prev_bytes_read = bytes_read;
+      bytes_read += read_cnt;
+      if (prev_bytes_read / read_progress_interval_bytes_ < bytes_read / read_progress_interval_bytes_) {
+        Log::Debug("Read %.1f GBs from %s.", 1.0 * bytes_read / kGbs, filename_);
+      }
+
+      return cnt;
+    });
+    
+    // Handle the last line if it doesn't have an end of line
+    if (last_line_.size() > 0) {
+      Log::Info("Warning: last line of %s has no end of line, still using this line", filename_);
+      
+      // Find which query this line belongs to
+      while (current_query < num_queries - 1 && 
+             used_cnt >= query_boundaries[current_query + 1]) {
+        current_query++;
+      }
+      
+      if (current_query < num_queries) {
+        query_buffers[current_query].push_back(last_line_);
+        query_line_counts[current_query]++;
+      }
+      
+      ++total_cnt;
+      ++used_cnt;
+    }
+    
+    // Process any remaining incomplete queries
+    for (INDEX_T q = 0; q < num_queries; ++q) {
+      if (query_line_counts[q] > 0) {
+        INDEX_T query_start = query_boundaries[q];
+        INDEX_T query_end = (q == num_queries - 1) ? used_cnt : query_boundaries[q + 1];
+        process_fun(q, query_start, query_buffers[q]);
+      }
+    }
+    
+    return total_cnt;
+  }
+
  private:
   /*! \brief Filename of text data */
   const char* filename_;

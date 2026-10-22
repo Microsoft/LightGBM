@@ -69,6 +69,9 @@
     <ClInclude Include="..\src\io\sparse_bin.hpp">
       <Filter>src\io</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\io\pairwise_lambdarank_bin.hpp">
+      <Filter>src\io</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\metric\binary_metric.hpp">
       <Filter>src\metric</Filter>
     </ClInclude>
@@ -139,6 +142,9 @@
       <Filter>include\LightGBM</Filter>
     </ClInclude>
     <ClInclude Include="..\include\LightGBM\tree_learner.h">
+      <Filter>include\LightGBM</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\LightGBM\pairwise_ranking_feature_group.h">
       <Filter>include\LightGBM</Filter>
     </ClInclude>
     <ClInclude Include="..\include\LightGBM\utils\array_args.h">
@@ -272,6 +278,9 @@
     <ClCompile Include="..\src\objective\objective_function.cpp">
       <Filter>src\objective</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\objective\rank_objective.cpp">
+      <Filter>src\objective</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\Boosting\boosting.cpp">
       <Filter>src\boosting</Filter>
     </ClCompile>
@@ -336,6 +345,12 @@
       <Filter>src\io</Filter>
     </ClCompile>
     <ClCompile Include="..\src\io\config_auto.cpp">
+      <Filter>src\io</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\io\pairwise_lambdarank_bin.cpp">
+      <Filter>src\io</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\io\pairwise_ranking_feature_group.cpp">
       <Filter>src\io</Filter>
     </ClCompile>
     <ClCompile Include="..\src\io\train_share_states.cpp">

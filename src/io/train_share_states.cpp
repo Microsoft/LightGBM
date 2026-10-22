@@ -36,11 +36,14 @@ void MultiValBinWrapper::InitTrain(const std::vector<int>& group_feature_start,
   if (multi_val_bin_ == nullptr) {
     return;
   }
+  Log::Warning("MultiValBinWrapper::InitTrain step 0");
   CopyMultiValBinSubset(group_feature_start, feature_groups,
     is_feature_used, bagging_use_indices, bagging_indices_cnt);
+  Log::Warning("MultiValBinWrapper::InitTrain step 1");
   const auto cur_multi_val_bin = (is_use_subcol_ || is_use_subrow_)
         ? multi_val_bin_subset_.get()
         : multi_val_bin_.get();
+  Log::Warning("MultiValBinWrapper::InitTrain step 2");
   if (cur_multi_val_bin != nullptr) {
     num_bin_ = cur_multi_val_bin->num_bin();
     num_bin_aligned_ = (num_bin_ + kAlignedSize - 1) / kAlignedSize * kAlignedSize;
@@ -49,6 +52,7 @@ void MultiValBinWrapper::InitTrain(const std::vector<int>& group_feature_start,
       (num_element_per_row + kZeroThreshold)) + 1, 1024);
     min_block_size_ = std::max<int>(min_block_size_, 32);
   }
+  Log::Warning("MultiValBinWrapper::InitTrain step 3");
 }
 
 template <bool USE_QUANT_GRAD, int HIST_BITS, int INNER_HIST_BITS>
@@ -232,6 +236,7 @@ void MultiValBinWrapper::CopyMultiValBinSubset(
   int num_used = 0;
   int total = 0;
   std::vector<int> used_feature_index;
+  Log::Warning("CopyMultiValBinSubset step 0");
   for (int i : feature_groups_contained_) {
     int f_start = group_feature_start[i];
     if (feature_groups[i]->is_multi_val_) {
@@ -264,8 +269,10 @@ void MultiValBinWrapper::CopyMultiValBinSubset(
       ++total;
     }
   }
+  Log::Warning("CopyMultiValBinSubset step 1");
   const double k_subfeature_threshold = 0.6;
   if (sum_used_dense_ratio >= sum_dense_ratio * k_subfeature_threshold) {
+  Log::Warning("CopyMultiValBinSubset step 2");
     // only need to copy subset
     if (is_use_subrow_ && !is_subrow_copied_) {
       if (multi_val_bin_subset_ == nullptr) {
@@ -284,6 +291,7 @@ void MultiValBinWrapper::CopyMultiValBinSubset(
       is_subrow_copied_ = true;
     }
   } else {
+  Log::Warning("CopyMultiValBinSubset step 3");
     is_use_subcol_ = true;
     std::vector<uint32_t> upper_bound;
     std::vector<uint32_t> lower_bound;
@@ -297,9 +305,12 @@ void MultiValBinWrapper::CopyMultiValBinSubset(
     int num_total_bin = offset;
     int new_num_total_bin = offset;
     offsets.push_back(static_cast<uint32_t>(new_num_total_bin));
+  Log::Warning("CopyMultiValBinSubset step 3.1");
     for (int i : feature_groups_contained_) {
       int f_start = group_feature_start[i];
+  Log::Warning("CopyMultiValBinSubset step 3.2");
       if (feature_groups[i]->is_multi_val_) {
+  Log::Warning("CopyMultiValBinSubset step 3.3");
         for (int j = 0; j < feature_groups[i]->num_feature_; ++j) {
           const auto& bin_mapper = feature_groups[i]->bin_mappers_[j];
           if (i == 0 && j == 0 && bin_mapper->GetMostFreqBin() > 0) {
@@ -325,6 +336,7 @@ void MultiValBinWrapper::CopyMultiValBinSubset(
           }
         }
       } else {
+  Log::Warning("CopyMultiValBinSubset step 3.4");
         bool is_group_used = false;
         for (int j = 0; j < feature_groups[i]->num_feature_; ++j) {
           if (is_feature_used[f_start + j]) {
@@ -332,9 +344,12 @@ void MultiValBinWrapper::CopyMultiValBinSubset(
             break;
           }
         }
+  Log::Warning("CopyMultiValBinSubset step 3.5");
         int cur_num_bin = feature_groups[i]->bin_offsets_.back() - offset;
         num_total_bin += cur_num_bin;
+  Log::Warning("CopyMultiValBinSubset step 3.6");
         if (is_group_used) {
+  Log::Warning("CopyMultiValBinSubset step 3.7");
           new_num_total_bin += cur_num_bin;
           offsets.push_back(static_cast<uint32_t>(new_num_total_bin));
           lower_bound.push_back(num_total_bin - cur_num_bin);
@@ -350,16 +365,21 @@ void MultiValBinWrapper::CopyMultiValBinSubset(
       }
     }
     // avoid out of range
+  Log::Warning("CopyMultiValBinSubset step 3.8");
     lower_bound.push_back(num_total_bin);
     upper_bound.push_back(num_total_bin);
+  Log::Warning("CopyMultiValBinSubset step 3.9");
     data_size_t num_data = is_use_subrow_ ? bagging_indices_cnt : num_data_;
     if (multi_val_bin_subset_ == nullptr) {
+  Log::Warning("CopyMultiValBinSubset step 3.9.1");
       multi_val_bin_subset_.reset(multi_val_bin_->CreateLike(
           num_data, new_num_total_bin, num_used, sum_used_dense_ratio, offsets));
     } else {
+  Log::Warning("CopyMultiValBinSubset step 3.9.2");
       multi_val_bin_subset_->ReSize(num_data, new_num_total_bin,
                                               num_used, sum_used_dense_ratio, offsets);
     }
+  Log::Warning("CopyMultiValBinSubset step 3.10");
     if (is_use_subrow_) {
       multi_val_bin_subset_->CopySubrowAndSubcol(
           multi_val_bin_.get(), bagging_use_indices,
@@ -372,6 +392,7 @@ void MultiValBinWrapper::CopyMultiValBinSubset(
           multi_val_bin_.get(), used_feature_index, lower_bound, upper_bound, delta);
     }
   }
+  Log::Warning("CopyMultiValBinSubset step 4");
 }
 
 void TrainingShareStates::CalcBinOffsets(const std::vector<std::unique_ptr<FeatureGroup>>& feature_groups,
@@ -379,6 +400,7 @@ void TrainingShareStates::CalcBinOffsets(const std::vector<std::unique_ptr<Featu
   offsets->clear();
   feature_hist_offsets_.clear();
   if (in_is_col_wise) {
+    // Log::Fatal("not supported 0");
     uint32_t cur_num_bin = 0;
     uint32_t hist_cur_num_bin = 0;
     for (int group = 0; group < static_cast<int>(feature_groups.size()); ++group) {
@@ -443,9 +465,10 @@ void TrainingShareStates::CalcBinOffsets(const std::vector<std::unique_ptr<Featu
       }
     }
     sum_dense_ratio /= ncol;
-    const bool is_sparse_row_wise = (1.0f - sum_dense_ratio) >=
-      MultiValBin::multi_val_bin_sparse_threshold ? 1 : 0;
+    const bool is_sparse_row_wise = false; //(1.0f - sum_dense_ratio) >=
+      // MultiValBin::multi_val_bin_sparse_threshold ? 1 : 0;
     if (is_sparse_row_wise) {
+      // Log::Fatal("not supported 1");
       int cur_num_bin = 1;
       uint32_t hist_cur_num_bin = 1;
       for (int group = 0; group < static_cast<int>(feature_groups.size()); ++group) {
@@ -479,6 +502,7 @@ void TrainingShareStates::CalcBinOffsets(const std::vector<std::unique_ptr<Featu
       for (int group = 0; group < static_cast<int>(feature_groups.size()); ++group) {
         const std::unique_ptr<FeatureGroup>& feature_group = feature_groups[group];
         if (feature_group->is_multi_val_) {
+          Log::Fatal("not supported 2");
           for (int i = 0; i < feature_group->num_feature_; ++i) {
             const std::unique_ptr<BinMapper>& bin_mapper = feature_group->bin_mappers_[i];
             if (group == 0 && i == 0 && bin_mapper->GetMostFreqBin() > 0) {

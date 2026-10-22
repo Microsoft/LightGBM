@@ -78,6 +78,7 @@ class SparseBin : public Bin {
   explicit SparseBin(data_size_t num_data) : num_data_(num_data) {
     int num_threads = OMP_NUM_THREADS();
     push_buffers_.resize(num_threads);
+    Log::Warning("sparse bin is created !!!");
   }
 
   ~SparseBin() {}
@@ -745,9 +746,11 @@ class SparseBin : public Bin {
 
   void CopySubrow(const Bin* full_bin, const data_size_t* used_indices,
                   data_size_t num_used_indices) override {
+      Log::Warning("is sparse");
     auto other_bin = dynamic_cast<const SparseBin<VAL_T>*>(full_bin);
     deltas_.clear();
     vals_.clear();
+      Log::Warning("is sparse");
     data_size_t start = 0;
     if (num_used_indices > 0) {
       start = used_indices[0];

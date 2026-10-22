@@ -47,6 +47,8 @@ class DatasetLoader {
   static std::vector<std::vector<double>> GetForcedBins(std::string forced_bins_path, int num_total_features,
                                                         const std::unordered_set<int>& categorical_features);
 
+  std::vector<std::string> LoadTextDataToMemory(const char* filename, const Metadata& metadata, int rank, int num_machines, int* num_global_data, std::vector<data_size_t>* used_data_indices);
+
  private:
   void LoadHeaderFromMemory(Dataset* dataset, const char* buffer);
 
@@ -55,8 +57,6 @@ class DatasetLoader {
   void SetHeader(const char* filename);
 
   void CheckDataset(const Dataset* dataset, bool is_load_from_binary);
-
-  std::vector<std::string> LoadTextDataToMemory(const char* filename, const Metadata& metadata, int rank, int num_machines, int* num_global_data, std::vector<data_size_t>* used_data_indices);
 
   std::vector<std::string> SampleTextDataFromMemory(const std::vector<std::string>& data);
 

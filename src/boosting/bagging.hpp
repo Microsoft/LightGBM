@@ -20,7 +20,11 @@ class BaggingSampleStrategy : public SampleStrategy {
     train_data_ = train_data;
     num_data_ = train_data->num_data();
     num_queries_ = train_data->metadata().num_queries();
-    query_boundaries_ = train_data->metadata().query_boundaries();
+    if (config->objective == std::string("pairwise_lambdarank")) {
+      query_boundaries_ = train_data->metadata().pairwise_query_boundaries();
+    } else {
+      query_boundaries_ = train_data->metadata().query_boundaries();
+    }
     objective_function_ = objective_function;
     num_tree_per_iteration_ = num_tree_per_iteration;
     num_threads_ = OMP_NUM_THREADS();
@@ -63,14 +67,14 @@ class BaggingSampleStrategy : public SampleStrategy {
         sampled_query_boundaries_[0] = 0;
         OMP_INIT_EX();
         #pragma omp parallel for schedule(static) num_threads(num_threads_)
-        for (data_size_t i = 0; i < num_sampled_queries_; ++i) {
+        for (data_size_t i = 0; i < num_queries_; ++i) {
           OMP_LOOP_EX_BEGIN();
           sampled_query_boundaries_[i + 1] = query_boundaries_[bag_query_indices_[i] + 1] - query_boundaries_[bag_query_indices_[i]];
           OMP_LOOP_EX_END();
         }
         OMP_THROW_EX();
 
-        const int num_blocks = Threading::For<data_size_t>(0, num_sampled_queries_ + 1, 128, [this](int thread_index, data_size_t start_index, data_size_t end_index) {
+        const int num_blocks = Threading::For<data_size_t>(0, num_queries_ + 1, 128, [this](int thread_index, data_size_t start_index, data_size_t end_index) {
           for (data_size_t i = start_index + 1; i < end_index; ++i) {
             sampled_query_boundaries_[i] += sampled_query_boundaries_[i - 1];
           }
@@ -81,7 +85,7 @@ class BaggingSampleStrategy : public SampleStrategy {
           sampled_query_boundaries_thread_buffer_[thread_index] += sampled_query_boundaries_thread_buffer_[thread_index - 1];
         }
 
-        Threading::For<data_size_t>(0, num_sampled_queries_ + 1, 128, [this](int thread_index, data_size_t start_index, data_size_t end_index) {
+        Threading::For<data_size_t>(0, num_queries_ + 1, 128, [this](int thread_index, data_size_t start_index, data_size_t end_index) {
           if (thread_index > 0) {
             for (data_size_t i = start_index; i < end_index; ++i) {
               sampled_query_boundaries_[i] += sampled_query_boundaries_thread_buffer_[thread_index - 1];
@@ -91,7 +95,7 @@ class BaggingSampleStrategy : public SampleStrategy {
 
         bag_data_cnt_ = sampled_query_boundaries_[num_sampled_queries_];
 
-        Threading::For<data_size_t>(0, num_sampled_queries_, 1, [this](int /*thread_index*/, data_size_t start_index, data_size_t end_index) {
+        Threading::For<data_size_t>(0, num_queries_, 1, [this](int /*thread_index*/, data_size_t start_index, data_size_t end_index) {
           for (data_size_t sampled_query_id = start_index; sampled_query_id < end_index; ++sampled_query_id) {
             const data_size_t query_index = bag_query_indices_[sampled_query_id];
             const data_size_t data_index_start = query_boundaries_[query_index];
@@ -119,6 +123,7 @@ class BaggingSampleStrategy : public SampleStrategy {
       } else {
         // get subset
         tmp_subset_->ReSize(bag_data_cnt_);
+        Log::Warning("bag_data_indices_.size() = %ld, bag_data_cnt_ = %d", bag_data_indices_.size(), bag_data_cnt_);
         tmp_subset_->CopySubrow(train_data_, bag_data_indices_.data(),
                                 bag_data_cnt_, false);
         #ifdef USE_CUDA
@@ -184,9 +189,11 @@ class BaggingSampleStrategy : public SampleStrategy {
       double average_bag_rate =
           (static_cast<double>(bag_data_cnt_) / num_data_) / config_->bagging_freq;
       is_use_subset_ = false;
-      if (config_->device_type != std::string("cuda")) {
-        const int group_threshold_usesubset = 100;
+      if (config_->device_type != std::string("cuda") && !config_->bagging_by_query) {
+        const int group_threshold_usesubset = 200;
         const double average_bag_rate_threshold = 0.5;
+        Log::Warning("train_data_->num_feature_groups() = %d", train_data_->num_feature_groups());
+        Log::Warning("average_bag_rate = %f", average_bag_rate);
         if (average_bag_rate <= average_bag_rate_threshold
             && (train_data_->num_feature_groups() < group_threshold_usesubset)) {
           if (tmp_subset_ == nullptr || is_change_dataset) {

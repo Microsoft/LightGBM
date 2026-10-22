@@ -7,6 +7,7 @@
 #include <LightGBM/dataset.h>
 
 #include <LightGBM/feature_group.h>
+#include <LightGBM/pairwise_ranking_feature_group.h>
 #include <LightGBM/cuda/vector_cudahost.h>
 #include <LightGBM/utils/array_args.h>
 #include <LightGBM/utils/openmp_wrapper.h>
@@ -16,13 +17,17 @@
 #include <chrono>
 #include <cstdio>
 #include <limits>
+#include <map>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+#include <fstream>
 
 namespace LightGBM {
 
@@ -113,7 +118,7 @@ std::vector<std::vector<int>> FindGroups(
     const std::vector<std::unique_ptr<BinMapper>>& bin_mappers,
     const std::vector<int>& find_order, int** sample_indices,
     const int* num_per_col, int num_sample_col, data_size_t total_sample_cnt,
-    data_size_t num_data, bool is_use_gpu, bool is_sparse,
+    data_size_t random_seed, bool is_use_gpu, bool is_sparse,
     std::vector<int8_t>* multi_val_group) {
   const int max_search_group = 100;
   const int max_bin_per_group = 256;
@@ -121,7 +126,7 @@ std::vector<std::vector<int>> FindGroups(
       static_cast<data_size_t>(total_sample_cnt / 10000);
   multi_val_group->clear();
 
-  Random rand(num_data);
+  Random rand(random_seed);
   std::vector<std::vector<int>> features_in_group;
   std::vector<std::vector<bool>> conflict_marks;
   std::vector<data_size_t> group_used_row_cnt;
@@ -284,6 +289,7 @@ std::vector<std::vector<int>> FastFeatureBundling(
   }
 
   std::vector<std::vector<int>> tmp_indices;
+  std::vector<int*> tmp_indices_ptr(num_sample_col, nullptr);
   std::vector<int> tmp_num_per_col(num_sample_col, 0);
   for (auto fidx : used_features) {
     if (fidx >= num_sample_col) {
@@ -295,18 +301,19 @@ std::vector<std::vector<int>> FastFeatureBundling(
     if (!ret.empty()) {
       tmp_indices.push_back(ret);
       tmp_num_per_col[fidx] = static_cast<int>(ret.size());
-      sample_indices[fidx] = tmp_indices.back().data();
+      tmp_indices_ptr[fidx] = tmp_indices.back().data();
     } else {
       tmp_num_per_col[fidx] = num_per_col[fidx];
+      tmp_indices_ptr[fidx] = sample_indices[fidx];
     }
   }
   std::vector<int8_t> group_is_multi_val, group_is_multi_val2;
   auto features_in_group =
-      FindGroups(bin_mappers, used_features, sample_indices,
+      FindGroups(bin_mappers, used_features, tmp_indices_ptr.data(),
                  tmp_num_per_col.data(), num_sample_col, total_sample_cnt,
                  num_data, is_use_gpu, is_sparse, &group_is_multi_val);
   auto group2 =
-      FindGroups(bin_mappers, feature_order_by_cnt, sample_indices,
+      FindGroups(bin_mappers, feature_order_by_cnt, tmp_indices_ptr.data(),
                  tmp_num_per_col.data(), num_sample_col, total_sample_cnt,
                  num_data, is_use_gpu, is_sparse, &group_is_multi_val2);
 
@@ -357,11 +364,16 @@ void Dataset::Construct(std::vector<std::unique_ptr<BinMapper>>* bin_mappers,
   auto is_sparse = io_config.is_enable_sparse;
   if (io_config.device_type == std::string("cuda")) {
       LGBM_config_::current_device = lgbm_device_cuda;
-      if ((io_config.device_type == std::string("cuda")) && is_sparse) {
+      if (is_sparse) {
         Log::Warning("Using sparse features with CUDA is currently not supported.");
         is_sparse = false;
       }
+  } else if ((io_config.objective == std::string("pairwise_lambdarank")) && is_sparse) {
+    Log::Warning("Using sparse features with pairwise_lambdarank is currently not supported.");
+    is_sparse = false;
   }
+
+  is_sparse = false;
 
   std::vector<int8_t> group_is_multi_val(used_features.size(), 0);
   if (io_config.enable_bundle && !used_features.empty()) {
@@ -430,7 +442,7 @@ void Dataset::Construct(std::vector<std::unique_ptr<BinMapper>>* bin_mappers,
   use_missing_ = io_config.use_missing;
   zero_as_missing_ = io_config.zero_as_missing;
   has_raw_ = false;
-  if (io_config.linear_tree) {
+  if (io_config.linear_tree || io_config.pairwise_lambdarank_keep_raw_feature_values) {
     has_raw_ = true;
   }
   numeric_feature_map_ = std::vector<int>(num_features_, -1);
@@ -443,6 +455,26 @@ void Dataset::Construct(std::vector<std::unique_ptr<BinMapper>>* bin_mappers,
   }
   device_type_ = io_config.device_type;
   gpu_device_id_ = io_config.gpu_device_id;
+
+  if (io_config.objective == std::string("pairwise_lambdarank")) {
+    // store sampled values for constructing differential features
+    const int num_threads = OMP_NUM_THREADS();
+    sampled_values_.reset(new std::vector<std::vector<double>>());
+    sampled_indices_.reset(new std::vector<std::vector<int>>());
+    sampled_values_->resize(static_cast<size_t>(num_sample_col));
+    sampled_indices_->resize(static_cast<size_t>(num_sample_col));
+    #pragma omp parallel for schedule(static) num_threads(num_threads)
+    for (int col_idx = 0; col_idx < num_sample_col; ++col_idx) {
+      const int num_samples_in_col = num_per_col[col_idx];
+      sampled_values_->at(col_idx).resize(num_samples_in_col);
+      sampled_indices_->at(col_idx).resize(num_samples_in_col);
+      for (int i = 0; i < num_samples_in_col; ++i) {
+        sampled_values_->at(col_idx)[i] = sample_values[col_idx][i];
+        sampled_indices_->at(col_idx)[i] = sample_non_zero_indices[col_idx][i];
+      }
+    }
+    num_total_sampled_data_ = static_cast<data_size_t>(total_sample_cnt);
+  }
 }
 
 void Dataset::FinishLoad() {
@@ -474,7 +506,9 @@ void PushDataToMultiValBin(
     MultiValBin* ret) {
   Common::FunctionTimer fun_time("Dataset::PushDataToMultiValBin",
                                  global_timer);
+  Log::Warning("num_data = %d", num_data);
   if (ret->IsSparse()) {
+    // Log::Fatal("pairwise ranking with sparse multi val bin is not supported.");
     Threading::For<data_size_t>(
         0, num_data, 1024, [&](int tid, data_size_t start, data_size_t end) {
           std::vector<uint32_t> cur_data;
@@ -504,6 +538,7 @@ void PushDataToMultiValBin(
         0, num_data, 1024, [&](int tid, data_size_t start, data_size_t end) {
           std::vector<uint32_t> cur_data(most_freq_bins.size(), 0);
           for (size_t j = 0; j < most_freq_bins.size(); ++j) {
+            //Log::Warning("(*iters)[%d].size() = %d, j = %d, start = %d", tid, (*iters)[tid].size(), j, start);
             (*iters)[tid][j]->Reset(start);
           }
           for (data_size_t i = start; i < end; ++i) {
@@ -518,7 +553,7 @@ void PushDataToMultiValBin(
   }
 }
 
-MultiValBin* Dataset::GetMultiBinFromSparseFeatures(const std::vector<uint32_t>& offsets) const {
+MultiValBin* Dataset::GetMultiBinFromSparseFeatures(const std::vector<uint32_t>& offsets, const bool use_pairwise_ranking) const {
   Common::FunctionTimer fun_time("Dataset::GetMultiBinFromSparseFeatures",
                                  global_timer);
   int multi_group_id = -1;
@@ -555,14 +590,15 @@ MultiValBin* Dataset::GetMultiBinFromSparseFeatures(const std::vector<uint32_t>&
   Log::Debug("Dataset::GetMultiBinFromSparseFeatures: sparse rate %f",
              sum_sparse_rate);
   std::unique_ptr<MultiValBin> ret;
+  std::vector<const BinMapper*> diff_bin_mappers;
   ret.reset(MultiValBin::CreateMultiValBin(num_data_, offsets.back(),
-                                           num_feature, sum_sparse_rate, offsets));
+                                           num_feature, sum_sparse_rate, offsets, use_pairwise_ranking, metadata_.paired_ranking_item_global_index_map(), diff_bin_mappers, std::vector<const BinMapper*>(), false, nullptr, offsets, std::vector<int>(), std::vector<int>()));
   PushDataToMultiValBin(num_data_, most_freq_bins, offsets, &iters, ret.get());
   ret->FinishLoad();
   return ret.release();
 }
 
-MultiValBin* Dataset::GetMultiBinFromAllFeatures(const std::vector<uint32_t>& offsets) const {
+MultiValBin* Dataset::GetMultiBinFromAllFeatures(const std::vector<uint32_t>& offsets, const bool use_pairwise_ranking, const bool use_raw_data_in_pairwise_ranking_diff, const bool use_pairwise_bin_lookup) const {
   Common::FunctionTimer fun_time("Dataset::GetMultiBinFromAllFeatures",
                                  global_timer);
   int num_threads = OMP_NUM_THREADS();
@@ -605,11 +641,72 @@ MultiValBin* Dataset::GetMultiBinFromAllFeatures(const std::vector<uint32_t>& of
   CHECK(static_cast<int>(most_freq_bins.size()) == ncol);
   Log::Debug("Dataset::GetMultiBinFromAllFeatures: sparse rate %f",
              1.0 - sum_dense_ratio);
-  ret.reset(MultiValBin::CreateMultiValBin(
-      num_data_, offsets.back(), static_cast<int>(most_freq_bins.size()),
-      1.0 - sum_dense_ratio, offsets));
-  PushDataToMultiValBin(num_data_, most_freq_bins, offsets, &iters, ret.get());
+  std::vector<const BinMapper*> diff_feature_bin_mappers;
+  std::vector<const BinMapper*> original_feature_bin_mappers;
+  std::vector<int> diff_feature_to_original_feature_slot;
+  std::vector<int> diff_feature_to_raw_feature_index;
+  if (use_pairwise_ranking) {
+
+    // for (size_t i = 0; i < iters.size(); ++i) {
+    //   for (size_t j = 0; j < iters[i].size(); ++j) {
+    //     Log::Warning("i = %ld, j = %ld, iters[i][j] = %d", i, j, static_cast<int>(iters[i][j] == nullptr));
+    //   }
+    // }
+
+    Log::Warning("most_freq_bins.size() = %d, num_groups_ = %d, num_used_differential_features_ = %d, num_used_differential_groups_ = %d, ncol = %d", static_cast<int>(most_freq_bins.size()), num_groups_, num_used_differential_features_, num_used_differential_groups_, ncol);
+
+    const int num_original_features = (static_cast<int>(most_freq_bins.size()) - num_used_differential_groups_) / 2;
+    std::vector<uint32_t> original_most_freq_bins;
+    std::vector<uint32_t> original_offsets;
+    for (int i = 0; i < num_original_features; ++i) {
+      original_most_freq_bins.push_back(most_freq_bins[i]);
+      original_offsets.push_back(offsets[i]);
+    }
+    original_offsets.push_back(offsets[num_original_features]);
+    // std::ofstream fout("mutli_val_bin_meta_info_pairwise.txt");
+    // fout << "original_most_freq_bins" << std::endl;
+    // for (size_t i = 0; i < original_most_freq_bins.size(); ++i) {
+    //   fout << original_most_freq_bins[i] << std::endl;
+    // }
+    // fout << "original_offsets" << std::endl;
+    // for (size_t i = 0; i < original_offsets.size(); ++i) {
+    //   fout << original_offsets[i] << std::endl;
+    // }
+    // fout.close();
+
+    for (int diff_feature_index = 0; diff_feature_index < num_used_differential_features_; ++diff_feature_index) {
+      const int feature_index = num_features_ - num_used_differential_features_ + diff_feature_index;
+      const int original_feature_slot = used_differential_feature_to_inner_feature_index_[diff_feature_index];
+      diff_feature_bin_mappers.push_back(new BinMapper(*FeatureBinMapper(feature_index)));
+      original_feature_bin_mappers.push_back(
+        new BinMapper(*FeatureBinMapper(original_feature_slot)));
+      diff_feature_to_original_feature_slot.push_back(original_feature_slot);
+      diff_feature_to_raw_feature_index.push_back(numeric_feature_map_[original_feature_slot]);
+    }
+
+    const data_size_t num_original_data = metadata_.query_boundaries()[metadata_.num_queries()];
+    ret.reset(MultiValBin::CreateMultiValBin(
+        num_original_data, offsets.back(), num_original_features,
+        1.0 - sum_dense_ratio, original_offsets, use_pairwise_ranking, metadata_.paired_ranking_item_global_index_map(), diff_feature_bin_mappers, original_feature_bin_mappers, use_pairwise_bin_lookup, &raw_data_, offsets, diff_feature_to_original_feature_slot, diff_feature_to_raw_feature_index));
+    PushDataToMultiValBin(num_original_data, original_most_freq_bins, original_offsets, &iters, ret.get());
+  } else {
+    ret.reset(MultiValBin::CreateMultiValBin(
+        num_data_, offsets.back(), static_cast<int>(most_freq_bins.size()),
+        1.0 - sum_dense_ratio, offsets, use_pairwise_ranking, metadata_.paired_ranking_item_global_index_map(), diff_feature_bin_mappers, original_feature_bin_mappers, use_pairwise_bin_lookup, &raw_data_, offsets, diff_feature_to_original_feature_slot, diff_feature_to_raw_feature_index));
+    PushDataToMultiValBin(num_data_, most_freq_bins, offsets, &iters, ret.get());
+    // std::ofstream fout("mutli_val_bin_meta_info_no_pairwise.txt");
+    // fout << "original_most_freq_bins" << std::endl;
+    // for (size_t i = 0; i < most_freq_bins.size(); ++i) {
+    //   fout << most_freq_bins[i] << std::endl;
+    // }
+    // fout << "original_offsets" << std::endl;
+    // for (size_t i = 0; i < offsets.size(); ++i) {
+    //   fout << offsets[i] << std::endl;
+    // }
+    // fout.close();
+  }
   ret->FinishLoad();
+  ret->DumpContent();
   return ret.release();
 }
 
@@ -618,7 +715,10 @@ TrainingShareStates* Dataset::GetShareStates(
     score_t* gradients, score_t* hessians,
     const std::vector<int8_t>& is_feature_used, bool is_constant_hessian,
     bool force_col_wise, bool force_row_wise,
-    const int num_grad_quant_bins) const {
+    const int num_grad_quant_bins,
+    const bool use_pairwise_ranking,
+    const bool use_raw_data_in_pairwise_ranking_diff,
+    const bool use_pairwise_bin_lookup) const {
   Common::FunctionTimer fun_timer("Dataset::TestMultiThreadingMethod",
                                   global_timer);
   if (force_col_wise && force_row_wise) {
@@ -637,7 +737,8 @@ TrainingShareStates* Dataset::GetShareStates(
     std::vector<uint32_t> offsets;
     share_state->CalcBinOffsets(
       feature_groups_, &offsets, true);
-    share_state->SetMultiValBin(GetMultiBinFromSparseFeatures(offsets),
+    Log::Warning("feature_groups_.size() = %ld, offsets.size() = %ld", feature_groups_.size(), offsets.size());
+    share_state->SetMultiValBin(GetMultiBinFromSparseFeatures(offsets, use_pairwise_ranking),
       num_data_, feature_groups_, false, true, num_grad_quant_bins);
     share_state->is_col_wise = true;
     share_state->is_constant_hessian = is_constant_hessian;
@@ -647,7 +748,8 @@ TrainingShareStates* Dataset::GetShareStates(
     std::vector<uint32_t> offsets;
     share_state->CalcBinOffsets(
       feature_groups_, &offsets, false);
-    share_state->SetMultiValBin(GetMultiBinFromAllFeatures(offsets), num_data_,
+    Log::Warning("feature_groups_.size() = %ld, offsets.size() = %ld", feature_groups_.size(), offsets.size());
+    share_state->SetMultiValBin(GetMultiBinFromAllFeatures(offsets, use_pairwise_ranking, use_raw_data_in_pairwise_ranking_diff, use_pairwise_bin_lookup), num_data_,
       feature_groups_, false, false, num_grad_quant_bins);
     share_state->is_col_wise = false;
     share_state->is_constant_hessian = is_constant_hessian;
@@ -664,14 +766,14 @@ TrainingShareStates* Dataset::GetShareStates(
     auto start_time = std::chrono::steady_clock::now();
     std::vector<uint32_t> col_wise_offsets;
     col_wise_state->CalcBinOffsets(feature_groups_, &col_wise_offsets, true);
-    col_wise_state->SetMultiValBin(GetMultiBinFromSparseFeatures(col_wise_offsets), num_data_,
+    col_wise_state->SetMultiValBin(GetMultiBinFromSparseFeatures(col_wise_offsets, use_pairwise_ranking), num_data_,
       feature_groups_, false, true, num_grad_quant_bins);
     col_wise_init_time = std::chrono::steady_clock::now() - start_time;
 
     start_time = std::chrono::steady_clock::now();
     std::vector<uint32_t> row_wise_offsets;
     row_wise_state->CalcBinOffsets(feature_groups_, &row_wise_offsets, false);
-    row_wise_state->SetMultiValBin(GetMultiBinFromAllFeatures(row_wise_offsets), num_data_,
+    row_wise_state->SetMultiValBin(GetMultiBinFromAllFeatures(row_wise_offsets, use_pairwise_ranking, use_raw_data_in_pairwise_ranking_diff, use_pairwise_bin_lookup), num_data_,
       feature_groups_, false, false, num_grad_quant_bins);
     row_wise_init_time = std::chrono::steady_clock::now() - start_time;
 
@@ -732,19 +834,28 @@ template TrainingShareStates* Dataset::GetShareStates<false, 0>(
     score_t* gradients, score_t* hessians,
     const std::vector<int8_t>& is_feature_used, bool is_constant_hessian,
     bool force_col_wise, bool force_row_wise,
-    const int num_grad_quant_bins) const;
+    const int num_grad_quant_bins,
+    const bool use_pairwise_ranking,
+    const bool use_raw_data_in_pairwise_ranking_diff,
+    const bool use_pairwise_bin_lookup) const;
 
 template TrainingShareStates* Dataset::GetShareStates<true, 16>(
     score_t* gradients, score_t* hessians,
     const std::vector<int8_t>& is_feature_used, bool is_constant_hessian,
     bool force_col_wise, bool force_row_wise,
-    const int num_grad_quant_bins) const;
+    const int num_grad_quant_bins,
+    const bool use_pairwise_ranking,
+    const bool use_raw_data_in_pairwise_ranking_diff,
+    const bool use_pairwise_bin_lookup) const;
 
 template TrainingShareStates* Dataset::GetShareStates<true, 32>(
     score_t* gradients, score_t* hessians,
     const std::vector<int8_t>& is_feature_used, bool is_constant_hessian,
     bool force_col_wise, bool force_row_wise,
-    const int num_grad_quant_bins) const;
+    const int num_grad_quant_bins,
+    const bool use_pairwise_ranking,
+    const bool use_raw_data_in_pairwise_ranking_diff,
+    const bool use_pairwise_bin_lookup) const;
 
 void Dataset::CopyFeatureMapperFrom(const Dataset* dataset) {
   feature_groups_.clear();
@@ -824,6 +935,243 @@ void Dataset::CreateValid(const Dataset* dataset) {
   gpu_device_id_ = dataset->gpu_device_id_;
 }
 
+void Dataset::CreatePairWiseRankingData(const Dataset* dataset, const bool is_validation, const Config& config) {
+  const std::string& pairing_approach = is_validation ? config.pairwise_lambdarank_valid_pairing_approach : config.pairwise_lambdarank_train_pairing_approach;
+  const int pairwise_lambdarank_random_pairing_k = is_validation ? config.pairwise_lambdarank_valid_pairing_random_k : config.pairwise_lambdarank_train_pairing_random_k;
+  const int pairwise_lambdarank_top_pairing_n = is_validation ? config.pairwise_lambdarank_valid_pairing_top_n : config.pairwise_lambdarank_train_pairing_top_n;
+  const int pairwise_lambdarank_relevance_pairing_m = is_validation ? config.pairwise_lambdarank_valid_pairing_relevance_m : config.pairwise_lambdarank_train_pairing_relevance_m;
+  num_data_ = metadata_.BuildPairwiseFeatureRanking(dataset->metadata(), pairing_approach, pairwise_lambdarank_random_pairing_k, pairwise_lambdarank_top_pairing_n, pairwise_lambdarank_relevance_pairing_m);
+
+  feature_groups_.clear();
+  num_features_ = dataset->num_features_ * 2;
+  num_groups_ = dataset->num_groups_ * 2;
+  max_bin_ = dataset->max_bin_;
+  min_data_in_bin_ = dataset->min_data_in_bin_;
+  bin_construct_sample_cnt_ = dataset->bin_construct_sample_cnt_;
+  use_missing_ = dataset->use_missing_;
+  zero_as_missing_ = dataset->zero_as_missing_;
+  feature2group_.clear();
+  feature2subfeature_.clear();
+  has_raw_ = dataset->has_raw();
+  if (has_raw_) {
+    raw_data_ = dataset->raw_data_;
+  }
+  numeric_feature_map_ = dataset->numeric_feature_map_;
+  num_numeric_features_ = dataset->num_numeric_features_;
+  for (const int nuermic_feature_index : dataset->numeric_feature_map_) {
+    if (nuermic_feature_index != -1) {
+      numeric_feature_map_.push_back(num_numeric_features_);
+      ++num_numeric_features_;
+    } else {
+      numeric_feature_map_.push_back(-1);
+    }
+  }
+  // copy feature bin mapper data
+  feature_need_push_zeros_.clear();
+  group_bin_boundaries_.clear();
+  uint64_t num_total_bin = 0;
+  group_bin_boundaries_.push_back(num_total_bin);
+  group_feature_start_.resize(num_groups_);
+  group_feature_cnt_.resize(num_groups_);
+
+  sampled_values_ = dataset->sampled_values_;
+  sampled_indices_ = dataset->sampled_indices_;
+  num_total_sampled_data_ = dataset->num_total_sampled_data_;
+
+  // create differential features
+  std::vector<std::unique_ptr<BinMapper>> diff_feature_bin_mappers;
+  std::vector<std::unique_ptr<const BinMapper>> original_bin_mappers;
+  if (config.use_differential_feature_in_pairwise_ranking) {
+    for (int i = 0; i < dataset->num_total_features_; ++i) {
+      const int inner_feature_index = dataset->InnerFeatureIndex(i);
+      if (inner_feature_index >= 0) {
+        original_bin_mappers.emplace_back(new BinMapper(*dataset->FeatureBinMapper(inner_feature_index)));
+      } else {
+        original_bin_mappers.emplace_back(nullptr);
+      }
+    }
+
+    if (!is_validation) {
+      train_query_boundaries_ = metadata_.query_boundaries();
+      train_num_queries_ = metadata_.num_queries();
+    } else {
+      train_query_boundaries_ = dataset->train_query_boundaries_;
+      train_num_queries_ = dataset->train_num_queries_;
+    }
+    // TODO(shiyu1994): verify the difference in training and validation results even when they share the same dataset
+    CreatePairwiseRankingDifferentialFeatures(*sampled_values_, *sampled_indices_, original_bin_mappers, num_total_sampled_data_, train_query_boundaries_, train_num_queries_, &diff_feature_bin_mappers, config);
+  }
+
+  used_feature_map_.clear();
+  used_feature_map_.reserve(2 * dataset->used_feature_map_.size());
+  used_feature_map_.insert(used_feature_map_.begin(), dataset->used_feature_map_.begin(), dataset->used_feature_map_.end());
+
+  for (int i = 0; i < dataset->num_total_features_; ++i) {
+    if (dataset->used_feature_map_[i] != -1) {
+      used_feature_map_.push_back(dataset->used_feature_map_[i] + dataset->num_features_);
+    } else {
+      used_feature_map_.push_back(-1);
+    }
+  }
+
+  std::vector<int> used_diff_features;
+  if (config.use_differential_feature_in_pairwise_ranking) {
+    for (int diff_feature_index = 0; diff_feature_index < static_cast<int>(diff_feature_bin_mappers.size()); ++diff_feature_index) {
+      if (diff_feature_bin_mappers[diff_feature_index] != nullptr && !diff_feature_bin_mappers[diff_feature_index]->is_trivial()) {
+        num_numeric_features_ += 1;
+        num_features_ += 1;
+        used_diff_features.push_back(diff_feature_index);
+      }
+    }
+    numeric_feature_map_.resize(num_features_, -1);
+    used_feature_map_.resize(2 * dataset->num_total_features_ + static_cast<int>(diff_feature_bin_mappers.size()), -1);
+  }
+
+  const bool is_use_gpu = config.device_type == std::string("cuda") || config.device_type == std::string("gpu");
+  std::vector<int8_t> group_is_multi_val;
+  std::vector<std::vector<int>> diff_feature_groups =
+    FindGroups(diff_feature_bin_mappers, used_diff_features, Common::Vector2Ptr<int>(sampled_indices_.get()).data(), Common::VectorSize<int>(*sampled_indices_).data(), static_cast<int>(sampled_indices_->size()), num_total_sampled_data_, config.seed, is_use_gpu, false, &group_is_multi_val);
+
+  if (is_validation || config.pairwise_lambdarank_keep_raw_feature_values) { // use single feature groups when keep original feature values for difference in training
+    std::vector<std::vector<int>> flatten_feature_groups;
+    for (const auto& features_in_group : diff_feature_groups) {
+      for (const int feature_index : features_in_group) {
+        flatten_feature_groups.push_back(std::vector<int>{feature_index});
+      }
+    }
+    diff_feature_groups = flatten_feature_groups;
+  }
+
+  int cur_feature_index = 0;
+  for (int i = 0; i < num_groups_; ++i) {
+    int original_group_index = i % dataset->num_groups_;
+    int original_group_feature_start = dataset->group_feature_start_[original_group_index];
+    const int is_first_or_second_in_pairing = i / dataset->num_groups_; // 0 for first, 1 for second
+    group_feature_start_[i] = cur_feature_index;
+    for (int feature_index_in_group = 0; feature_index_in_group < dataset->group_feature_cnt_[original_group_index]; ++feature_index_in_group) {
+      const BinMapper* feature_bin_mapper = dataset->FeatureBinMapper(original_group_feature_start + feature_index_in_group);
+      if (feature_bin_mapper->GetDefaultBin() != feature_bin_mapper->GetMostFreqBin()) {
+        feature_need_push_zeros_.push_back(cur_feature_index);
+      }
+      feature2group_.push_back(i);
+      feature2subfeature_.push_back(dataset->feature2subfeature_[original_group_feature_start + feature_index_in_group]);
+      cur_feature_index += 1;
+    }
+    feature_groups_.emplace_back(new PairwiseRankingFeatureGroup(*dataset->feature_groups_[original_group_index].get(), dataset->num_data(), is_first_or_second_in_pairing, metadata_.paired_ranking_item_index_map_size(), metadata_.paired_ranking_item_global_index_map()));
+    num_total_bin += dataset->FeatureGroupNumBin(original_group_index);
+    group_bin_boundaries_.push_back(num_total_bin);
+    group_feature_cnt_[i] = dataset->group_feature_cnt_[original_group_index];
+  }
+
+  num_used_differential_features_ = 0;
+  num_used_differential_groups_ = static_cast<int>(diff_feature_groups.size());
+  if (config.use_differential_feature_in_pairwise_ranking) {
+    for (size_t i = 0; i < diff_feature_groups.size(); ++i) {
+      const std::vector<int>& features_in_group = diff_feature_groups[i];
+      group_feature_start_.push_back(cur_feature_index);
+      int num_features_in_group = 0;
+      std::vector<std::unique_ptr<BinMapper>> ori_bin_mappers;
+      std::vector<std::unique_ptr<BinMapper>> ori_bin_mappers_for_diff;
+      std::vector<std::unique_ptr<BinMapper>> diff_bin_mappers;
+      for (size_t j = 0; j < features_in_group.size(); ++j) {
+        const int diff_feature_index = features_in_group[j];
+        if (!diff_feature_bin_mappers[diff_feature_index]->is_trivial()) {
+          if (diff_feature_bin_mappers[diff_feature_index]->GetDefaultBin() != diff_feature_bin_mappers[diff_feature_index]->GetMostFreqBin()) {
+            feature_need_push_zeros_.push_back(cur_feature_index);
+          }
+          feature2group_.push_back(i + num_groups_);
+          feature2subfeature_.push_back(num_features_in_group);
+          numeric_feature_map_[cur_feature_index] = cur_feature_index;
+          used_feature_map_[diff_feature_index + dataset->num_total_features_ * 2] = cur_feature_index;
+          ++cur_feature_index;
+          ++num_features_in_group;
+          ++num_used_differential_features_;
+          const int ori_feature_index = dataset->InnerFeatureIndex(diff_feature_index);
+          used_differential_feature_to_inner_feature_index_.push_back(ori_feature_index);
+          ori_bin_mappers.emplace_back(new BinMapper(*dataset->FeatureBinMapper(ori_feature_index)));
+          ori_bin_mappers_for_diff.emplace_back(new BinMapper(*dataset->FeatureBinMapper(ori_feature_index)));
+          diff_bin_mappers.emplace_back(new BinMapper(*diff_feature_bin_mappers[diff_feature_index]));
+        }
+      }
+
+      FeatureGroup feature_group(num_features_in_group, 0, &ori_bin_mappers, dataset->num_data(), i + num_groups_);
+
+      const int num_threads = OMP_NUM_THREADS();
+      #pragma omp parallel for schedule(static) num_threads(num_threads)
+      for (int j = 0; j < num_features_in_group; ++j) {
+        const int tid = omp_get_thread_num();
+        const int diff_feature_index = features_in_group[j];
+        const int original_feature_index = dataset->InnerFeatureIndex(diff_feature_index);
+        const BinMapper* original_feature_bin_mapper = dataset->FeatureBinMapper(original_feature_index);
+        BinIterator* original_feature_iterator = dataset->FeatureIterator(original_feature_index);
+        original_feature_iterator->Reset(0);
+        for (int k = 0; k < dataset->num_data(); ++k) {
+          feature_group.PushData(tid, j, k, original_feature_bin_mapper->BinToValue(original_feature_iterator->Get(k)));
+        }
+      }
+
+      feature_group.FinishLoad();
+
+      const std::vector<float>* raw_value_vector = nullptr;
+      if (config.pairwise_lambdarank_keep_raw_feature_values) {
+        CHECK_EQ(features_in_group.size(), 1);
+        const int original_feature_index = features_in_group[0];
+        const int inner_feature_index = dataset->InnerFeatureIndex(original_feature_index);
+        raw_value_vector = &raw_data_[dataset->numeric_feature_map_[inner_feature_index]];
+      }
+      feature_groups_.emplace_back(new PairwiseRankingDifferentialFeatureGroup(feature_group, dataset->num_data(), 2, metadata_.paired_ranking_item_index_map_size(), metadata_.paired_ranking_item_global_index_map(), diff_bin_mappers, ori_bin_mappers_for_diff, raw_value_vector));
+
+      group_feature_cnt_.push_back(cur_feature_index - group_feature_start_.back());
+      num_total_bin += feature_groups_.back()->num_total_bin_;
+      group_bin_boundaries_.push_back(num_total_bin);
+    }
+
+    num_groups_ += static_cast<int>(diff_feature_groups.size());
+  }
+
+  feature_groups_.shrink_to_fit();
+
+  feature_names_.clear();
+  for (const std::string& feature_name : dataset->feature_names_) {
+    feature_names_.push_back(feature_name + std::string("_i"));
+  }
+  for (const std::string& feature_name : dataset->feature_names_) {
+    feature_names_.push_back(feature_name + std::string("_j"));
+  }
+  if (config.use_differential_feature_in_pairwise_ranking) {
+    for (const std::string& feature_name : dataset->feature_names_) {
+      feature_names_.push_back(feature_name + std::string("_k"));
+    }
+  }
+
+  real_feature_idx_.clear();
+  for (const int idx : dataset->real_feature_idx_) {
+    real_feature_idx_.push_back(idx);
+  }
+  for (const int idx : dataset->real_feature_idx_) {
+    real_feature_idx_.push_back(idx + dataset->num_total_features_);
+  }
+  if (config.use_differential_feature_in_pairwise_ranking) {
+    for (const auto& features_in_diff_group : diff_feature_groups) {
+      for (const int idx : features_in_diff_group) {
+        real_feature_idx_.push_back(idx + 2 * dataset->num_total_features_);
+      }
+    }
+  }
+
+  num_total_features_ = dataset->num_total_features_ * 2 + static_cast<int>(diff_feature_bin_mappers.size());
+
+  forced_bin_bounds_.clear();
+  forced_bin_bounds_.reserve(2 * dataset->num_total_features_);
+  forced_bin_bounds_.insert(forced_bin_bounds_.begin(), dataset->forced_bin_bounds_.begin(), dataset->forced_bin_bounds_.end());
+  forced_bin_bounds_.insert(forced_bin_bounds_.begin() + dataset->forced_bin_bounds_.size(), dataset->forced_bin_bounds_.begin(), dataset->forced_bin_bounds_.end());
+  forced_bin_bounds_.resize(num_total_features_);
+
+  label_idx_ = dataset->label_idx_;
+  device_type_ = dataset->device_type_;
+  gpu_device_id_ = dataset->gpu_device_id_;
+}
+
 void Dataset::ReSize(data_size_t num_data) {
   if (num_data_ != num_data) {
     num_data_ = num_data;
@@ -858,7 +1206,6 @@ void Dataset::CopySubrowHostPart(const Dataset* fullset, const data_size_t* used
     }
   }
   int num_copy_tasks = static_cast<int>(group_ids.size());
-
   OMP_INIT_EX();
   #pragma omp parallel for num_threads(OMP_NUM_THREADS()) schedule(dynamic)
   for (int task_id = 0; task_id < num_copy_tasks; ++task_id) {
@@ -896,6 +1243,7 @@ void Dataset::CopySubrow(const Dataset* fullset,
   // update CUDA storage for column data and metadata
   device_type_ = fullset->device_type_;
   gpu_device_id_ = fullset->gpu_device_id_;
+
 
   #ifdef USE_CUDA
   if (device_type_ == std::string("cuda")) {
@@ -1387,6 +1735,7 @@ void Dataset::ConstructHistogramsInner(
       OMP_LOOP_EX_BEGIN();
       int group = used_dense_group[gi];
       const int num_bin = feature_groups_[group]->num_total_bin_;
+      feature_groups_[group]->bin_data_->group_index_ = gi;
       if (USE_QUANT_GRAD) {
         if (HIST_BITS == 16) {
           auto data_ptr = reinterpret_cast<hist_t*>(reinterpret_cast<int32_t*>(hist_data) + group_bin_boundaries_[group]);
@@ -1817,6 +2166,140 @@ const void* Dataset::GetColWiseData(
   bool* is_sparse,
   BinIterator** bin_iterator) const {
   return feature_groups_[feature_group_index]->GetColWiseData(sub_feature_index, bit_type, is_sparse, bin_iterator);
+}
+
+void Dataset::CreatePairwiseRankingDifferentialFeatures(
+  const std::vector<std::vector<double>>& sample_values,
+  const std::vector<std::vector<int>>& sample_indices,
+  const std::vector<std::unique_ptr<const BinMapper>>& bin_mappers,
+  const data_size_t num_total_sample_data,
+  const data_size_t* query_boundaries,
+  const data_size_t num_queries,
+  std::vector<std::unique_ptr<BinMapper>>* differential_feature_bin_mappers,
+  const Config& config) const {
+  const int num_original_features = static_cast<int>(sample_values.size());
+  const data_size_t filter_cnt = static_cast<data_size_t>(
+    static_cast<double>(config.min_data_in_leaf * num_total_sample_data) / num_data_);
+  std::vector<std::vector<double>> sampled_differential_values(num_original_features);
+  for (int i = 0; i < num_original_features; ++i) {
+    differential_feature_bin_mappers->push_back(nullptr);
+  }
+  const int num_threads = OMP_NUM_THREADS();
+  #pragma omp parallel for schedule(static) num_threads(num_threads)
+  for (int i = 0; i < num_original_features; ++i) {
+    if (bin_mappers[i] == nullptr || bin_mappers[i]->is_trivial() || bin_mappers[i]->bin_type() != BinType::NumericalBin) {
+      differential_feature_bin_mappers->operator[](i).reset(nullptr);
+    } else {
+      const data_size_t num_samples_for_feature = static_cast<data_size_t>(sample_values[i].size());
+      if (config.zero_as_missing) {
+        int cur_query = 0;
+        for (int j = 0; j < num_samples_for_feature; ++j) {
+          const double value = sample_values[i][j];
+          data_size_t cur_data_index = sample_indices[i][j];
+          while (query_boundaries[cur_query + 1] <= cur_data_index) {
+            ++cur_query;
+          }
+          for (int k = j + 1; sample_indices[i][k] < query_boundaries[cur_query + 1]; ++k) {
+            const double diff_value = value - sample_values[i][k];
+            sampled_differential_values[i].push_back(diff_value);
+          }
+        }
+      } else {
+        CHECK_GT(sample_indices[i].size(), 0);
+        int cur_pos_j = 0;
+        int cur_query = 0;
+        for (int j = 0; j < sample_indices[i].back() + 1; ++j) {
+          while (query_boundaries[cur_query + 1] <= j) {
+            ++cur_query;
+          }
+          double value_j = 0.0;
+          if (j == sample_indices[i][cur_pos_j]) {
+            value_j = sample_values[i][cur_pos_j];
+            ++cur_pos_j;
+          }
+          int cur_pos_k = cur_pos_j;
+          for (int k = j + 1; k < query_boundaries[cur_query + 1] && k < sample_indices[i].back() + 1; ++k) {
+            double value_k = 0.0;
+            if (k == sample_indices[i][cur_pos_k]) {
+              value_k = sample_values[i][cur_pos_k];
+              ++cur_pos_k;
+            }
+            const double diff_value = value_j - value_k;
+            sampled_differential_values[i].push_back(diff_value);
+          }
+        }
+      }
+      differential_feature_bin_mappers->operator[](i).reset(new BinMapper());
+      std::vector<double> forced_upper_bounds;
+      differential_feature_bin_mappers->operator[](i)->FindBin(
+        sampled_differential_values[i].data(),
+        static_cast<int>(sampled_differential_values[i].size()),
+        static_cast<size_t>(num_total_sample_data * (num_total_sample_data + 1) / 2),
+        3, config.min_data_in_bin, filter_cnt, config.feature_pre_filter,
+        BinType::NumericalBin, config.use_missing, config.zero_as_missing, forced_upper_bounds
+      );
+
+      if (config.pairwise_lambdarank_use_bin_lookup_table) {
+        // second pass, to restrict the range of bins for differential features
+        std::map<std::pair<uint32_t, uint32_t>, std::set<uint32_t>> paired_bin_to_diff_bin_set;
+        if (config.zero_as_missing) {
+          int cur_query = 0;
+          for (int j = 0; j < num_samples_for_feature; ++j) {
+            const double value = sample_values[i][j];
+            const data_size_t cur_data_index = sample_indices[i][j];
+            while (query_boundaries[cur_query + 1] <= cur_data_index) {
+              ++cur_query;
+            }
+            for (int k = j + 1; k < num_samples_for_feature && sample_indices[i][k] < query_boundaries[cur_query + 1]; ++k) {
+              const double other_value = sample_values[i][k];
+              const double diff_value = value - other_value;
+              const uint32_t first_bin = bin_mappers[i]->ValueToBin(value);
+              const uint32_t second_bin = bin_mappers[i]->ValueToBin(other_value);
+              const uint32_t diff_bin = differential_feature_bin_mappers->operator[](i)->ValueToBin(diff_value);
+              paired_bin_to_diff_bin_set[std::make_pair(first_bin, second_bin)].insert(diff_bin);
+            }
+          }
+        } else {
+          CHECK_GT(sample_indices[i].size(), 0);
+          int cur_pos_j = 0;
+          int cur_query = 0;
+          for (int j = 0; j < sample_indices[i].back() + 1; ++j) {
+            while (query_boundaries[cur_query + 1] <= j) {
+              ++cur_query;
+            }
+            double value_j = 0.0;
+            if (cur_pos_j < static_cast<int>(sample_indices[i].size()) && j == sample_indices[i][cur_pos_j]) {
+              value_j = sample_values[i][cur_pos_j];
+              ++cur_pos_j;
+            }
+            int cur_pos_k = cur_pos_j;
+            for (int k = j + 1; k < query_boundaries[cur_query + 1] && k < sample_indices[i].back() + 1; ++k) {
+              double value_k = 0.0;
+              if (cur_pos_k < static_cast<int>(sample_indices[i].size()) && k == sample_indices[i][cur_pos_k]) {
+                value_k = sample_values[i][cur_pos_k];
+                ++cur_pos_k;
+              }
+              const double diff_value = value_j - value_k;
+              const uint32_t first_bin = bin_mappers[i]->ValueToBin(value_j);
+              const uint32_t second_bin = bin_mappers[i]->ValueToBin(value_k);
+              const uint32_t diff_bin = differential_feature_bin_mappers->operator[](i)->ValueToBin(diff_value);
+              paired_bin_to_diff_bin_set[std::make_pair(first_bin, second_bin)].insert(diff_bin);
+            }
+          }
+        }
+        differential_feature_bin_mappers->operator[](i)->InitPairwiseBinRanges(
+          static_cast<uint32_t>(bin_mappers[i]->num_bin()));
+        for (const auto& pairwise_bin_entry : paired_bin_to_diff_bin_set) {
+          if (!pairwise_bin_entry.second.empty()) {
+            differential_feature_bin_mappers->operator[](i)->SetPairwiseBinRange(
+              pairwise_bin_entry.first.first, pairwise_bin_entry.first.second,
+              *pairwise_bin_entry.second.begin(),
+              *pairwise_bin_entry.second.rbegin());
+          }
+        }
+      }
+    }
+  }
 }
 
 #ifdef USE_CUDA
