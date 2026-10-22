@@ -1192,6 +1192,10 @@ LIGHTGBM_C_EXPORT int LGBM_BoosterPredictForCSRSingleRow(BoosterHandle handle,
 /*!
  * \brief Initialize and return a ``FastConfigHandle`` for use with ``LGBM_BoosterPredictForCSRSingleRowFast``.
  *
+ * The prediction type and iteration range belong to the returned handle. Other prediction calls
+ * on the same booster do not change them. The booster must remain alive and its model must not
+ * be modified while this handle is used. Thread settings follow the rules documented below.
+ *
  * Release the ``FastConfig`` by passing its handle to ``LGBM_FastConfigFree`` when no longer needed.
  *
  * \param handle Booster handle
@@ -1379,6 +1383,10 @@ LIGHTGBM_C_EXPORT int LGBM_BoosterPredictForMatSingleRow(BoosterHandle handle,
 
 /*!
  * \brief Initialize and return a ``FastConfigHandle`` for use with ``LGBM_BoosterPredictForMatSingleRowFast``.
+ *
+ * The prediction type and iteration range belong to the returned handle. Other prediction calls
+ * on the same booster do not change them. The booster must remain alive and its model must not
+ * be modified while this handle is used. Thread settings follow the rules documented below.
  *
  * Release the ``FastConfig`` by passing its handle to ``LGBM_FastConfigFree`` when no longer needed.
  *

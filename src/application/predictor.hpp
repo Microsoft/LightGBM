@@ -14,6 +14,7 @@
 #include <LightGBM/utils/text_reader.h>
 
 #include <string>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -59,7 +60,13 @@ class Predictor {
       }
     }
 
-    boosting->InitPredict(start_iteration, num_iteration, predict_contrib);
+    // Capture the normalized range in each prediction function. Prediction
+    // parameters must not be stored in the shared boosting model.
+    const int total_iterations = boosting->GetCurrentIteration();
+    start_iteration = std::max(0, std::min(start_iteration, total_iterations));
+    const int remaining_iterations = total_iterations - start_iteration;
+    num_iteration = num_iteration > 0 ? std::min(num_iteration, remaining_iterations) : remaining_iterations;
+    boosting->InitPredict(predict_contrib);
     boosting_ = boosting;
     num_pred_one_row_ = boosting_->NumPredictOneRow(start_iteration,
         num_iteration, predict_leaf_index, predict_contrib);
@@ -77,11 +84,11 @@ class Predictor {
         if (num_feature_ > kFeatureThreshold &&
             features.size() < KSparseThreshold) {
           auto buf = CopyToPredictMap(features);
-          boosting_->PredictLeafIndexByMap(buf, output);
+          boosting_->PredictLeafIndexByMap(buf, output, start_iteration, num_iteration);
         } else {
           CopyToPredictBuffer(predict_buf_[tid].data(), features);
           // get result for leaf index
-          boosting_->PredictLeafIndex(predict_buf_[tid].data(), output);
+          boosting_->PredictLeafIndex(predict_buf_[tid].data(), output, start_iteration, num_iteration);
           ClearPredictBuffer(predict_buf_[tid].data(), predict_buf_[tid].size(),
                              features);
         }
@@ -95,7 +102,7 @@ class Predictor {
         int tid = omp_get_thread_num();
         CopyToPredictBuffer(predict_buf_[tid].data(), features);
         // get feature importances
-        boosting_->PredictContrib(predict_buf_[tid].data(), output);
+        boosting_->PredictContrib(predict_buf_[tid].data(), output, start_iteration, num_iteration);
         ClearPredictBuffer(predict_buf_[tid].data(), predict_buf_[tid].size(),
                            features);
       };
@@ -103,7 +110,7 @@ class Predictor {
                                 std::vector<std::unordered_map<int, double>>* output) {
         auto buf = CopyToPredictMap(features);
         // get sparse feature importances
-        boosting_->PredictContribByMap(buf, output);
+        boosting_->PredictContribByMap(buf, output, start_iteration, num_iteration);
       };
 
     } else {
@@ -114,10 +121,10 @@ class Predictor {
           if (num_feature_ > kFeatureThreshold &&
               features.size() < KSparseThreshold) {
             auto buf = CopyToPredictMap(features);
-            boosting_->PredictRawByMap(buf, output, &early_stop_);
+            boosting_->PredictRawByMap(buf, output, start_iteration, num_iteration, &early_stop_);
           } else {
             CopyToPredictBuffer(predict_buf_[tid].data(), features);
-            boosting_->PredictRaw(predict_buf_[tid].data(), output,
+            boosting_->PredictRaw(predict_buf_[tid].data(), output, start_iteration, num_iteration,
                                   &early_stop_);
             ClearPredictBuffer(predict_buf_[tid].data(),
                                predict_buf_[tid].size(), features);
@@ -130,10 +137,10 @@ class Predictor {
           if (num_feature_ > kFeatureThreshold &&
               features.size() < KSparseThreshold) {
             auto buf = CopyToPredictMap(features);
-            boosting_->PredictByMap(buf, output, &early_stop_);
+            boosting_->PredictByMap(buf, output, start_iteration, num_iteration, &early_stop_);
           } else {
             CopyToPredictBuffer(predict_buf_[tid].data(), features);
-            boosting_->Predict(predict_buf_[tid].data(), output, &early_stop_);
+            boosting_->Predict(predict_buf_[tid].data(), output, start_iteration, num_iteration, &early_stop_);
             ClearPredictBuffer(predict_buf_[tid].data(),
                                predict_buf_[tid].size(), features);
           }

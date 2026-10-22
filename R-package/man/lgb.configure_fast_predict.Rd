@@ -76,16 +76,8 @@ Pre-configures a LightGBM model object to produce fast single-row predictions
              for a given input data type, prediction type, and parameters.
 }
 \details{
-Calling this function multiple times with different parameters might not override
-         the previous configuration and might trigger undefined behavior.
-
-         Any saved configuration for fast predictions might be lost after making a single-row
-         prediction of a different type than what was configured (except for types "response" and
-         "class", which can be switched between each other at any time without losing the configuration).
-
-         In some situations, setting a fast prediction configuration for one type of prediction
-         might cause the prediction function to keep using that configuration for single-row
-         predictions even if the requested type of prediction is different from what was configured.
+Calling this function again replaces the previous fast prediction configuration.
+         Other prediction calls do not change its prediction type or iteration range.
 
          Note that this function will not accept argument \code{type="class"} - for such cases, one
          can pass \code{type="response"} to this function and then \code{type="class"} to the
@@ -97,11 +89,7 @@ Calling this function multiple times with different parameters might not overrid
          through \code{readRDS}, whatever configuration was there previously will be lost).
 
          Requesting a different prediction type or passing parameters to \link{predict.lgb.Booster}
-         will cause it to ignore the fast-predict configuration and take the slow route instead
-         (but be aware that an existing configuration might not always be overridden by supplying
-         different parameters or prediction type, so make sure to check that the output is what
-         was expected when a prediction is to be made on a single row for something different than
-         what is configured).
+         will cause it to ignore the fast-predict configuration and take the slow route instead.
 
          Note that, if configuring a non-default prediction type (such as leaf indices),
          then that type must also be passed in the call to \link{predict.lgb.Booster} in

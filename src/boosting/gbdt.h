@@ -84,7 +84,6 @@ class GBDT : public GBDTBase {
       auto new_tree = std::unique_ptr<Tree>(new Tree(*(tree.get())));
       models_.push_back(std::move(new_tree));
     }
-    num_iteration_for_pred_ = static_cast<int>(models_.size()) / num_tree_per_iteration_;
   }
 
   void ShuffleModels(int start_iter, int end_iter) override {
@@ -296,26 +295,26 @@ class GBDT : public GBDTBase {
     return num_pred_in_one_row;
   }
 
-  void PredictRaw(const double* features, double* output,
+  void PredictRaw(const double* features, double* output, int start_iteration, int num_iteration,
                   const PredictionEarlyStopInstance* earlyStop) const override;
 
-  void PredictRawByMap(const std::unordered_map<int, double>& features, double* output,
+  void PredictRawByMap(const std::unordered_map<int, double>& features, double* output, int start_iteration, int num_iteration,
                        const PredictionEarlyStopInstance* early_stop) const override;
 
-  void Predict(const double* features, double* output,
+  void Predict(const double* features, double* output, int start_iteration, int num_iteration,
                const PredictionEarlyStopInstance* earlyStop) const override;
 
-  void PredictByMap(const std::unordered_map<int, double>& features, double* output,
+  void PredictByMap(const std::unordered_map<int, double>& features, double* output, int start_iteration, int num_iteration,
                     const PredictionEarlyStopInstance* early_stop) const override;
 
-  void PredictLeafIndex(const double* features, double* output) const override;
+  void PredictLeafIndex(const double* features, double* output, int start_iteration, int num_iteration) const override;
 
-  void PredictLeafIndexByMap(const std::unordered_map<int, double>& features, double* output) const override;
+  void PredictLeafIndexByMap(const std::unordered_map<int, double>& features, double* output, int start_iteration, int num_iteration) const override;
 
-  void PredictContrib(const double* features, double* output) const override;
+  void PredictContrib(const double* features, double* output, int start_iteration, int num_iteration) const override;
 
   void PredictContribByMap(const std::unordered_map<int, double>& features,
-                           std::vector<std::unordered_map<int, double>>* output) const override;
+                           std::vector<std::unordered_map<int, double>>* output, int start_iteration, int num_iteration) const override;
 
   /*!
   * \brief Dump model to json format string
@@ -424,18 +423,8 @@ class GBDT : public GBDTBase {
   */
   inline int NumberOfClasses() const override { return num_class_; }
 
-  inline void InitPredict(int start_iteration, int num_iteration, bool is_pred_contrib) override {
-    num_iteration_for_pred_ = static_cast<int>(models_.size()) / num_tree_per_iteration_;
-    start_iteration = std::max(start_iteration, 0);
-    start_iteration = std::min(start_iteration, num_iteration_for_pred_);
-    if (num_iteration > 0) {
-      num_iteration_for_pred_ = std::min(num_iteration, num_iteration_for_pred_ - start_iteration);
-    } else {
-      num_iteration_for_pred_ = num_iteration_for_pred_ - start_iteration;
-    }
-    start_iteration_for_pred_ = start_iteration;
-
-    if (is_pred_contrib && !models_initialized_) {
+  inline void InitPredict(bool is_pred_contrib) override {
+    if (is_pred_contrib) {
       std::lock_guard<std::mutex> lock(instance_mutex_);
       if (models_initialized_)
         return;
@@ -597,10 +586,6 @@ class GBDT : public GBDTBase {
   int num_class_;
   /*! \brief Index of label column */
   data_size_t label_idx_;
-  /*! \brief number of used model */
-  int num_iteration_for_pred_;
-  /*! \brief Start iteration of used model */
-  int start_iteration_for_pred_;
   /*! \brief Shrinkage rate for one iteration */
   double shrinkage_rate_;
   /*! \brief Number of loaded initial models */

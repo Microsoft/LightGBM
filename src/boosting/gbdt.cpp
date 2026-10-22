@@ -42,7 +42,6 @@ GBDT::GBDT()
       max_feature_idx_(0),
       num_tree_per_iteration_(1),
       num_class_(1),
-      num_iteration_for_pred_(0),
       shrinkage_rate_(0.1f),
       num_init_iteration_(0) {
   average_output_ = false;
@@ -68,7 +67,6 @@ void GBDT::Init(const Config* config, const Dataset* train_data, const Objective
     CHECK_EQ(static_cast<size_t>(train_data_->num_total_features()), config->feature_contri.size());
   }
   iter_ = 0;
-  num_iteration_for_pred_ = 0;
   max_feature_idx_ = 0;
   num_class_ = config->num_class;
   config_ = std::unique_ptr<Config>(new Config(*config));
@@ -652,12 +650,12 @@ const double* GBDT::GetTrainingScore(int64_t* out_len) {
   return train_score_updater_->score();
 }
 
-void GBDT::PredictContrib(const double* features, double* output) const {
+void GBDT::PredictContrib(const double* features, double* output, int start_iteration, int num_iteration) const {
   // set zero
   const int num_features = max_feature_idx_ + 1;
   std::memset(output, 0, sizeof(double) * num_tree_per_iteration_ * (num_features + 1));
-  const int end_iteration_for_pred = start_iteration_for_pred_ + num_iteration_for_pred_;
-  for (int i = start_iteration_for_pred_; i < end_iteration_for_pred; ++i) {
+  const int end_iteration_for_pred = start_iteration + num_iteration;
+  for (int i = start_iteration; i < end_iteration_for_pred; ++i) {
     // predict all the trees for one iteration
     for (int k = 0; k < num_tree_per_iteration_; ++k) {
       models_[i * num_tree_per_iteration_ + k]->PredictContrib(features, num_features, output + k*(num_features + 1));
@@ -666,10 +664,10 @@ void GBDT::PredictContrib(const double* features, double* output) const {
 }
 
 void GBDT::PredictContribByMap(const std::unordered_map<int, double>& features,
-                               std::vector<std::unordered_map<int, double>>* output) const {
+                               std::vector<std::unordered_map<int, double>>* output, int start_iteration, int num_iteration) const {
   const int num_features = max_feature_idx_ + 1;
-  const int end_iteration_for_pred = start_iteration_for_pred_ + num_iteration_for_pred_;
-  for (int i = start_iteration_for_pred_; i < end_iteration_for_pred; ++i) {
+  const int end_iteration_for_pred = start_iteration + num_iteration;
+  for (int i = start_iteration; i < end_iteration_for_pred; ++i) {
     // predict all the trees for one iteration
     for (int k = 0; k < num_tree_per_iteration_; ++k) {
       models_[i * num_tree_per_iteration_ + k]->PredictContribByMap(features, num_features, &((*output)[k]));

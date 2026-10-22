@@ -130,12 +130,14 @@ class LIGHTGBM_EXPORT Boosting {
   * \brief Prediction for one record, not sigmoid transform
   * \param feature_values Feature value on this record
   * \param output Prediction result for this record
+  * \param start_iteration First iteration to evaluate, normalized to the model's iteration range
+  * \param num_iteration Number of iterations to evaluate, normalized to the remaining iterations
   * \param early_stop Early stopping instance. If nullptr, no early stopping is applied and all models are evaluated.
   */
-  virtual void PredictRaw(const double* features, double* output,
+  virtual void PredictRaw(const double* features, double* output, int start_iteration, int num_iteration,
                           const PredictionEarlyStopInstance* early_stop) const = 0;
 
-  virtual void PredictRawByMap(const std::unordered_map<int, double>& features, double* output,
+  virtual void PredictRawByMap(const std::unordered_map<int, double>& features, double* output, int start_iteration, int num_iteration,
                                const PredictionEarlyStopInstance* early_stop) const = 0;
 
 
@@ -143,12 +145,14 @@ class LIGHTGBM_EXPORT Boosting {
   * \brief Prediction for one record, sigmoid transformation will be used if needed
   * \param feature_values Feature value on this record
   * \param output Prediction result for this record
+  * \param start_iteration First iteration to evaluate, normalized to the model's iteration range
+  * \param num_iteration Number of iterations to evaluate, normalized to the remaining iterations
   * \param early_stop Early stopping instance. If nullptr, no early stopping is applied and all models are evaluated.
   */
-  virtual void Predict(const double* features, double* output,
+  virtual void Predict(const double* features, double* output, int start_iteration, int num_iteration,
                        const PredictionEarlyStopInstance* early_stop) const = 0;
 
-  virtual void PredictByMap(const std::unordered_map<int, double>& features, double* output,
+  virtual void PredictByMap(const std::unordered_map<int, double>& features, double* output, int start_iteration, int num_iteration,
                             const PredictionEarlyStopInstance* early_stop) const = 0;
 
 
@@ -156,22 +160,26 @@ class LIGHTGBM_EXPORT Boosting {
   * \brief Prediction for one record with leaf index
   * \param feature_values Feature value on this record
   * \param output Prediction result for this record
+  * \param start_iteration First iteration to evaluate, normalized to the model's iteration range
+  * \param num_iteration Number of iterations to evaluate, normalized to the remaining iterations
   */
   virtual void PredictLeafIndex(
-    const double* features, double* output) const = 0;
+    const double* features, double* output, int start_iteration, int num_iteration) const = 0;
 
   virtual void PredictLeafIndexByMap(
-    const std::unordered_map<int, double>& features, double* output) const = 0;
+    const std::unordered_map<int, double>& features, double* output, int start_iteration, int num_iteration) const = 0;
 
   /*!
   * \brief Feature contributions for the model's prediction of one record
   * \param feature_values Feature value on this record
   * \param output Prediction result for this record
+  * \param start_iteration First iteration to evaluate, normalized to the model's iteration range
+  * \param num_iteration Number of iterations to evaluate, normalized to the remaining iterations
   */
-  virtual void PredictContrib(const double* features, double* output) const = 0;
+  virtual void PredictContrib(const double* features, double* output, int start_iteration, int num_iteration) const = 0;
 
   virtual void PredictContribByMap(const std::unordered_map<int, double>& features,
-                                   std::vector<std::unordered_map<int, double>>* output) const = 0;
+                                   std::vector<std::unordered_map<int, double>>* output, int start_iteration, int num_iteration) const = 0;
 
   /*!
   * \brief Dump model to json format string
@@ -284,12 +292,10 @@ class LIGHTGBM_EXPORT Boosting {
   virtual bool NeedAccuratePrediction() const = 0;
 
   /*!
-  * \brief Initial work for the prediction
-  * \param start_iteration Start index of the iteration to predict
-  * \param num_iteration number of used iteration
-  * \param is_pred_contrib
+  * \brief Prepare model metadata for prediction, without changing prediction parameters
+  * \param is_pred_contrib Whether to initialize metadata needed for feature contributions
   */
-  virtual void InitPredict(int start_iteration, int num_iteration, bool is_pred_contrib) = 0;
+  virtual void InitPredict(bool is_pred_contrib) = 0;
 
   /*!
   * \brief Name of submodel

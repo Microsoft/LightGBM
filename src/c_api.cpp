@@ -86,6 +86,7 @@ class SingleRowPredictorInner {
     early_stop_ = config.pred_early_stop;
     early_stop_freq_ = config.pred_early_stop_freq;
     early_stop_margin_ = config.pred_early_stop_margin;
+    start_iter_ = start_iter;
     iter_ = num_iter;
     predictor_.reset(new Predictor(boosting, start_iter, iter_, is_raw_score, is_predict_leaf, predict_contrib,
                                    early_stop_, early_stop_freq_, early_stop_margin_));
@@ -96,10 +97,11 @@ class SingleRowPredictorInner {
 
   ~SingleRowPredictorInner() {}
 
-  bool IsPredictorEqual(const Config& config, int iter, Boosting* boosting) {
+  bool IsPredictorEqual(const Config& config, int start_iter, int iter, Boosting* boosting) {
     return early_stop_ == config.pred_early_stop &&
       early_stop_freq_ == config.pred_early_stop_freq &&
       early_stop_margin_ == config.pred_early_stop_margin &&
+      start_iter_ == start_iter &&
       iter_ == iter &&
       num_total_model_ == boosting->NumberOfTotalModel();
   }
@@ -109,6 +111,7 @@ class SingleRowPredictorInner {
   bool early_stop_;
   int early_stop_freq_;
   double early_stop_margin_;
+  int start_iter_;
   int iter_;
   int num_total_model_;
 };
@@ -434,35 +437,27 @@ class Booster {
     boosting_->RollbackOneIter();
   }
 
-  void SetSingleRowPredictorInner(int start_iteration, int num_iteration, int predict_type, const Config& config) {
-      UNIQUE_LOCK(mutex_)
-      if (single_row_predictor_[predict_type].get() == nullptr ||
-          !single_row_predictor_[predict_type]->IsPredictorEqual(config, num_iteration, boosting_.get())) {
-        single_row_predictor_[predict_type].reset(new SingleRowPredictorInner(predict_type, boosting_.get(),
-                                                                         config, start_iteration, num_iteration));
-      }
-  }
-
   std::unique_ptr<SingleRowPredictor> InitSingleRowPredictor(int predict_type, int start_iteration, int num_iteration, int data_type, int32_t num_cols, const char *parameters) {
-    // Workaround https://github.com/lightgbm-org/LightGBM/issues/6142 by locking here
-    // This is only a workaround because if predictors are initialized differently it may still behave incorrectly,
-    // and because multiple racing Predictor initializations through LGBM_BoosterPredictForMat suffers from that same issue of Predictor init writing things in the booster.
-    // Once #6142 is fixed (predictor doesn't write in the Booster as should have been the case since 1c35c3b9ede9adab8ccc5fd7b4b2b6af188a79f0), this line can be removed.
-    UNIQUE_LOCK(mutex_)
+    SHARED_LOCK(mutex_)
 
     return std::unique_ptr<SingleRowPredictor>(new SingleRowPredictor(
       &mutex_, parameters, data_type, num_cols, predict_type, boosting_.get(), start_iteration, num_iteration));
   }
 
-  void PredictSingleRow(int predict_type, int ncol,
+  void PredictSingleRow(int start_iteration, int num_iteration, int predict_type, int ncol,
                std::function<std::vector<std::pair<int, double>>(int row_idx)> get_row_fun,
                const Config& config,
-               double* out_result, int64_t* out_len) const {
+               double* out_result, int64_t* out_len) {
+    UNIQUE_LOCK(mutex_)
     if (!config.predict_disable_shape_check && ncol != boosting_->MaxFeatureIdx() + 1) {
       Log::Fatal("The number of features in data (%d) is not the same as it was in training data (%d).\n"\
                  "You can set ``predict_disable_shape_check=true`` to discard this error, but please be aware what you are doing.", ncol, boosting_->MaxFeatureIdx() + 1);
     }
-    UNIQUE_LOCK(mutex_)
+    if (single_row_predictor_[predict_type] == nullptr ||
+        !single_row_predictor_[predict_type]->IsPredictorEqual(config, start_iteration, num_iteration, boosting_.get())) {
+      single_row_predictor_[predict_type].reset(new SingleRowPredictorInner(
+          predict_type, boosting_.get(), config, start_iteration, num_iteration));
+    }
     const auto& single_row_predictor = single_row_predictor_[predict_type];
     auto one_row = get_row_fun(0);
     auto pred_wrt_ptr = out_result;
@@ -2439,8 +2434,7 @@ int LGBM_BoosterPredictForCSRSingleRow(BoosterHandle handle,
   OMP_SET_NUM_THREADS(config.num_threads);
   Booster* ref_booster = reinterpret_cast<Booster*>(handle);
   auto get_row_fun = RowFunctionFromCSR<int>(indptr, indptr_type, indices, data, data_type, nindptr, nelem);
-  ref_booster->SetSingleRowPredictorInner(start_iteration, num_iteration, predict_type, config);
-  ref_booster->PredictSingleRow(predict_type, static_cast<int32_t>(num_col), get_row_fun, config, out_result, out_len);
+  ref_booster->PredictSingleRow(start_iteration, num_iteration, predict_type, static_cast<int32_t>(num_col), get_row_fun, config, out_result, out_len);
   API_END();
 }
 
@@ -2597,8 +2591,7 @@ int LGBM_BoosterPredictForMatSingleRow(BoosterHandle handle,
   OMP_SET_NUM_THREADS(config.num_threads);
   Booster* ref_booster = reinterpret_cast<Booster*>(handle);
   auto get_row_fun = RowPairFunctionFromDenseMatrix(data, 1, ncol, data_type, is_row_major);
-  ref_booster->SetSingleRowPredictorInner(start_iteration, num_iteration, predict_type, config);
-  ref_booster->PredictSingleRow(predict_type, ncol, get_row_fun, config, out_result, out_len);
+  ref_booster->PredictSingleRow(start_iteration, num_iteration, predict_type, ncol, get_row_fun, config, out_result, out_len);
   API_END();
 }
 

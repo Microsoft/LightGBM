@@ -9,8 +9,11 @@
 #include <LightGBM/c_api.h>
 
 #include <algorithm>
+#include <atomic>
 #include <fstream>
 #include <iostream>
+#include <string>
+#include <thread>
 #include <vector>
 
 using LightGBM::TestUtils;
@@ -252,3 +255,194 @@ TEST(SingleRow, CSRFastPredictionTypeAndIterationRange) {
     EXPECT_EQ(0, LGBM_BoosterFree(booster));
     EXPECT_EQ(0, LGBM_DatasetFree(dataset));
 }
+
+namespace {
+
+class PredictionIsolation : public ::testing::Test {
+ protected:
+    void SetUp() override {
+        std::vector<double> data(96 * 3);
+        std::vector<float> labels(96);
+        for (int i = 0; i < 96; ++i) {
+            data[3 * i] = i % 13;
+            data[3 * i + 1] = i % 7;
+            data[3 * i + 2] = i % 5;
+            labels[i] = static_cast<float>(i % 13 > i % 7);
+        }
+        ASSERT_EQ(0, LGBM_DatasetCreateFromMat(data.data(), C_API_DTYPE_FLOAT64, 96, 3, 1,
+            "min_data_in_leaf=1 min_data_in_bin=1 num_threads=1", nullptr, &dataset_));
+        ASSERT_EQ(0, LGBM_DatasetSetField(dataset_, "label", labels.data(), 96, C_API_DTYPE_FLOAT32));
+        ASSERT_EQ(0, LGBM_BoosterCreate(dataset_,
+            "objective=binary num_leaves=5 min_data_in_leaf=1 verbosity=-1 num_threads=1", &booster_));
+        for (int i = 0; i < 8; ++i) {
+            int finished;
+            ASSERT_EQ(0, LGBM_BoosterUpdateOneIter(booster_, &finished));
+        }
+        // The reference owns a separate model, so computing an expectation cannot
+        // reset the prediction state of the booster under test.
+        int64_t length;
+        std::vector<char> model(65536);
+        ASSERT_EQ(0, LGBM_BoosterSaveModelToString(booster_, 0, -1, 0, model.size(), &length, model.data()));
+        ASSERT_LE(length, static_cast<int64_t>(model.size()));
+        int iterations;
+        ASSERT_EQ(0, LGBM_BoosterLoadModelFromString(model.data(), &iterations, &reference_));
+    }
+
+    void TearDown() override {
+        for (auto fast : fast_) {
+            EXPECT_EQ(0, LGBM_FastConfigFree(fast));
+        }
+        if (reference_) {
+            EXPECT_EQ(0, LGBM_BoosterFree(reference_));
+        }
+        if (booster_) {
+            EXPECT_EQ(0, LGBM_BoosterFree(booster_));
+        }
+        if (dataset_) {
+            EXPECT_EQ(0, LGBM_DatasetFree(dataset_));
+        }
+    }
+
+    std::vector<double> Predict(BoosterHandle booster, bool csr, bool single,
+                                int type, int start, int count) {
+        // Sentinel padding also detects a leaf predictor writing beyond its range.
+        std::vector<double> output(16, -999.0);
+        int64_t written = -1;
+        int result;
+        if (csr) {
+            auto predict = single ? LGBM_BoosterPredictForCSRSingleRow : LGBM_BoosterPredictForCSR;
+            result = predict(booster, indptr_, C_API_DTYPE_INT32, indices_, row_, C_API_DTYPE_FLOAT64,
+                2, 3, 3, type, start, count, "num_threads=1", &written, output.data());
+        } else if (single) {
+            result = LGBM_BoosterPredictForMatSingleRow(booster, row_, C_API_DTYPE_FLOAT64,
+                3, 1, type, start, count, "num_threads=1", &written, output.data());
+        } else {
+            result = LGBM_BoosterPredictForMat(booster, row_, C_API_DTYPE_FLOAT64,
+                1, 3, 1, type, start, count, "num_threads=1", &written, output.data());
+        }
+        EXPECT_EQ(0, result) << LGBM_GetLastError();
+        int64_t expected_size;
+        EXPECT_EQ(0, LGBM_BoosterCalcNumPredict(booster, 1, type, start, count, &expected_size));
+        EXPECT_EQ(expected_size, written);
+        return output;
+    }
+
+    FastConfigHandle InitFast(bool csr, int type, int start, int count) {
+        FastConfigHandle fast = nullptr;
+        int result;
+        if (csr) {
+            result = LGBM_BoosterPredictForCSRSingleRowFastInit(booster_, type, start, count,
+                C_API_DTYPE_FLOAT64, 3, "num_threads=1", &fast);
+        } else {
+            result = LGBM_BoosterPredictForMatSingleRowFastInit(booster_, type, start, count,
+                C_API_DTYPE_FLOAT64, 3, "num_threads=1", &fast);
+        }
+        EXPECT_EQ(0, result) << LGBM_GetLastError();
+        return fast;
+    }
+
+    std::vector<double> PredictFast(FastConfigHandle fast, bool csr, int64_t size) {
+        std::vector<double> output(16, -999.0);
+        int64_t written = -1;
+        int result = csr ? LGBM_BoosterPredictForCSRSingleRowFast(fast, indptr_, C_API_DTYPE_INT32,
+            indices_, row_, 2, 3, &written, output.data()) :
+            LGBM_BoosterPredictForMatSingleRowFast(fast, row_, &written, output.data());
+        EXPECT_EQ(0, result) << LGBM_GetLastError();
+        EXPECT_EQ(size, written);
+        return output;
+    }
+
+    DatasetHandle dataset_ = nullptr;
+    BoosterHandle booster_ = nullptr;
+    BoosterHandle reference_ = nullptr;
+    std::vector<FastConfigHandle> fast_;
+    const double row_[3] = {6.0, 2.0, 1.0};
+    const int32_t indptr_[2] = {0, 3};
+    const int32_t indices_[3] = {0, 1, 2};
+};
+
+TEST_F(PredictionIsolation, CachedSingleRowIncludesStartIteration) {
+    for (bool csr : {false, true}) {
+        for (int type : {C_API_PREDICT_NORMAL, C_API_PREDICT_RAW_SCORE,
+                         C_API_PREDICT_LEAF_INDEX, C_API_PREDICT_CONTRIB}) {
+            for (int start : {0, 3, 1, 0}) {
+                SCOPED_TRACE(::testing::Message() << "csr=" << csr << " type=" << type << " start=" << start);
+                EXPECT_EQ(Predict(reference_, csr, false, type, start, 2),
+                          Predict(booster_, csr, true, type, start, 2));
+            }
+        }
+    }
+}
+
+TEST_F(PredictionIsolation, FastHandlesSurviveOtherPredictionConfigurations) {
+    for (bool csr : {false, true}) {
+        for (int type : {C_API_PREDICT_NORMAL, C_API_PREDICT_RAW_SCORE,
+                         C_API_PREDICT_LEAF_INDEX, C_API_PREDICT_CONTRIB}) {
+            SCOPED_TRACE(::testing::Message() << "csr=" << csr << " type=" << type);
+            const auto expected = Predict(reference_, csr, false, type, 1, 2);
+            int64_t size;
+            ASSERT_EQ(0, LGBM_BoosterCalcNumPredict(reference_, 1, type, 1, 2, &size));
+            auto fast = InitFast(csr, type, 1, 2);
+            fast_.push_back(fast);
+            for (int other_type : {C_API_PREDICT_NORMAL, C_API_PREDICT_LEAF_INDEX, C_API_PREDICT_CONTRIB}) {
+                fast_.push_back(InitFast(!csr, other_type, 3, 4));
+                EXPECT_EQ(expected, PredictFast(fast, csr, size));
+                Predict(booster_, !csr, true, other_type, 0, -1);
+                EXPECT_EQ(expected, PredictFast(fast, csr, size));
+                Predict(booster_, csr, false, other_type, 4, 1);
+                EXPECT_EQ(expected, PredictFast(fast, csr, size));
+            }
+        }
+    }
+}
+
+TEST_F(PredictionIsolation, ConcurrentPredictionConfigurations) {
+    constexpr int kThreads = 4;
+    std::vector<std::vector<double>> expected;
+    for (int i = 0; i < kThreads; ++i) {
+        expected.push_back(Predict(reference_, false, false, C_API_PREDICT_RAW_SCORE, i, 2));
+    }
+    ASSERT_NE(expected[0], expected[1]);
+    std::atomic<int> ready{0};
+    std::vector<std::thread> threads;
+    for (int i = 0; i < kThreads; ++i) {
+        threads.emplace_back([&, i]() {
+            auto fast = InitFast(i % 2, C_API_PREDICT_RAW_SCORE, i, 2);
+            ++ready;
+            while (ready.load() < kThreads) std::this_thread::yield();
+            for (int repeat = 0; repeat < 50; ++repeat) {
+                EXPECT_EQ(expected[i], PredictFast(fast, i % 2, 1));
+                EXPECT_EQ(expected[i], Predict(booster_, i % 2, true, C_API_PREDICT_RAW_SCORE, i, 2));
+                EXPECT_EQ(expected[i], Predict(booster_, i % 2, false, C_API_PREDICT_RAW_SCORE, i, 2));
+            }
+            EXPECT_EQ(0, LGBM_FastConfigFree(fast));
+        });
+    }
+    for (auto& thread : threads) thread.join();
+}
+
+TEST_F(PredictionIsolation, ConcurrentContribInitialization) {
+    constexpr int kThreads = 4;
+    std::vector<std::vector<double>> expected;
+    for (int i = 0; i < kThreads; ++i) {
+        expected.push_back(Predict(reference_, false, false, C_API_PREDICT_CONTRIB, i, 2));
+    }
+    // No SHAP prediction has initialized booster_ yet.
+    std::atomic<int> ready{0};
+    std::vector<std::thread> threads;
+    for (int i = 0; i < kThreads; ++i) {
+        threads.emplace_back([&, i]() {
+            ++ready;
+            while (ready.load() < kThreads) std::this_thread::yield();
+            auto fast = InitFast(i % 2, C_API_PREDICT_CONTRIB, i, 2);
+            for (int repeat = 0; repeat < 20; ++repeat) {
+                EXPECT_EQ(expected[i], PredictFast(fast, i % 2, 4));
+                EXPECT_EQ(expected[i], Predict(booster_, i % 2, false, C_API_PREDICT_CONTRIB, i, 2));
+            }
+            EXPECT_EQ(0, LGBM_FastConfigFree(fast));
+        });
+    }
+    for (auto& thread : threads) thread.join();
+}
+
+}  // namespace
