@@ -248,10 +248,8 @@ void GBDT::Train(int snapshot_freq, const std::string& model_output_path) {
   bool is_finished = false;
   auto start_time = std::chrono::steady_clock::now();
   for (int iter = 0; iter < config_->num_iterations && !is_finished; ++iter) {
-    is_finished = TrainOneIter(nullptr, nullptr);
-    if (!is_finished) {
-      is_finished = EvalAndCheckEarlyStopping();
-    }
+    TrainOneIter(nullptr, nullptr);
+    is_finished = EvalAndCheckEarlyStopping();
     auto end_time = std::chrono::steady_clock::now();
     // output used time per iteration
     Log::Info("%f seconds elapsed, finished iteration %d", std::chrono::duration<double,
@@ -446,6 +444,8 @@ bool GBDT::TrainOneIter(const score_t* gradients, const score_t* hessians) {
     models_.push_back(std::move(new_tree));
   }
 
+  ++iter_;
+
   if (!should_continue) {
     Log::Warning("Stopped training because there are no more leaves that meet the split requirements");
     if (models_.size() > static_cast<size_t>(num_tree_per_iteration_)) {
@@ -456,7 +456,6 @@ bool GBDT::TrainOneIter(const score_t* gradients, const score_t* hessians) {
     return true;
   }
 
-  ++iter_;
   return false;
 }
 
