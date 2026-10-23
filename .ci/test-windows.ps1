@@ -72,6 +72,7 @@ if ($env:TASK -eq "swig") {
 if (-not $UseConda) {
     python -m pip install `
         --only-binary=:all: `
+        --requirement "$env:BUILD_SOURCESDIRECTORY/.ci/pip-envs/requirements-test.txt" `
         --requirement "$env:BUILD_SOURCESDIRECTORY/.ci/pip-envs/requirements-windows-arm64.txt" `
         --upgrade ; Assert-Output $?
 } elseif ($env:PYTHON_VERSION -eq "3.10") {
@@ -180,7 +181,9 @@ if ($env:TASK -eq "bdist") {
     $env:LIGHTGBM_TEST_DUAL_CPU_GPU = "0"
 }
 
-pytest -ra $tests ; Assert-Output $?
+python "$env:BUILD_SOURCESDIRECTORY/.ci/test-imports.py" ; Assert-Output $?
+
+pytest -ra --cov=lightgbm --cov-fail-under=70 $tests ; Assert-Output $?
 
 if (($env:TASK -eq "regular") -or (($env:APPVEYOR -eq "true") -and ($env:TASK -eq "python"))) {
     Set-Location "$env:BUILD_SOURCESDIRECTORY/examples/python-guide"

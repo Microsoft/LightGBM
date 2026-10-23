@@ -90,7 +90,11 @@ repos:
     rev: v0.15.20
     hooks:
       - id: ruff-check
-        args: ["--config", "python-package/pyproject.toml"]
+        args:
+          - "--fix"
+          - "--config=python-package/pyproject.toml"
+          # (isort)  Import block is un-sorted or un-formatted
+          - "--fixable=I001"
         types_or: [python, jupyter]
       - id: ruff-format
         args: ["--config", "python-package/pyproject.toml"]

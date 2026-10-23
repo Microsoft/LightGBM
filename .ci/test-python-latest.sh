@@ -7,6 +7,7 @@ pip install \
     --prefer-binary \
     --upgrade \
     -r ./.ci/pip-envs/requirements-latest.txt \
+    -r ./.ci/pip-envs/requirements-test.txt \
     dist/*.whl
 
 echo "installed package versions:"
