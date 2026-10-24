@@ -9,6 +9,7 @@
 #include <LightGBM/dataset.h>
 #include <LightGBM/meta.h>
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <map>
@@ -438,43 +439,34 @@ class Tree {
   /*! \brief This is used fill in leaf_depth_ after reloading a model*/
   inline void RecomputeLeafDepths(int node = 0, int depth = 0);
 
-  /*!
-  * \brief Used by TreeSHAP for data we keep about our decision path
-  */
-  struct PathElement {
+  /*! \brief Add the SHAP values of one record to phi, computed by QuadratureTreeSHAP (arXiv:2605.04497)*/
+  void QuadratureTreeSHAP(const double* feature_values, int num_features, double* phi) const;
+
+  void QuadratureTreeSHAPByMap(const std::unordered_map<int, double>& feature_values, int num_features,
+                               std::unordered_map<int, double>* phi) const;
+
+  /*! \brief A distinct feature on the root-to-node path of QuadratureTreeSHAP*/
+  struct QuadraturePathFeature {
     int feature_index;
-    double zero_fraction;
-    double one_fraction;
-
-    // note that pweight is included for convenience and is not tied with the other attributes,
-    // the pweight of the i'th path element is the permutation weight of paths with i-1 ones in them
-    double pweight;
-
-    PathElement() {}
-    PathElement(int i, double z, double o, double w) : feature_index(i), zero_fraction(z), one_fraction(o), pweight(w) {}
+    // product of 1 / branch weight over the path's edges that split on this feature,
+    // or 0 if the record does not follow one of them
+    double p;
   };
 
-  /*! \brief Polynomial time algorithm for SHAP values (arXiv:1706.06060)*/
-  void TreeSHAP(const double *feature_values, double *phi,
-                int node, int unique_depth,
-                PathElement *parent_unique_path, double parent_zero_fraction,
-                double parent_one_fraction, int parent_feature_index) const;
+  /*! \brief Run QuadratureTreeSHAP with the smallest quadrature rule that is exact for this tree*/
+  template <typename FeatureValues, typename Phi>
+  void QuadratureTreeSHAPRoot(const FeatureValues& feature_values, int num_features, Phi& phi) const;
 
-  void TreeSHAPByMap(const std::unordered_map<int, double>& feature_values,
-                     std::unordered_map<int, double>* phi,
-                     int node, int unique_depth,
-                     PathElement *parent_unique_path, double parent_zero_fraction,
-                     double parent_one_fraction, int parent_feature_index) const;
+  /*! \brief Run QuadratureTreeSHAP from the root with kNumPoints quadrature points*/
+  template <int kNumPoints, typename FeatureValues, typename Phi>
+  void QuadratureTreeSHAPRun(const FeatureValues& feature_values, Phi& phi) const;
 
-  /*! \brief Extend our decision path with a fraction of one and zero extensions for TreeSHAP*/
-  static void ExtendPath(PathElement *unique_path, int unique_depth,
-                         double zero_fraction, double one_fraction, int feature_index);
-
-  /*! \brief Undo a previous extension of the decision path for TreeSHAP*/
-  static void UnwindPath(PathElement *unique_path, int unique_depth, int path_index);
-
-  /*! determine what the total permutation weight would be if we unwound a previous extension in the decision path*/
-  static double UnwoundPathSum(const PathElement *unique_path, int unique_depth, int path_index);
+  /*! \brief QuadratureTreeSHAP recursion over the subtree at node, with kNumPoints quadrature points*/
+  template <int kNumPoints, typename FeatureValues, typename Phi>
+  void QuadratureTreeSHAPNode(const FeatureValues& feature_values, Phi& phi, int node,
+                              const std::array<double, kNumPoints>& c, double w_prod,
+                              QuadraturePathFeature* path, int path_len,
+                              std::array<double, kNumPoints>* h) const;
 
   /*! \brief Number of max leaves*/
   int max_leaves_;
@@ -668,24 +660,18 @@ inline int Tree::PredictLeafIndexByMap(const std::unordered_map<int, double>& fe
 
 inline void Tree::PredictContrib(const double* feature_values, int num_features, double* output) {
   output[num_features] += ExpectedValue();
-  // Run the recursion with preallocated space for the unique path data
   if (num_leaves_ > 1) {
     CHECK_GE(max_depth_, 0);
-    const int max_path_len = max_depth_ + 1;
-    std::vector<PathElement> unique_path_data(max_path_len*(max_path_len + 1) / 2);
-    TreeSHAP(feature_values, output, 0, 0, unique_path_data.data(), 1, 1, -1);
+    QuadratureTreeSHAP(feature_values, num_features, output);
   }
 }
 
 inline void Tree::PredictContribByMap(const std::unordered_map<int, double>& feature_values,
                                       int num_features, std::unordered_map<int, double>* output) {
   (*output)[num_features] += ExpectedValue();
-  // Run the recursion with preallocated space for the unique path data
   if (num_leaves_ > 1) {
     CHECK_GE(max_depth_, 0);
-    const int max_path_len = max_depth_ + 1;
-    std::vector<PathElement> unique_path_data(max_path_len*(max_path_len + 1) / 2);
-    TreeSHAPByMap(feature_values, output, 0, 0, unique_path_data.data(), 1, 1, -1);
+    QuadratureTreeSHAPByMap(feature_values, num_features, output);
   }
 }
 

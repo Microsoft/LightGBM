@@ -10,6 +10,8 @@
 #include <LightGBM/utils/threading.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <functional>
 #include <iomanip>
 #include <sstream>
@@ -870,170 +872,211 @@ Tree::Tree(const char* str, size_t* used_len) {
   max_depth_ = -1;
 }
 
-void Tree::ExtendPath(PathElement *unique_path, int unique_depth,
-                      double zero_fraction, double one_fraction, int feature_index) {
-  unique_path[unique_depth].feature_index = feature_index;
-  unique_path[unique_depth].zero_fraction = zero_fraction;
-  unique_path[unique_depth].one_fraction = one_fraction;
-  unique_path[unique_depth].pweight = (unique_depth == 0 ? 1 : 0);
-  for (int i = unique_depth - 1; i >= 0; i--) {
-    unique_path[i + 1].pweight += one_fraction*unique_path[i].pweight*(i + 1)
-      / static_cast<double>(unique_depth + 1);
-    unique_path[i].pweight = zero_fraction*unique_path[i].pweight*(unique_depth - i)
-      / static_cast<double>(unique_depth + 1);
+namespace {
+
+// QuadratureTreeSHAP (arXiv:2605.04497) writes each SHAP value as an integral over t in [0, 1] and
+// evaluates it with a Gauss-Legendre rule. For one feature, the path integrand is a polynomial in t
+// whose degree is the number of other distinct features on the path, and an n-point rule integrates
+// degree <= 2n - 1 exactly, so paths with at most d distinct features are exact with n >= ceil(d / 2)
+// points. The recursion is compiled for rules of 4, 8, 12, 16, 24 and 32 points; trees with d > 48 use 32
+// points, which is exact up to d = 64 and approximate beyond.
+
+// Legendre polynomial P_n(x), by the three-term recurrence
+double LegendrePolynomial(int n, double x) {
+  double p0 = 1.0;
+  if (n == 0) {
+    return p0;
   }
+  double p1 = x;
+  for (int k = 2; k <= n; ++k) {
+    const double pk = ((2.0 * k - 1.0) * x * p1 - (k - 1.0) * p0) / k;
+    p0 = p1;
+    p1 = pk;
+  }
+  return p1;
 }
 
-void Tree::UnwindPath(PathElement *unique_path, int unique_depth, int path_index) {
-  const double one_fraction = unique_path[path_index].one_fraction;
-  const double zero_fraction = unique_path[path_index].zero_fraction;
-  double next_one_portion = unique_path[unique_depth].pweight;
+// P_n'(x), given pn = P_n(x)
+double LegendreDerivative(int n, double x, double pn) {
+  return n * (x * pn - LegendrePolynomial(n - 1, x)) / (x * x - 1.0);
+}
 
-  for (int i = unique_depth - 1; i >= 0; --i) {
-    if (one_fraction != 0) {
-      const double tmp = unique_path[i].pweight;
-      unique_path[i].pweight = next_one_portion*(unique_depth + 1)
-        / static_cast<double>((i + 1)*one_fraction);
-      next_one_portion = tmp - unique_path[i].pweight*zero_fraction*(unique_depth - i)
-        / static_cast<double>(unique_depth + 1);
-    } else {
-      unique_path[i].pweight = (unique_path[i].pweight*(unique_depth + 1))
-        / static_cast<double>(zero_fraction*(unique_depth - i));
+// Gauss-Legendre points (increasing) and weights on [0, 1]
+template <int kNumPoints>
+struct GaussLegendreRule {
+  std::array<double, kNumPoints> points;
+  std::array<double, kNumPoints> weights;
+};
+
+// Newton's method finds the roots of P_n in [-1, 1], which are then mapped to [0, 1]
+template <int kNumPoints>
+GaussLegendreRule<kNumPoints> MakeGaussLegendreRule() {
+  constexpr double kPi = 3.141592653589793238462643383279502884;
+  // Cap the number of iterations used to find each of the LegendrePolynomial roots.
+  // Safe cap only, from the initial guess, Newton should converge in a few iterations.
+  constexpr int kMaxNewtonIterations = 64;
+  // Stop once the Newton step for roots in [-1, 1] reaches the float64 noise floor.
+  constexpr double kNewtonTolerance = 1e-15;
+
+  GaussLegendreRule<kNumPoints> rule;
+  for (int i = 0; i < kNumPoints; ++i) {
+    // initial guess for the i-th largest root
+    double x = std::cos(kPi * (i + 0.75) / (kNumPoints + 0.5));
+    for (int iter = 0; iter < kMaxNewtonIterations; ++iter) {
+      const double pn = LegendrePolynomial(kNumPoints, x);
+      const double dx = pn / LegendreDerivative(kNumPoints, x, pn);
+      x -= dx;
+      if (std::fabs(dx) < kNewtonTolerance) {
+        break;
+      }
     }
+    const double dpn = LegendreDerivative(kNumPoints, x, LegendrePolynomial(kNumPoints, x));
+    // the weight on [-1, 1] is 2 / ((1 - x^2) P_n'(x)^2), halved for [0, 1]
+    rule.points[kNumPoints - 1 - i] = 0.5 * (x + 1.0);
+    rule.weights[kNumPoints - 1 - i] = 1.0 / ((1.0 - x * x) * dpn * dpn);
   }
+  return rule;
+}
+template <int kNumPoints>
+const GaussLegendreRule<kNumPoints> kGaussLegendreRule = MakeGaussLegendreRule<kNumPoints>();
 
-  for (int i = path_index; i < unique_depth; ++i) {
-    unique_path[i].feature_index = unique_path[i + 1].feature_index;
-    unique_path[i].zero_fraction = unique_path[i + 1].zero_fraction;
-    unique_path[i].one_fraction = unique_path[i + 1].one_fraction;
+// A zero-count child keeps this tiny branch probability so the quadrature stays well-defined.
+constexpr double kMinBranchWeight = 1e-12;
+
+double BranchWeight(int child_count, int parent_count) {
+  // Counts can be zero in some loaded models; fall back to a neutral or tiny branch probability
+  // instead of letting NaN/Inf weights propagate through SHAP.
+  if (parent_count <= 0) {
+    return 0.5;
   }
+  return std::max(static_cast<double>(child_count) / parent_count, kMinBranchWeight);
 }
 
-double Tree::UnwoundPathSum(const PathElement *unique_path, int unique_depth, int path_index) {
-  const double one_fraction = unique_path[path_index].one_fraction;
-  const double zero_fraction = unique_path[path_index].zero_fraction;
-  double next_one_portion = unique_path[unique_depth].pweight;
-  double total = 0;
-  for (int i = unique_depth - 1; i >= 0; --i) {
-    if (one_fraction != 0) {
-      const double tmp = next_one_portion*(unique_depth + 1)
-        / static_cast<double>((i + 1)*one_fraction);
-      total += tmp;
-      next_one_portion = unique_path[i].pweight - tmp*zero_fraction*((unique_depth - i)
-                                                                     / static_cast<double>(unique_depth + 1));
-    } else {
-      total += (unique_path[i].pweight / zero_fraction) / ((unique_depth - i)
-                                                           / static_cast<double>(unique_depth + 1));
-    }
-  }
-  return total;
+// The record's value of a feature: a dense record has every feature, a sparse one only its non-zeros
+double FeatureValue(const double* feature_values, int feature) {
+  return feature_values[feature];
 }
 
-// recursive computation of SHAP values for a decision tree
-void Tree::TreeSHAP(const double *feature_values, double *phi,
-                    int node, int unique_depth,
-                    PathElement *parent_unique_path, double parent_zero_fraction,
-                    double parent_one_fraction, int parent_feature_index) const {
-  // extend the unique path
-  PathElement* unique_path = parent_unique_path + unique_depth;
-  if (unique_depth > 0) {
-    std::copy(parent_unique_path, parent_unique_path + unique_depth, unique_path);
-  }
-  ExtendPath(unique_path, unique_depth, parent_zero_fraction,
-             parent_one_fraction, parent_feature_index);
+double FeatureValue(const std::unordered_map<int, double>& feature_values, int feature) {
+  const auto it = feature_values.find(feature);
+  return it != feature_values.end() ? it->second : 0.0;
+}
+
+}  // namespace
+
+// The QuadratureTreeSHAP algorithm over the subtree at node.
+// Closely follows the recursion in Algorithm 1 of arXiv:2605.04497, with the path's distinct features stored in
+// path[0..path_len) and the current product of branch weights in w_prod.
+// c and h are polynomials in t, kept as their values at the quadrature points. c depends only on the path features
+// and is built on the way down the recursion. h is the subtree's full polynomial, including branch weights and leaf
+// values, and is summed on the way up the recursion.
+template <int kNumPoints, typename FeatureValues, typename Phi>
+void Tree::QuadratureTreeSHAPNode(const FeatureValues& feature_values, Phi& phi, int node,
+                                  const std::array<double, kNumPoints>& c, double w_prod,
+                                  QuadraturePathFeature* path, int path_len,
+                                  std::array<double, kNumPoints>* h) const {
+  const double* t = kGaussLegendreRule<kNumPoints>.points.data();
+  const double* weights = kGaussLegendreRule<kNumPoints>.weights.data();
 
   // leaf node
   if (node < 0) {
-    for (int i = 1; i <= unique_depth; ++i) {
-      const double w = UnwoundPathSum(unique_path, unique_depth, i);
-      const PathElement &el = unique_path[i];
-      phi[el.feature_index] += w*(el.one_fraction - el.zero_fraction)*leaf_value_[~node];
+    const double leaf_scale = w_prod * leaf_value_[~node];
+    for (int i = 0; i < kNumPoints; ++i) {
+      (*h)[i] = c[i] * leaf_scale;
     }
-
-    // internal node
-  } else {
-    const int hot_index = Decision(feature_values[split_feature_[node]], node);
-    const int cold_index = (hot_index == left_child_[node] ? right_child_[node] : left_child_[node]);
-    const double w = data_count(node);
-    const double hot_zero_fraction = data_count(hot_index) / w;
-    const double cold_zero_fraction = data_count(cold_index) / w;
-    double incoming_zero_fraction = 1;
-    double incoming_one_fraction = 1;
-
-    // see if we have already split on this feature,
-    // if so we undo that split so we can redo it for this node
-    int path_index = 0;
-    for (; path_index <= unique_depth; ++path_index) {
-      if (unique_path[path_index].feature_index == split_feature_[node]) break;
-    }
-    if (path_index != unique_depth + 1) {
-      incoming_zero_fraction = unique_path[path_index].zero_fraction;
-      incoming_one_fraction = unique_path[path_index].one_fraction;
-      UnwindPath(unique_path, unique_depth, path_index);
-      unique_depth -= 1;
-    }
-
-    TreeSHAP(feature_values, phi, hot_index, unique_depth + 1, unique_path,
-             hot_zero_fraction*incoming_zero_fraction, incoming_one_fraction, split_feature_[node]);
-
-    TreeSHAP(feature_values, phi, cold_index, unique_depth + 1, unique_path,
-             cold_zero_fraction*incoming_zero_fraction, 0, split_feature_[node]);
+    return;
   }
-}
-
-// recursive sparse computation of SHAP values for a decision tree
-void Tree::TreeSHAPByMap(const std::unordered_map<int, double>& feature_values, std::unordered_map<int, double>* phi,
-                         int node, int unique_depth,
-                         PathElement *parent_unique_path, double parent_zero_fraction,
-                         double parent_one_fraction, int parent_feature_index) const {
-  // extend the unique path
-  PathElement* unique_path = parent_unique_path + unique_depth;
-  if (unique_depth > 0) {
-    std::copy(parent_unique_path, parent_unique_path + unique_depth, unique_path);
-  }
-  ExtendPath(unique_path, unique_depth, parent_zero_fraction,
-             parent_one_fraction, parent_feature_index);
-
-  // leaf node
-  if (node < 0) {
-    for (int i = 1; i <= unique_depth; ++i) {
-      const double w = UnwoundPathSum(unique_path, unique_depth, i);
-      const PathElement &el = unique_path[i];
-      // Complete the hash-table lookup before arithmetic to let the compiler
-      // fuse the final multiplication with the accumulation.
-      double& contribution = (*phi)[el.feature_index];
-      contribution += w*(el.one_fraction - el.zero_fraction)*leaf_value_[~node];
-    }
 
   // internal node
-  } else {
-    const int hot_index = Decision(feature_values.count(split_feature_[node]) > 0 ? feature_values.at(split_feature_[node]) : 0.0f, node);
-    const int cold_index = (hot_index == left_child_[node] ? right_child_[node] : left_child_[node]);
-    const double w = data_count(node);
-    const double hot_zero_fraction = data_count(hot_index) / w;
-    const double cold_zero_fraction = data_count(cold_index) / w;
-    double incoming_zero_fraction = 1;
-    double incoming_one_fraction = 1;
+  const int feature = split_feature_[node];
+  const int hot_child = Decision(FeatureValue(feature_values, feature), node);
 
-    // see if we have already split on this feature,
-    // if so we undo that split so we can redo it for this node
-    int path_index = 0;
-    for (; path_index <= unique_depth; ++path_index) {
-      if (unique_path[path_index].feature_index == split_feature_[node]) break;
-    }
-    if (path_index != unique_depth + 1) {
-      incoming_zero_fraction = unique_path[path_index].zero_fraction;
-      incoming_one_fraction = unique_path[path_index].one_fraction;
-      UnwindPath(unique_path, unique_depth, path_index);
-      unique_depth -= 1;
-    }
-
-    TreeSHAPByMap(feature_values, phi, hot_index, unique_depth + 1, unique_path,
-                  hot_zero_fraction*incoming_zero_fraction, incoming_one_fraction, split_feature_[node]);
-
-    TreeSHAPByMap(feature_values, phi, cold_index, unique_depth + 1, unique_path,
-                  cold_zero_fraction*incoming_zero_fraction, 0, split_feature_[node]);
+  // see if we have already split on this feature, if not add it to the path with the neutral p = 1
+  int path_index = 0;
+  while (path_index < path_len && path[path_index].feature_index != feature) {
+    ++path_index;
   }
+  if (path_index == path_len) {
+    path[path_len++] = {feature, 1.0};
+  }
+  const double p_old = path[path_index].p;
+  const double alpha_old = p_old - 1.0;
+
+  // remove the feature's factor from c, so that each child can apply its own
+  std::array<double, kNumPoints> c_without_feature = c;
+  std::array<double, kNumPoints> old_term{};  // alpha_old / (1 + alpha_old * t)
+  if (alpha_old != 0.0) {
+    for (int i = 0; i < kNumPoints; ++i) {
+      const double old_factor = 1.0 + alpha_old * t[i];
+      c_without_feature[i] /= old_factor;
+      old_term[i] = alpha_old / old_factor;
+    }
+  }
+
+  h->fill(0.0);
+  const int parent_count = data_count(node);
+  const int children[] = {left_child_[node], right_child_[node]};
+  for (const int child : children) {
+    const double child_weight = BranchWeight(data_count(child), parent_count);
+    const double p = (child == hot_child) ? p_old / child_weight : 0.0;
+    const double alpha = p - 1.0;
+    std::array<double, kNumPoints> child_c;
+    for (int i = 0; i < kNumPoints; ++i) {
+      child_c[i] = c_without_feature[i] * (1.0 + alpha * t[i]);
+    }
+
+    path[path_index].p = p;
+    std::array<double, kNumPoints> child_h;
+    QuadratureTreeSHAPNode<kNumPoints>(feature_values, phi, child, child_c, w_prod * child_weight,
+                                       path, path_len, &child_h);
+
+    // the edge adds the integral of h(t) * (alpha / (1 + alpha * t) - alpha_old / (1 + alpha_old * t))
+    double delta = 0.0;
+    for (int i = 0; i < kNumPoints; ++i) {
+      delta += weights[i] * (child_h[i] * (alpha / (1.0 + alpha * t[i]) - old_term[i]));
+      (*h)[i] += child_h[i];
+    }
+    phi[feature] += delta;
+  }
+  path[path_index].p = p_old;
+}
+
+template <int kNumPoints, typename FeatureValues, typename Phi>
+void Tree::QuadratureTreeSHAPRun(const FeatureValues& feature_values, Phi& phi) const {
+  std::vector<QuadraturePathFeature> path(max_depth_);
+  std::array<double, kNumPoints> c, h;
+  c.fill(1.0);  // the empty path's product
+  QuadratureTreeSHAPNode<kNumPoints>(feature_values, phi, 0, c, 1.0, path.data(), 0, &h);
+}
+
+template <typename FeatureValues, typename Phi>
+void Tree::QuadratureTreeSHAPRoot(const FeatureValues& feature_values, int num_features, Phi& phi) const {
+  // a path has at most min(max_depth_, num_features) distinct features, so a rule with at least half as
+  // many points is exact. Beyond 48 features the 32-point rule is used for efficiency and simplicity,
+  // which is exact up to 64 features and approximate beyond.
+  const int needed = (std::min(max_depth_, num_features) + 1) / 2;
+  if (needed <= 4) {
+    QuadratureTreeSHAPRun<4>(feature_values, phi);
+  } else if (needed <= 8) {
+    QuadratureTreeSHAPRun<8>(feature_values, phi);
+  } else if (needed <= 12) {
+    QuadratureTreeSHAPRun<12>(feature_values, phi);
+  } else if (needed <= 16) {
+    QuadratureTreeSHAPRun<16>(feature_values, phi);
+  } else if (needed <= 24) {
+    QuadratureTreeSHAPRun<24>(feature_values, phi);
+  } else {
+    QuadratureTreeSHAPRun<32>(feature_values, phi);
+  }
+}
+
+void Tree::QuadratureTreeSHAP(const double* feature_values, int num_features, double* phi) const {
+  QuadratureTreeSHAPRoot(feature_values, num_features, phi);
+}
+
+void Tree::QuadratureTreeSHAPByMap(const std::unordered_map<int, double>& feature_values, int num_features,
+                                   std::unordered_map<int, double>* phi) const {
+  QuadratureTreeSHAPRoot(feature_values, num_features, *phi);
 }
 
 double Tree::ExpectedValue() const {
