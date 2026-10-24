@@ -25,10 +25,7 @@ class ColSampler {
         fraction_bynode_(config->feature_fraction_bynode),
         seed_(config->feature_fraction_seed),
         random_(config->feature_fraction_seed) {
-    for (auto constraint : config->interaction_constraints_vector) {
-      std::unordered_set<int> constraint_set(constraint.begin(), constraint.end());
-      interaction_constraints_.push_back(constraint_set);
-    }
+    SetInteractionConstraints(config);
   }
 
   static int GetCnt(size_t total_cnt, double fraction) {
@@ -53,6 +50,7 @@ class ColSampler {
   }
 
   void SetConfig(const Config* config) {
+    SetInteractionConstraints(config);
     fraction_bytree_ = config->feature_fraction;
     fraction_bynode_ = config->feature_fraction_bynode;
     is_feature_used_.resize(train_data_->num_features(), 1);
@@ -190,6 +188,13 @@ class ColSampler {
   }
 
  private:
+  void SetInteractionConstraints(const Config* config) {
+    interaction_constraints_.clear();
+    for (const auto& constraint : config->interaction_constraints_vector) {
+      interaction_constraints_.emplace_back(constraint.begin(), constraint.end());
+    }
+  }
+
   const Dataset* train_data_;
   double fraction_bytree_;
   double fraction_bynode_;

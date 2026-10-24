@@ -106,6 +106,79 @@ def test_binary():
     assert evals_result["valid_0"]["binary_logloss"][-1] == pytest.approx(ret)
 
 
+@pytest.mark.parametrize("seed", [123, None], ids=["fixed_seed", "randomized"])
+@pytest.mark.parametrize(("bagging_fraction", "balanced_fraction"), [(0.4, 0.3), (0.8, 0.7)], ids=["subset", "indices"])
+def test_reset_balanced_bagging(seed, bagging_fraction, balanced_fraction):
+    if seed is None:
+        seed = int(np.random.default_rng().integers(0, 1000000))
+    X = np.random.RandomState(0).normal(size=(600, 4))
+    y = (X @ np.arange(1, 5) > 0).astype(int)
+    params = {
+        "objective": "binary",
+        "bagging_fraction": bagging_fraction,
+        "bagging_freq": 1,
+        "pos_bagging_fraction": balanced_fraction,
+        "neg_bagging_fraction": balanced_fraction,
+        "max_depth": 3,
+        "seed": seed,
+        "num_threads": 1,
+        "verbosity": -1,
+    }
+    actual = lgb.train(params, lgb.Dataset(X, label=y), num_boost_round=1, keep_training_booster=True)
+    for fraction in [1.0, balanced_fraction]:
+        update = {"pos_bagging_fraction": fraction, "neg_bagging_fraction": fraction}
+        params.update(update)
+        # Equal positive/negative fractions are equivalent to ordinary bagging.
+        expected_params = dict(
+            params,
+            bagging_fraction=bagging_fraction if fraction == 1.0 else fraction,
+            pos_bagging_fraction=1.0,
+            neg_bagging_fraction=1.0,
+        )
+        expected = lgb.train(expected_params, lgb.Dataset(X, label=y), num_boost_round=2, init_model=actual)
+        actual.reset_parameter(update)
+        for _ in range(2):
+            actual.update()
+        actual_counts = [tree["tree_structure"]["internal_count"] for tree in actual.dump_model()["tree_info"][-2:]]
+        expected_counts = [tree["tree_structure"]["internal_count"] for tree in expected.dump_model()["tree_info"][-2:]]
+        assert actual_counts == expected_counts, f"seed={seed}, fraction={fraction}"
+        np.testing.assert_allclose(actual.predict(X), expected.predict(X), err_msg=f"seed={seed}, fraction={fraction}")
+
+
+@pytest.mark.parametrize("new_seed", [456, None], ids=["fixed_seed", "randomized"])
+def test_reset_bagging_seed(new_seed):
+    if new_seed is None:
+        new_seed = int(np.random.default_rng().integers(124, 1000000))
+    X = np.random.RandomState(0).normal(size=(600, 4))
+    y = X @ np.arange(1, 5)
+    params = {
+        "objective": "regression",
+        "bagging_fraction": 0.6,
+        "bagging_freq": 1,
+        "bagging_seed": 123,
+        "max_depth": 3,
+        "num_threads": 1,
+        "verbosity": -1,
+    }
+    actual = lgb.train(params, lgb.Dataset(X, label=y), num_boost_round=1, keep_training_booster=True)
+    expected = lgb.train(
+        dict(params, bagging_seed=new_seed),
+        lgb.Dataset(X, label=y),
+        num_boost_round=2,
+        init_model=actual,
+        keep_training_booster=True,
+    )
+    actual.reset_parameter({"bagging_seed": new_seed})
+    for _ in range(2):
+        actual.update()
+    np.testing.assert_allclose(actual.predict(X), expected.predict(X), err_msg=f"seed={new_seed}")
+
+    actual.reset_parameter({"bagging_seed": new_seed})
+    actual.update()
+    expected.update()
+    np.testing.assert_allclose(actual.predict(X), expected.predict(X), err_msg=f"seed={new_seed}")
+
+
 def test_rf():
     X, y = load_breast_cancer(return_X_y=True)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
@@ -3803,6 +3876,56 @@ def test_interaction_constraints():
         train_data,
         num_boost_round=10,
     )
+
+
+@pytest.mark.parametrize("seed", [123, None], ids=["fixed_seed", "randomized"])
+@pytest.mark.parametrize(
+    ("initial_constraints", "new_constraints"),
+    [
+        ("[]", "[[0],[1],[2],[3]]"),
+        ("[[0,1],[2,3]]", "[[0,2],[1,3]]"),
+        ("[[0],[1],[2],[3]]", "[]"),
+    ],
+    ids=["enable", "replace", "clear"],
+)
+def test_reset_interaction_constraints(seed, initial_constraints, new_constraints):
+    if seed is None:
+        seed = int(np.random.default_rng().integers(0, 1000000))
+    X = np.random.RandomState(seed).normal(size=(600, 4))
+    y = X @ np.arange(1, 5)
+    params = {
+        "objective": "regression",
+        "interaction_constraints": initial_constraints,
+        "max_depth": 3,
+        "seed": seed,
+        "num_threads": 1,
+        "verbosity": -1,
+    }
+    actual = lgb.train(params, lgb.Dataset(X, label=y), num_boost_round=1, keep_training_booster=True)
+    expected = lgb.train(
+        dict(params, interaction_constraints=new_constraints),
+        lgb.Dataset(X, label=y),
+        num_boost_round=2,
+        init_model=actual,
+    )
+    actual.reset_parameter({"interaction_constraints": new_constraints})
+    for _ in range(2):
+        actual.update()
+
+    groups = [set(group) for group in json.loads(new_constraints)]
+
+    def check_branch(node, features):
+        if "split_feature" not in node:
+            return
+        features = features | {node["split_feature"]}
+        assert any(features <= group for group in groups), f"seed={seed}, features={features}"
+        check_branch(node["left_child"], features)
+        check_branch(node["right_child"], features)
+
+    if groups:
+        for tree in actual.dump_model()["tree_info"][-2:]:
+            check_branch(tree["tree_structure"], set())
+    np.testing.assert_allclose(actual.predict(X), expected.predict(X), err_msg=f"seed={seed}")
 
 
 def test_linear_trees_num_threads(rng_fixed_seed):
