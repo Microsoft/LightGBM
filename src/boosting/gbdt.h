@@ -177,11 +177,18 @@ class GBDT : public GBDTBase {
     std::stringstream str_buf;
     str_buf << "{";
     for (const auto& line : lines) {
-      const auto pair = Common::Split(line.c_str(), ":");
-      if (pair[1] == " ]")
+      // Lines look like "[key: value]". Split on the first colon only: values
+      // may legitimately contain colons, such as "name:"-prefixed column
+      // selectors and Windows paths.
+      const size_t colon_pos = line.find(':');
+      if (colon_pos == std::string::npos) {
         continue;
-      const auto param = pair[0].substr(1);
-      const auto value_str = pair[1].substr(1, pair[1].size() - 2);
+      }
+      const auto param = line.substr(1, colon_pos - 1);
+      const auto remainder = line.substr(colon_pos + 1);
+      if (remainder == " ]")
+        continue;
+      const auto value_str = remainder.substr(1, remainder.size() - 2);
       auto iter = param_types.find(param);
       if (iter == param_types.end()) {
         Log::Warning("Ignoring unrecognized parameter '%s' found in model string.", param.c_str());
@@ -196,7 +203,7 @@ class GBDT : public GBDTBase {
       }
       str_buf << param << "\": ";
       if (param_type == "string") {
-        str_buf << "\"" << value_str << "\"";
+        str_buf << Json(value_str).dump();
       } else if (param_type == "int") {
         int value;
         Common::Atoi(value_str.c_str(), &value);
@@ -209,14 +216,23 @@ class GBDT : public GBDTBase {
         bool value = value_str == "1";
         str_buf << std::boolalpha << value;
       } else if (param_type.substr(0, 6) == "vector") {
-        str_buf << "[";
         if (param_type.substr(7, 6) == "string") {
+          str_buf << "[";
           const auto parts = Common::Split(value_str.c_str(), ",");
-          str_buf << "\"" << Common::Join(parts, "\",\"") << "\"";
+          for (size_t i = 0; i < parts.size(); ++i) {
+            if (i > 0) {
+              str_buf << ",";
+            }
+            str_buf << Json(parts[i]).dump();
+          }
+          str_buf << "]";
+        } else if (Common::StartsWith(value_str, "name:")) {
+          // Column parameters are declared as vector<int> but also accept
+          // "name:"-prefixed column names, which are not JSON numbers.
+          str_buf << Json(value_str).dump();
         } else {
-          str_buf << value_str;
+          str_buf << "[" << value_str << "]";
         }
-        str_buf << "]";
       }
     }
     str_buf << "}";

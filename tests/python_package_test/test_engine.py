@@ -1609,6 +1609,73 @@ def test_parameters_are_loaded_from_model_file(tmp_path, capsys, rng):
     np.testing.assert_allclose(preds, orig_preds)
 
 
+def test_parameters_with_colons_in_values_are_loaded_from_model_file(tmp_path):
+    data_file = tmp_path / "ranking.tsv"
+    with data_file.open("wt", newline="\n") as f:
+        f.write(
+            "query_id\tignored\tfeature_1\tfeature_2\trelevance\n"
+            "0\t10\t0.10\t1.00\t0\n"
+            "0\t11\t0.20\t0.90\t1\n"
+            "0\t12\t0.80\t0.20\t2\n"
+            "0\t13\t0.90\t0.10\t3\n"
+            "1\t20\t0.15\t0.95\t0\n"
+            "1\t21\t0.35\t0.75\t1\n"
+            "1\t22\t0.70\t0.30\t2\n"
+            "1\t23\t0.95\t0.05\t3\n"
+        )
+    column_params = {
+        "label_column": "name:relevance",
+        "group_column": "name:query_id",
+        "ignore_column": "name:ignored",
+    }
+    ds = lgb.Dataset(data_file, params={"header": True, **column_params})
+    params = {
+        "objective": "lambdarank",
+        "min_data_in_leaf": 1,
+        "min_data_in_bin": 1,
+        "num_leaves": 4,
+        "num_threads": 1,
+        "verbosity": -1,
+    }
+    model_file = tmp_path / "model.txt"
+    bst = lgb.train(params, ds, num_boost_round=1)
+    bst.save_model(model_file)
+
+    for reloaded in (lgb.Booster(model_file=model_file), lgb.Booster(model_str=model_file.read_text())):
+        assert {k: reloaded.params[k] for k in column_params} == column_params
+
+
+def test_string_parameters_with_backslashes_are_loaded_from_model_file(tmp_path, monkeypatch):
+    # a backslash separates path components on Windows and is an ordinary
+    # file name character elsewhere, so this path contains one on every platform.
+    # It is relative because parameter values cannot contain spaces, which the
+    # absolute temporary directory might.
+    monkeypatch.chdir(tmp_path)
+    forcedbins_dir = Path("forced\\bins")
+    forcedbins_dir.mkdir(parents=True)
+    forcedbins_filename = forcedbins_dir / "forced_bins.json"
+    copyfile(Path(__file__).absolute().parents[2] / "examples" / "regression" / "forced_bins.json", forcedbins_filename)
+    X = np.empty((100, 2))
+    X[:, 0] = np.arange(0, 1, 0.01)
+    X[:, 1] = -np.arange(0, 1, 0.01)
+    y = np.arange(0, 1, 0.01)
+    params = {
+        "objective": "regression_l1",
+        "max_bin": 5,
+        "forcedbins_filename": forcedbins_filename,
+        "num_leaves": 2,
+        "min_data_in_leaf": 1,
+        "num_threads": 1,
+        "verbosity": -1,
+    }
+    model_file = tmp_path / "model.txt"
+    bst = lgb.train(params, lgb.Dataset(X, label=y), num_boost_round=1)
+    bst.save_model(model_file)
+
+    reloaded = lgb.Booster(model_file=model_file)
+    assert reloaded.params["forcedbins_filename"] == str(forcedbins_filename)
+
+
 def test_string_serialized_params_retrieval(rng):
     # Random train data
     train_x = rng.random((500, 3))
