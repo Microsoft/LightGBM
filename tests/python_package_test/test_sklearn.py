@@ -19,6 +19,7 @@ from sklearn.base import clone
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.datasets import load_svmlight_file, make_blobs, make_multilabel_classification
 from sklearn.ensemble import StackingClassifier, StackingRegressor
+from sklearn.exceptions import NotFittedError
 from sklearn.metrics import accuracy_score, log_loss, mean_squared_error, r2_score
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, train_test_split
 from sklearn.multioutput import ClassifierChain, MultiOutputClassifier, MultiOutputRegressor, RegressorChain
@@ -1616,7 +1617,7 @@ def test_check_is_fitted():
     models = (est, clf, reg, rnk)
     for model in models:
         err_msg = f"This {type(model).__name__} instance is not fitted yet. Call 'fit' with appropriate arguments before using this estimator."
-        with pytest.raises(lgb.compat.LGBMNotFittedError, match=err_msg):
+        with pytest.raises(NotFittedError, match=err_msg):
             check_is_fitted(model)
     est.fit(X, y)
     clf.fit(X, y)
@@ -1708,13 +1709,13 @@ def test_fit_only_raises_num_rounds_warning_when_expected(capsys):
 @pytest.mark.parametrize("estimator_class", estimator_classes)
 def test_cannot_access_feature_names_before_fitting(estimator_class):
     model = estimator_class()
-    with pytest.raises(lgb.compat.LGBMNotFittedError):  # noqa: PT011
+    with pytest.raises(NotFittedError):  # noqa: PT011
         model.feature_name_
-    with pytest.raises(lgb.compat.LGBMNotFittedError):  # noqa: PT011
+    with pytest.raises(NotFittedError):  # noqa: PT011
         model.feature_names_in_
-    with pytest.raises(lgb.compat.LGBMNotFittedError):  # noqa: PT011
+    with pytest.raises(NotFittedError):  # noqa: PT011
         model.n_features_
-    with pytest.raises(lgb.compat.LGBMNotFittedError):  # noqa: PT011
+    with pytest.raises(NotFittedError):  # noqa: PT011
         model.n_features_in_
 
 

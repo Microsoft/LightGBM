@@ -13,6 +13,7 @@ lazy_imports = {
     "dask",
     "graphviz",
     "matplotlib",
+    "sklearn",
 }
 
 unexpected_imports = lazy_imports.intersection(set(sys.modules))

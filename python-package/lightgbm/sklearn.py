@@ -14,6 +14,87 @@ import narwhals.typing as nwt
 import numpy as np
 import scipy.sparse
 
+try:
+    from sklearn import __version__ as _sklearn_version
+    from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+    from sklearn.exceptions import NotFittedError
+except ImportError as err:
+    raise ImportError(
+        "scikit-learn is required for lightgbm.sklearn. "
+        "You must install scikit-learn and restart your session to use this module."
+    ) from err
+
+try:
+    from sklearn.utils.validation import validate_data
+except ImportError:
+    from sklearn.utils.validation import check_array, check_X_y
+
+    # validate_data() was added in scikit-learn 1.6, this function roughly imitates it for older versions.
+    # It can be removed when lightgbm's minimum scikit-learn version is at least 1.6.
+    def validate_data(
+        _estimator: Any,
+        X: Any,
+        y: Any = "no_validation",
+        accept_sparse: bool = True,
+        # 'force_all_finite' was renamed to 'ensure_all_finite' in scikit-learn 1.6
+        ensure_all_finite: bool = False,
+        ensure_min_samples: int = 1,
+        # trap other keyword arguments that only work on scikit-learn >=1.6, like 'reset'
+        **ignored_kwargs: Any,
+    ) -> Any:
+        # it's safe to import _num_features unconditionally because:
+        #
+        #  * it was first added in scikit-learn 0.24.2
+        #  * lightgbm cannot be used with scikit-learn versions older than that
+        #  * this validate_data() re-implementation will not be called in scikit-learn>=1.6
+        #
+        from sklearn.utils.validation import _num_features  # noqa: PLC0415
+
+        # _num_features() raises a TypeError on 1-dimensional input. That's a problem
+        # because scikit-learn's 'check_fit1d' estimator check sets that expectation that
+        # estimators must raise a ValueError when a 1-dimensional input is passed to fit().
+        #
+        # So here, lightgbm avoids calling _num_features() on 1-dimensional inputs.
+        if hasattr(X, "shape") and len(X.shape) == 1:
+            n_features_in_ = 1
+        else:
+            n_features_in_ = _num_features(X)
+
+        no_val_y = isinstance(y, str) and y == "no_validation"
+
+        # NOTE: check_X_y() calls check_array() internally, so only need to call one or the other of them here
+        if no_val_y:
+            X = check_array(
+                X,
+                accept_sparse=accept_sparse,
+                force_all_finite=ensure_all_finite,
+                ensure_min_samples=ensure_min_samples,
+            )
+        else:
+            X, y = check_X_y(
+                X,
+                y,
+                accept_sparse=accept_sparse,
+                force_all_finite=ensure_all_finite,
+                ensure_min_samples=ensure_min_samples,
+            )
+
+            # this only needs to be updated at fit() time
+            _estimator.n_features_in_ = n_features_in_
+
+        # raise the same error that scikit-learn's `validate_data()` does on scikit-learn>=1.6
+        if _estimator.__sklearn_is_fitted__() and _estimator._n_features != n_features_in_:
+            raise ValueError(
+                f"X has {n_features_in_} features, but {_estimator.__class__.__name__} "
+                f"is expecting {_estimator._n_features} features as input."
+            )
+
+        if no_val_y:
+            return X
+        else:
+            return X, y
+
+
 from .basic import (
     _MULTICLASS_OBJECTIVES,
     Booster,
@@ -34,15 +115,6 @@ from .basic import (
 )
 from .callback import _EvalResultDict, record_evaluation
 from .compat import (
-    SKLEARN_CHECK_SAMPLE_WEIGHT_HAS_ALLOW_ZERO_WEIGHTS_ARG,
-    SKLEARN_INSTALLED,
-    LGBMNotFittedError,
-    _LGBMCheckSampleWeight,
-    _LGBMClassifierBase,
-    _LGBMModelBase,
-    _LGBMRegressorBase,
-    _LGBMValidateData,
-    _sklearn_version,
     pd_DataFrame,
 )
 from .engine import train
@@ -125,11 +197,7 @@ _LGBM_ScikitValidSet = Tuple[_LGBM_ScikitMatrixLike, _LGBM_LabelType]
 
 @cache
 def _sklearn_major_minor() -> Tuple[int, int]:
-    """Get installed version of scikit-learn"""
-    try:
-        from sklearn import __version__ as _sklearn_version
-    except ImportError as err:
-        raise ImportError("TBD fill me in")
+    """Get installed version of scikit-learn."""
     sklearn_major, sklearn_minor, *_ = _sklearn_version.split(".")
     return sklearn_major, sklearn_minor
 
@@ -410,7 +478,7 @@ def _validate_eval_set_Xy(
     return eval_set
 
 
-class LGBMModel(_LGBMModelBase):
+class LGBMModel(BaseEstimator):
     """Implementation of the scikit-learn API for LightGBM."""
 
     def __init__(
@@ -555,12 +623,6 @@ class LGBMModel(_LGBMModelBase):
         For multi-class task, y_pred is a numpy 2-D array of shape = [n_samples, n_classes],
         and grad and hess should be returned in the same format.
         """
-        if not SKLEARN_INSTALLED:
-            raise ImportError(
-                "scikit-learn is required for lightgbm.sklearn. "
-                "You must install scikit-learn and restart your session to use this module."
-            )
-
         self.boosting_type = boosting_type
         self.objective = objective
         self.num_leaves = num_leaves
@@ -659,9 +721,9 @@ class LGBMModel(_LGBMModelBase):
         return tags
 
     def __sklearn_tags__(self) -> Optional["_sklearn_Tags"]:
-        # _LGBMModelBase.__sklearn_tags__() cannot be called unconditionally,
+        # BaseEstimator.__sklearn_tags__() cannot be called unconditionally,
         # because that method isn't defined for scikit-learn<1.6
-        if not hasattr(_LGBMModelBase, "__sklearn_tags__"):
+        if not hasattr(BaseEstimator, "__sklearn_tags__"):
             err_msg = (
                 "__sklearn_tags__() should not be called when using scikit-learn<1.6. "
                 f"Detected version: {_sklearn_version}"
@@ -1043,8 +1105,8 @@ class LGBMModel(_LGBMModelBase):
             _X, _y = X, y
             self.n_features_in_ = nw.from_native(X).shape[1]
         else:
-            # NOTE: _LGBMValidateData() is also responsible for setting n_features_in_
-            _X, _y = _LGBMValidateData(
+            # NOTE: validate_data() is also responsible for setting n_features_in_
+            _X, _y = validate_data(
                 self,
                 X,
                 y,
@@ -1057,10 +1119,17 @@ class LGBMModel(_LGBMModelBase):
                 ensure_min_samples=2,
             )
             if sample_weight is not None:
-                if SKLEARN_CHECK_SAMPLE_WEIGHT_HAS_ALLOW_ZERO_WEIGHTS_ARG:
-                    sample_weight = _LGBMCheckSampleWeight(sample_weight, _X, allow_all_zero_weights=True)
+                # As of https://github.com/scikit-learn/scikit-learn/pull/32212, scikit-learn started raising an error
+                # when sample weights are all 0. This argument allow_all_zero_weights can be used switch back
+                # to the old behavior of allowing them.
+                #
+                # This can be removed when the minimum scikit-learn version supported here is v1.9.
+                from sklearn.utils.validation import _check_sample_weight  # noqa: PLC0415
+
+                if "allow_all_zero_weights" in signature(_check_sample_weight).parameters:
+                    sample_weight = _check_sample_weight(sample_weight, _X, allow_all_zero_weights=True)
                 else:
-                    sample_weight = _LGBMCheckSampleWeight(sample_weight, _X)
+                    sample_weight = _check_sample_weight(sample_weight, _X)
 
         if self._class_weight is None:
             self._class_weight = self.class_weight
@@ -1238,9 +1307,9 @@ class LGBMModel(_LGBMModelBase):
             If ``pred_contrib=True``, the feature contributions for each sample.
         """
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("Estimator not fitted, call fit before exploiting the model.")
+            raise NotFittedError("Estimator not fitted, call fit before exploiting the model.")
         if not isinstance(X, pd_DataFrame) and not nwd.is_into_dataframe(X):
-            X = _LGBMValidateData(
+            X = validate_data(
                 self,
                 X,
                 # 'y' being omitted = run scikit-learn's check_array() instead of check_X_y()
@@ -1291,14 +1360,14 @@ class LGBMModel(_LGBMModelBase):
     def n_features_(self) -> int:
         """:obj:`int`: The number of features of fitted model."""
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No n_features found. Need to call fit beforehand.")
+            raise NotFittedError("No n_features found. Need to call fit beforehand.")
         return self._n_features
 
     @property
     def n_features_in_(self) -> int:
         """:obj:`int`: The number of features of fitted model."""
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No n_features_in found. Need to call fit beforehand.")
+            raise NotFittedError("No n_features_in found. Need to call fit beforehand.")
         return self._n_features_in
 
     @n_features_in_.setter
@@ -1320,23 +1389,21 @@ class LGBMModel(_LGBMModelBase):
     def best_score_(self) -> _LGBM_BoosterBestScoreType:
         """:obj:`dict`: The best score of fitted model."""
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No best_score found. Need to call fit beforehand.")
+            raise NotFittedError("No best_score found. Need to call fit beforehand.")
         return self._best_score
 
     @property
     def best_iteration_(self) -> int:
         """:obj:`int`: The best iteration of fitted model if ``early_stopping()`` callback has been specified."""
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError(
-                "No best_iteration found. Need to call fit with early_stopping callback beforehand."
-            )
+            raise NotFittedError("No best_iteration found. Need to call fit with early_stopping callback beforehand.")
         return self._best_iteration
 
     @property
     def objective_(self) -> Union[str, _LGBM_ScikitCustomObjectiveFunction]:
         """:obj:`str` or :obj:`callable`: The concrete objective used while fitting this model."""
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No objective found. Need to call fit beforehand.")
+            raise NotFittedError("No objective found. Need to call fit beforehand.")
         return self._objective  # type: ignore[return-value]
 
     @property
@@ -1349,7 +1416,7 @@ class LGBMModel(_LGBMModelBase):
         .. versionadded:: 4.0.0
         """
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No n_estimators found. Need to call fit beforehand.")
+            raise NotFittedError("No n_estimators found. Need to call fit beforehand.")
         return self._Booster.current_iteration()  # type: ignore
 
     @property
@@ -1362,21 +1429,21 @@ class LGBMModel(_LGBMModelBase):
         .. versionadded:: 4.0.0
         """
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No n_iter found. Need to call fit beforehand.")
+            raise NotFittedError("No n_iter found. Need to call fit beforehand.")
         return self._Booster.current_iteration()  # type: ignore
 
     @property
     def booster_(self) -> Booster:
         """Booster: The underlying Booster of this model."""
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No booster found. Need to call fit beforehand.")
+            raise NotFittedError("No booster found. Need to call fit beforehand.")
         return self._Booster  # type: ignore[return-value]
 
     @property
     def evals_result_(self) -> _EvalResultDict:
         """:obj:`dict`: The evaluation results if validation sets have been specified."""
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No results found. Need to call fit with eval_set beforehand.")
+            raise NotFittedError("No results found. Need to call fit with eval_set beforehand.")
         return self._evals_result
 
     @property
@@ -1389,7 +1456,7 @@ class LGBMModel(_LGBMModelBase):
             to configure the type of importance values to be extracted.
         """
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No feature_importances found. Need to call fit beforehand.")
+            raise NotFittedError("No feature_importances found. Need to call fit beforehand.")
         return self._Booster.feature_importance(importance_type=self.importance_type)  # type: ignore[union-attr]
 
     @property
@@ -1401,7 +1468,7 @@ class LGBMModel(_LGBMModelBase):
             If input does not contain feature names, they will be added during fitting in the format ``Column_0``, ``Column_1``, ..., ``Column_N``.
         """
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No feature_name found. Need to call fit beforehand.")
+            raise NotFittedError("No feature_name found. Need to call fit beforehand.")
         return self._Booster.feature_name()  # type: ignore[union-attr]
 
     @property
@@ -1415,7 +1482,7 @@ class LGBMModel(_LGBMModelBase):
         .. versionadded:: 4.5.0
         """
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No feature_names_in_ found. Need to call fit beforehand.")
+            raise NotFittedError("No feature_names_in_ found. Need to call fit beforehand.")
         if not self._fitted_with_feature_names:
             raise AttributeError(
                 f"'{type(self).__name__}' object has no attribute 'feature_names_in_'. "
@@ -1446,7 +1513,7 @@ class LGBMModel(_LGBMModelBase):
         pass
 
 
-class LGBMRegressor(_LGBMRegressorBase, LGBMModel):
+class LGBMRegressor(RegressorMixin, LGBMModel):
     """LightGBM regressor."""
 
     # NOTE: all args from LGBMModel.__init__() are intentionally repeated here for
@@ -1618,8 +1685,8 @@ class LGBMRegressor(_LGBMRegressorBase, LGBMModel):
 
     def _more_tags(self) -> Dict[str, Any]:
         # handle the case where RegressorMixin possibly provides _more_tags()
-        if callable(getattr(_LGBMRegressorBase, "_more_tags", None)):
-            tags = _LGBMRegressorBase._more_tags(self)
+        if callable(getattr(RegressorMixin, "_more_tags", None)):
+            tags = RegressorMixin._more_tags(self)
         else:
             tags = {}
         # override those with LightGBM-specific preferences
@@ -1788,7 +1855,7 @@ class LGBMRegressor(_LGBMRegressorBase, LGBMModel):
         return self
 
 
-class LGBMClassifier(_LGBMClassifierBase, LGBMModel):
+class LGBMClassifier(ClassifierMixin, LGBMModel):
     """LightGBM classifier."""
 
     # NOTE: all args from LGBMModel.__init__() are intentionally repeated here for
@@ -1960,8 +2027,8 @@ class LGBMClassifier(_LGBMClassifierBase, LGBMModel):
 
     def _more_tags(self) -> Dict[str, Any]:
         # handle the case where ClassifierMixin possibly provides _more_tags()
-        if callable(getattr(_LGBMClassifierBase, "_more_tags", None)):
-            tags = _LGBMClassifierBase._more_tags(self)
+        if callable(getattr(ClassifierMixin, "_more_tags", None)):
+            tags = ClassifierMixin._more_tags(self)
         else:
             tags = {}
         # override those with LightGBM-specific preferences
@@ -2404,14 +2471,14 @@ class LGBMClassifier(_LGBMClassifierBase, LGBMModel):
     def classes_(self) -> np.ndarray:
         """:obj:`array` of shape = [n_classes]: The class label array."""
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No classes found. Need to call fit beforehand.")
+            raise NotFittedError("No classes found. Need to call fit beforehand.")
         return self._classes  # type: ignore[return-value]
 
     @property
     def n_classes_(self) -> int:
         """:obj:`int`: The number of classes."""
         if not self.__sklearn_is_fitted__():
-            raise LGBMNotFittedError("No classes found. Need to call fit beforehand.")
+            raise NotFittedError("No classes found. Need to call fit beforehand.")
         return self._n_classes
 
     @property
