@@ -7,13 +7,12 @@
 #define LIGHTGBM_SRC_METRIC_MAP_METRIC_HPP_
 
 #include <LightGBM/metric.h>
-#include <LightGBM/utils/common.h>
 #include <LightGBM/utils/log.h>
 #include <LightGBM/utils/openmp_wrapper.h>
 
-#include <string>
 #include <algorithm>
-#include <sstream>
+#include <numeric>
+#include <string>
 #include <vector>
 
 namespace LightGBM {
@@ -26,8 +25,7 @@ class MapMetric:public Metric {
     DCGCalculator::DefaultEvalAt(&eval_at_);
   }
 
-  ~MapMetric() {
-  }
+  ~MapMetric() override = default;
 
   void Init(const Metadata& metadata, data_size_t num_data) override {
     for (auto k : eval_at_) {
@@ -45,21 +43,17 @@ class MapMetric:public Metric {
     Log::Info("Total groups: %d, total data: %d", num_queries_, num_data_);
     // get query weights
     query_weights_ = metadata.query_weights();
-    if (query_weights_ == nullptr) {
-      sum_query_weights_ = static_cast<double>(num_queries_);
-    } else {
-      sum_query_weights_ = 0.0f;
-      for (data_size_t i = 0; i < num_queries_; ++i) {
-        sum_query_weights_ += query_weights_[i];
-      }
-    }
-
     npos_per_query_.resize(num_queries_, 0);
     for (data_size_t i = 0; i < num_queries_; ++i) {
-      for (data_size_t j = query_boundaries_[i]; j < query_boundaries_[i + 1]; ++j) {
-        if (label_[j] > 0.5f) {
-          ++npos_per_query_[i];
-        }
+      npos_per_query_[i] = static_cast<data_size_t>(std::count_if(label_ + query_boundaries_[i],
+                                                                  label_ + query_boundaries_[i + 1],
+                                                                  [](label_t l) { return l > 0.5f; }));
+    }
+    // sum of weights of eligible queries
+    sum_query_weights_ = 0.0;
+    for (data_size_t i = 0; i < num_queries_; ++i) {
+      if (npos_per_query_[i] > 0) {
+        sum_query_weights_ += GetQueryWeight(i);
       }
     }
   }
@@ -72,40 +66,40 @@ class MapMetric:public Metric {
     return 1.0f;
   }
 
-  void CalMapAtK(std::vector<int> ks, data_size_t npos, const label_t* label,
-                 const double* score, data_size_t num_data, std::vector<double>* out) const {
+  label_t GetQueryWeight(int i) const {
+    return query_weights_ == nullptr ? 1.0f : query_weights_[i];
+  }
+
+  static void CalMapAtK(const std::vector<int> &ks, data_size_t npos, const label_t *label,
+                        const double *score, data_size_t num_data, std::vector<double> *out) {
+    CHECK_GT(npos, 0);
+    CHECK_LE(npos, num_data);
     // get sorted indices by score
-    std::vector<data_size_t> sorted_idx;
-    for (data_size_t i = 0; i < num_data; ++i) {
-      sorted_idx.emplace_back(i);
-    }
+    std::vector<data_size_t> sorted_idx(num_data);
+    std::iota(sorted_idx.begin(), sorted_idx.end(), 0);
     std::stable_sort(sorted_idx.begin(), sorted_idx.end(),
                      [score](data_size_t a, data_size_t b) {return score[a] > score[b]; });
-
     int num_hit = 0;
     double sum_ap = 0.0f;
-    data_size_t cur_left = 0;
+    data_size_t curr = 0;
     for (size_t i = 0; i < ks.size(); ++i) {
-      data_size_t cur_k = static_cast<data_size_t>(ks[i]);
-      if (cur_k > num_data) {
-        cur_k = num_data;
-      }
-      for (data_size_t j = cur_left; j < cur_k; ++j) {
-        data_size_t idx = sorted_idx[j];
-        if (label[idx] > 0.5f) {
-          ++num_hit;
-          sum_ap += static_cast<double>(num_hit) / (j + 1.0f);
+      const data_size_t cur_k = std::min(ks[i], num_data);
+      while (curr < cur_k) {
+        if (label[sorted_idx[curr++]] > 0.5f) {
+          sum_ap += static_cast<double>(++num_hit) / static_cast<double>(curr);
         }
       }
-      if (npos > 0) {
-        (*out)[i] = sum_ap / std::min(npos, cur_k);
-      } else {
-        (*out)[i] = 1.0f;
-      }
-      cur_left = cur_k;
+      (*out)[i] = sum_ap / std::min(npos, ks[i]);
     }
+    CHECK_LE(num_hit, npos);
   }
+
   std::vector<double> Eval(const double* score, const ObjectiveFunction*) const override {
+    if (sum_query_weights_ == 0) {
+      // Should it be 0 or 1? Ideally "undefined", but that doesn't seem supported within Eval()...
+      Log::Warning("No positive data found in query data, MAP is not defined. Return 1.");
+      return std::vector(eval_at_.size(), 1.0);
+    }
     // some buffers for multi-threading sum up
     int num_threads = OMP_NUM_THREADS();
     std::vector<std::vector<double>> result_buffer_;
@@ -113,25 +107,17 @@ class MapMetric:public Metric {
       result_buffer_.emplace_back(eval_at_.size(), 0.0f);
     }
     std::vector<double> tmp_map(eval_at_.size(), 0.0f);
-    if (query_weights_ == nullptr) {
-      #pragma omp parallel for num_threads(OMP_NUM_THREADS()) schedule(guided) firstprivate(tmp_map)
-      for (data_size_t i = 0; i < num_queries_; ++i) {
-        const int tid = omp_get_thread_num();
-        CalMapAtK(eval_at_, npos_per_query_[i], label_ + query_boundaries_[i],
-                  score + query_boundaries_[i], query_boundaries_[i + 1] - query_boundaries_[i], &tmp_map);
-        for (size_t j = 0; j < eval_at_.size(); ++j) {
-          result_buffer_[tid][j] += tmp_map[j];
-        }
+    #pragma omp parallel for num_threads(OMP_NUM_THREADS()) schedule(guided) firstprivate(tmp_map)
+    for (data_size_t i = 0; i < num_queries_; ++i) {
+      if (npos_per_query_[i] == 0) {
+        // Skip ineligible queries
+        continue;
       }
-    } else {
-      #pragma omp parallel for num_threads(OMP_NUM_THREADS()) schedule(guided) firstprivate(tmp_map)
-      for (data_size_t i = 0; i < num_queries_; ++i) {
-        const int tid = omp_get_thread_num();
-        CalMapAtK(eval_at_, npos_per_query_[i], label_ + query_boundaries_[i],
-                  score + query_boundaries_[i], query_boundaries_[i + 1] - query_boundaries_[i], &tmp_map);
-        for (size_t j = 0; j < eval_at_.size(); ++j) {
-          result_buffer_[tid][j] += tmp_map[j] * query_weights_[i];
-        }
+      const int tid = omp_get_thread_num();
+      CalMapAtK(eval_at_, npos_per_query_[i], label_ + query_boundaries_[i],
+                score + query_boundaries_[i], query_boundaries_[i + 1] - query_boundaries_[i], &tmp_map);
+      for (size_t j = 0; j < eval_at_.size(); ++j) {
+        result_buffer_[tid][j] += tmp_map[j] * GetQueryWeight(i);
       }
     }
     // Get final average MAP
@@ -140,6 +126,7 @@ class MapMetric:public Metric {
       for (int i = 0; i < num_threads; ++i) {
         result[j] += result_buffer_[i][j];
       }
+      // Divide by sum of eligible-query weights
       result[j] /= sum_query_weights_;
     }
     return result;
