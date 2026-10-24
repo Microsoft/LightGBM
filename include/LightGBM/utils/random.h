@@ -50,7 +50,10 @@ class Random {
   * \return The random integer between [lower_bound, upper_bound)
   */
   inline int NextInt(int lower_bound, int upper_bound) {
-    return (RandInt32()) % (upper_bound - lower_bound) + lower_bound;
+    // multiply-shift takes the high bits: the low bits of this LCG have short periods, so
+    // RandInt32() % range would inherit their patterns (e.g. alternating parity for even ranges)
+    const uint64_t range = static_cast<uint64_t>(upper_bound - lower_bound);
+    return static_cast<int>((static_cast<uint64_t>(RandInt32()) * range) >> 31) + lower_bound;
   }
 
   /*!

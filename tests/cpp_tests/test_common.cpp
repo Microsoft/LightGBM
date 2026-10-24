@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../include/LightGBM/utils/common.h"
+#include "../include/LightGBM/utils/random.h"
 #include "../include/LightGBM/utils/threading.h"
 
 
@@ -172,4 +173,19 @@ TEST(ParallelPartitionRunnerTest, EmptyInputReturnsZero) {
   EXPECT_EQ(left_count, 0);
   EXPECT_FALSE(callback_called);
   EXPECT_EQ(output[0], -1);
+}
+
+TEST(RandomTest, SampleIsUniform) {
+  // Sample(20, 4) takes the Floyd branch, which calls NextInt() with even ranges
+  LightGBM::Random random(2);
+  std::vector<int> counts(20, 0);
+  for (int i = 0; i < 20000; ++i) {
+    for (int v : random.Sample(20, 4)) {
+      ++counts[v];
+    }
+  }
+  // expected 4000 per position, standard deviation ~57
+  for (int v = 0; v < 20; ++v) {
+    EXPECT_NEAR(counts[v], 4000, 400) << "position " << v;
+  }
 }

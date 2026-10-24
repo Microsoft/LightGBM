@@ -8,6 +8,8 @@
 
 #ifdef USE_CUDA
 
+#include <cstdint>
+
 #ifndef USE_ROCM
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -43,7 +45,9 @@ class CUDARandom {
   * \return The random integer between [lower_bound, upper_bound)
   */
   __device__ inline int NextInt(int lower_bound, int upper_bound) {
-    return (RandInt32()) % (upper_bound - lower_bound) + lower_bound;
+    // same as Random::NextInt(): multiply-shift takes the high bits, the low bits of this LCG have short periods
+    const uint64_t range = static_cast<uint64_t>(upper_bound - lower_bound);
+    return static_cast<int>((static_cast<uint64_t>(RandInt32()) * range) >> 31) + lower_bound;
   }
 
   /*!
