@@ -27,9 +27,6 @@ from sklearn.utils.validation import check_is_fitted
 
 import lightgbm as lgb
 from lightgbm.basic import LGBMDeprecationWarning
-from lightgbm.compat import (
-    _sklearn_version,
-)
 
 from .utils import (
     BuildInfo,
@@ -47,7 +44,7 @@ from .utils import (
     softmax,
 )
 
-SKLEARN_MAJOR, SKLEARN_MINOR, *_ = _sklearn_version.split(".")
+SKLEARN_MAJOR, SKLEARN_MINOR = lgb.sklearn._sklearn_major_minor()
 SKLEARN_VERSION_GTE_1_6 = (int(SKLEARN_MAJOR), int(SKLEARN_MINOR)) >= (1, 6)
 SKLEARN_VERSION_GTE_1_7 = (int(SKLEARN_MAJOR), int(SKLEARN_MINOR)) >= (1, 7)
 

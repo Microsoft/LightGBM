@@ -8,7 +8,7 @@ from typing import Any, List
 # see https://github.com/lightgbm-org/LightGBM/issues/6509
 """sklearn"""
 try:
-    from sklearn import __version__ as _sklearn_version
+    
     from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
     from sklearn.exceptions import NotFittedError
     from sklearn.utils.validation import _check_sample_weight
@@ -121,7 +121,6 @@ except ImportError:
     LGBMNotFittedError = ValueError
     _LGBMCheckSampleWeight = None
     _LGBMValidateData = None
-    _sklearn_version = None
 
 """pandas"""
 try:

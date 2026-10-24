@@ -3,6 +3,7 @@
 
 import copy
 import warnings
+from functools import cache
 from inspect import signature
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
@@ -120,6 +121,17 @@ _LGBM_ScikitEvalMetricType = Union[
     List[Union[str, _LGBM_ScikitCustomEvalFunction]],
 ]
 _LGBM_ScikitValidSet = Tuple[_LGBM_ScikitMatrixLike, _LGBM_LabelType]
+
+
+@cache
+def _sklearn_major_minor() -> Tuple[int, int]:
+    """Get installed version of scikit-learn"""
+    try:
+        from sklearn import __version__ as _sklearn_version
+    except ImportError as err:
+        raise ImportError("TBD fill me in")
+    sklearn_major, sklearn_minor, *_ = _sklearn_version.split(".")
+    return sklearn_major, sklearn_minor
 
 
 def _cpu_count(only_physical_cores: bool) -> int:
@@ -615,7 +627,7 @@ class LGBMModel(_LGBMModelBase):
         }
         # "check_decision_proba_consistency" can be removed when lightgbm's
         # minimum supported scikit-learn version is at least 1.2
-        sklearn_major, sklearn_minor, *_ = _sklearn_version.split(".")
+        sklearn_major, sklearn_minor = _sklearn_major_minor()
         if (int(sklearn_major), int(sklearn_minor)) < (1, 2):
             xfail_checks["check_decision_proba_consistency"] = (
                 "decision_function() returns raw margins while predict_proba() applies sigmoid in C++ "
