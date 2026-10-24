@@ -1,0 +1,13 @@
+/*
+ * Linker version script controlling the symbols exported from the R package's shared library,
+ * when it is built with CMake on Linux.
+ *
+ * The R package registers its routines with R, so it only needs to export R_init_lightgbm().
+ * Any other symbol is hidden.
+ */
+{
+  global:
+    R_init_lightgbm;
+  local:
+    *;
+};

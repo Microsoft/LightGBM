@@ -15,10 +15,14 @@
 # CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
-FROM nvidia/opencl:devel-ubuntu18.04 AS build
+FROM nvidia/cuda:12.9.1-devel-ubuntu24.04 AS build
 ARG DEBIAN_FRONTEND=noninteractive
+ARG LIGHTGBM_GIT_REF=stable
+ARG LIGHTGBM_GIT_URL=https://github.com/lightgbm-org/LightGBM.git
 ARG OPENCL_LIBRARIES=/usr/lib/x86_64-linux-gnu
-ARG OPENCL_INCLUDE_DIR=/usr/include/CL
+ARG OPENCL_INCLUDE_DIR=/usr/include
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # SYSTEM
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -33,43 +37,48 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libboost-dev \
         libboost-system-dev \
         libboost-filesystem-dev \
+        ocl-icd-opencl-dev \
         gcc \
         g++ && \
     rm -rf /var/lib/apt/lists/*
 
+# Add OpenCL ICD file so the OpenCL loader can find the NVIDIA driver
+RUN mkdir -p /etc/OpenCL/vendors && \
+    echo "libnvidia-opencl.so.1" > /etc/OpenCL/vendors/nvidia.icd
+
 # LightGBM
 WORKDIR /opt
-RUN git clone --recursive --branch stable --depth 1 https://github.com/lightgbm-org/LightGBM && \
+RUN git clone \
+        --recursive \
+         "${LIGHTGBM_GIT_URL}" && \
+    git -C ./LightGBM checkout "${LIGHTGBM_GIT_REF}" && \
     cd LightGBM && \
-    cmake -B build -S . -DUSE_GPU=1 -DOpenCL_LIBRARY=${OPENCL_LIBRARIES}/libOpenCL.so.1 -DOpenCL_INCLUDE_DIR=$OPENCL_INCLUDE_DIR && \
-    OPENCL_HEADERS=$OPENCL_INCLUDE_DIR LIBOPENCL=$OPENCL_LIBRARIES cmake --build build
+    cmake -B build -S . -DUSE_GPU=1 -DOpenCL_LIBRARY="${OPENCL_LIBRARIES}/libOpenCL.so" -DOpenCL_INCLUDE_DIR="${OPENCL_INCLUDE_DIR}" && \
+    cmake --build build -j"$(nproc --ignore=1)"
 
-FROM gcr.io/distroless/cc-debian10
+# Collect every shared library LightGBM links against (including glibc), so the
+# runtime image uses the same versions it was built against instead of Debian's.
+RUN mkdir -p /opt/LightGBM/lib && \
+    ldd /opt/LightGBM/lightgbm /opt/LightGBM/lib_lightgbm.so \
+        | awk '/=> \// {print $3}' \
+        | sort -u \
+        | xargs -I{} cp -L {} /opt/LightGBM/lib/
+
+FROM gcr.io/distroless/cc-debian12:latest
+
 COPY --from=build \
     /opt/LightGBM/lightgbm \
     /opt/LightGBM/lib_lightgbm.so \
     /opt/LightGBM/
+COPY --from=build /opt/LightGBM/lib/ /opt/LightGBM/lib/
 COPY --from=build \
-    /usr/lib/x86_64-linux-gnu/libOpenCL.so.1 \
-    /usr/lib/x86_64-linux-gnu/libboost_filesystem.so.1.65.1 \
-    /usr/lib/x86_64-linux-gnu/libboost_system.so.1.65.1 \
-    /usr/lib/x86_64-linux-gnu/libgomp.so.1 \
-    /usr/lib/x86_64-linux-gnu/libstdc++.so.6 \
-    /usr/lib/x86_64-linux-gnu/
-COPY --from=build \
-    /lib/x86_64-linux-gnu/libm.so.6 \
-    /lib/x86_64-linux-gnu/libgcc_s.so.1 \
-    /lib/x86_64-linux-gnu/libpthread.so.0 \
-    /lib/x86_64-linux-gnu/libc.so.6 \
-    /lib/x86_64-linux-gnu/libdl.so.2 \
-    /lib/x86_64-linux-gnu/
-COPY --from=build \
-    /lib64/ld-linux-x86-64.so.2 \
+    /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 \
     /lib64/
 COPY --from=build /etc/OpenCL/vendors/nvidia.icd /etc/OpenCL/vendors/nvidia.icd
 
-ENV PATH /opt/LightGBM:${PATH}
-ENV LANG C.UTF-8
-ENV LC_ALL C.UTF-8
+ENV PATH=/opt/LightGBM:${PATH}
+ENV LD_LIBRARY_PATH=/opt/LightGBM/lib
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 
 ENTRYPOINT ["lightgbm"]

@@ -15,10 +15,12 @@
 # CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
-FROM nvidia/opencl:devel AS build
+FROM nvidia/cuda:12.9.1-devel-ubuntu24.04 AS build
 ARG DEBIAN_FRONTEND=noninteractive
+ARG LIGHTGBM_GIT_REF=stable
+ARG LIGHTGBM_GIT_URL=https://github.com/lightgbm-org/LightGBM.git
 ARG OPENCL_LIBRARIES=/usr/lib/x86_64-linux-gnu
-ARG OPENCL_INCLUDE_DIR=/usr/include/CL
+ARG OPENCL_INCLUDE_DIR=/usr/include
 
 # SYSTEM
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -33,35 +35,43 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libboost-dev \
         libboost-system-dev \
         libboost-filesystem-dev \
+        ocl-icd-opencl-dev \
         gcc \
         g++ && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get autoremove -y && \
+    apt-get clean
 
 # LightGBM
 WORKDIR /opt
-RUN git clone --recursive --branch stable --depth 1 https://github.com/lightgbm-org/LightGBM && \
+RUN git clone \
+        --recursive \
+         "${LIGHTGBM_GIT_URL}" && \
+    git -C ./LightGBM checkout "${LIGHTGBM_GIT_REF}" && \
     cd LightGBM && \
-    cmake -B build -S . -DUSE_GPU=1 -DOpenCL_LIBRARY=${OPENCL_LIBRARIES}/libOpenCL.so.1 -DOpenCL_INCLUDE_DIR=$OPENCL_INCLUDE_DIR && \
-    OPENCL_HEADERS=$OPENCL_INCLUDE_DIR LIBOPENCL=$OPENCL_LIBRARIES cmake --build build
+    cmake -B build -S . -DUSE_GPU=1 -DOpenCL_LIBRARY="${OPENCL_LIBRARIES}/libOpenCL.so" -DOpenCL_INCLUDE_DIR="${OPENCL_INCLUDE_DIR}" && \
+    cmake --build build -j"$(nproc --ignore=1)"
 
-FROM nvidia/opencl:runtime
+FROM nvidia/cuda:12.9.1-base-ubuntu24.04
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libxext6 \
-        libsm6 \
-        libxrender1 \
-        libboost-system-dev \
-        libboost-filesystem-dev \
-        gcc \
-        g++ && \
+        libboost-filesystem1.83.0 \
+        libboost-system1.83.0 \
+        libgomp1 \
+        ocl-icd-libopencl1 && \
     rm -rf /var/lib/apt/lists/*
+
+# Add OpenCL ICD file so the OpenCL loader can find the NVIDIA driver
+RUN mkdir -p /etc/OpenCL/vendors && \
+    echo "libnvidia-opencl.so.1" > /etc/OpenCL/vendors/nvidia.icd
 
 COPY --from=build \
     /opt/LightGBM/lightgbm \
     /opt/LightGBM/lib_lightgbm.so \
     /opt/LightGBM/
 
-ENV PATH /opt/LightGBM:${PATH}
-ENV LANG C.UTF-8
-ENV LC_ALL C.UTF-8
+ENV PATH=/opt/LightGBM:${PATH}
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 
 ENTRYPOINT ["lightgbm"]
