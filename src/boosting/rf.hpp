@@ -178,6 +178,8 @@ class RF : public GBDT {
       // add model
       models_.push_back(std::move(new_tree));
     }
+    // the new trees need RecomputeMaxDepth() before the next pred_contrib
+    models_initialized_ = false;
     ++iter_;
     return false;
   }

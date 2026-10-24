@@ -357,6 +357,24 @@ test_that("predict() params should override keyword argument for feature contrib
   }
 })
 
+test_that("feature contributions sum to the raw score", {
+  data(agaricus.train, package = "lightgbm")
+  data(agaricus.test, package = "lightgbm")
+  bst <- lgb.train(
+    data = lgb.Dataset(agaricus.train$data, label = agaricus.train$label)
+    , params = list(
+      objective = "binary"
+      , num_threads = .LGB_MAX_THREADS
+    )
+    , nrounds = 20L
+    , verbose = .LGB_VERBOSITY
+  )
+  X <- as.matrix(agaricus.test$data)
+  preds_contrib <- predict(bst, X, type = "contrib")
+  expect_equal(dim(preds_contrib), c(nrow(X), ncol(X) + 1L))
+  expect_equal(rowSums(preds_contrib), predict(bst, X, type = "raw"))
+})
+
 .expect_has_row_names <- function(pred, X) {
     if (is.vector(pred)) {
         rnames <- names(pred)

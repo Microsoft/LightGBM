@@ -85,6 +85,8 @@ class GBDT : public GBDTBase {
       models_.push_back(std::move(new_tree));
     }
     num_iteration_for_pred_ = static_cast<int>(models_.size()) / num_tree_per_iteration_;
+    // the merged trees need RecomputeMaxDepth() before the next pred_contrib
+    models_initialized_ = false;
   }
 
   void ShuffleModels(int start_iter, int end_iter) override {

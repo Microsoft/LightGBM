@@ -2019,6 +2019,45 @@ def test_contribs():
     )
 
 
+def test_contribs_after_update():
+    X, y = load_breast_cancer(return_X_y=True)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+    params = {
+        "objective": "binary",
+        "metric": "binary_logloss",
+        "verbose": -1,
+    }
+    gbm = lgb.Booster(params, lgb.Dataset(X_train, y_train))
+    # predict contributions between updates, so that every call sees trees added after the previous one
+    for _ in range(5):
+        gbm.update()
+        contribs = gbm.predict(X_test, pred_contrib=True)
+        assert np.linalg.norm(gbm.predict(X_test, raw_score=True) - np.sum(contribs, axis=1)) < 1e-4
+        loaded_contribs = lgb.Booster(model_str=gbm.model_to_string()).predict(X_test, pred_contrib=True)
+        np.testing.assert_allclose(contribs, loaded_contribs)
+
+
+def test_contribs_in_callback():
+    X, y = load_breast_cancer(return_X_y=True)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+    params = {
+        "objective": "binary",
+        "metric": "binary_logloss",
+        "verbose": -1,
+    }
+    num_boost_round = 5
+    contribs_errors = []
+
+    def check_contribs(env):
+        contribs = env.model.predict(X_test, pred_contrib=True)
+        raw_score = env.model.predict(X_test, raw_score=True)
+        contribs_errors.append(np.linalg.norm(raw_score - np.sum(contribs, axis=1)))
+
+    lgb.train(params, lgb.Dataset(X_train, y_train), num_boost_round=num_boost_round, callbacks=[check_contribs])
+    assert len(contribs_errors) == num_boost_round
+    assert max(contribs_errors) < 1e-4
+
+
 # Seed 0 reproduces a sparse/dense rounding mismatch when FMA is enabled.
 @pytest.mark.parametrize("data_seed", [None, 0], ids=["randomized", "fixed_seed"])
 def test_contribs_sparse(data_seed):

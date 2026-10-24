@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <numeric>
 #include <vector>
 
 using LightGBM::TestUtils;
@@ -250,5 +251,33 @@ TEST(SingleRow, CSRFastPredictionTypeAndIterationRange) {
         }
     }
     EXPECT_EQ(0, LGBM_BoosterFree(booster));
+    EXPECT_EQ(0, LGBM_DatasetFree(dataset));
+}
+
+TEST(SingleRow, ContribAfterBoosterMerge) {
+    DatasetHandle dataset;
+    ASSERT_EQ(0, TestUtils::LoadDatasetFromExamples("binary_classification/binary.train", "max_bin=15", &dataset));
+    BoosterHandle boosters[2];
+    for (BoosterHandle& booster : boosters) {
+        int finished;
+        ASSERT_EQ(0, LGBM_BoosterCreate(dataset, "objective=binary verbosity=-1", &booster));
+        ASSERT_EQ(0, LGBM_BoosterUpdateOneIter(booster, &finished));
+    }
+    std::vector<double> row(28, 0.5), contrib(29);
+    double raw_score;
+    int64_t written;
+    auto predict = [&](int predict_type, double* out) {
+        return LGBM_BoosterPredictForMatSingleRow(boosters[0], row.data(), C_API_DTYPE_FLOAT64, 28, 1, predict_type,
+                                                  0, -1, "", &written, out);
+    };
+    // predict contributions before the merge, so that the merged trees are added after that call
+    ASSERT_EQ(0, predict(C_API_PREDICT_CONTRIB, contrib.data()));
+    ASSERT_EQ(0, LGBM_BoosterMerge(boosters[0], boosters[1]));
+    ASSERT_EQ(0, predict(C_API_PREDICT_CONTRIB, contrib.data()));
+    ASSERT_EQ(0, predict(C_API_PREDICT_RAW_SCORE, &raw_score));
+    EXPECT_NEAR(raw_score, std::accumulate(contrib.begin(), contrib.end(), 0.0), 1e-10);
+    for (BoosterHandle booster : boosters) {
+        EXPECT_EQ(0, LGBM_BoosterFree(booster));
+    }
     EXPECT_EQ(0, LGBM_DatasetFree(dataset));
 }
