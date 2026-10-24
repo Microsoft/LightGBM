@@ -740,6 +740,7 @@ if(BUILD_CPP_TEST)
       tests/cpp_tests/test_chunked_array.cpp
       tests/cpp_tests/test_common.cpp
       tests/cpp_tests/test_main.cpp
+      tests/cpp_tests/test_predictor.cpp
       tests/cpp_tests/test_serialize.cpp
       tests/cpp_tests/test_single_row.cpp
       tests/cpp_tests/test_split_info.cpp

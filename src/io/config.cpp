@@ -286,6 +286,10 @@ void Config::Set(const std::unordered_map<std::string, std::string>& params) {
   GetTreeLearnerType(params, &tree_learner);
 
   GetMembersFromString(params);
+  if (predict_feature_storage != "auto" && predict_feature_storage != "array" &&
+      predict_feature_storage != "map") {
+    Log::Fatal("Unknown predict_feature_storage: %s", predict_feature_storage.c_str());
+  }
 
   GetAucMuWeights();
 

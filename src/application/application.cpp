@@ -272,7 +272,7 @@ void Application::Predict() {
     Predictor predictor(boosting_.get(), config_.start_iteration_predict, config_.num_iteration_predict, config_.predict_raw_score,
                         config_.predict_leaf_index, config_.predict_contrib,
                         config_.pred_early_stop, config_.pred_early_stop_freq,
-                        config_.pred_early_stop_margin);
+                        config_.pred_early_stop_margin, config_.predict_feature_storage);
     predictor.Predict(config_.data.c_str(),
                       config_.output_result.c_str(), config_.header, config_.predict_disable_shape_check,
                       config_.precise_float_parser);

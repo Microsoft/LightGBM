@@ -41,7 +41,7 @@ class Predictor {
   */
   Predictor(Boosting* boosting, int start_iteration, int num_iteration, bool is_raw_score,
             bool predict_leaf_index, bool predict_contrib, bool early_stop,
-            int early_stop_freq, double early_stop_margin) {
+            int early_stop_freq, double early_stop_margin, const std::string& feature_storage = "auto") {
     early_stop_ = CreatePredictionEarlyStopInstance(
         "none", LightGBM::PredictionEarlyStopConfig());
     if (early_stop && !boosting->NeedAccuratePrediction()) {
@@ -64,81 +64,38 @@ class Predictor {
     num_pred_one_row_ = boosting_->NumPredictOneRow(start_iteration,
         num_iteration, predict_leaf_index, predict_contrib);
     num_feature_ = boosting_->MaxFeatureIdx() + 1;
-    predict_buf_.resize(
-        OMP_NUM_THREADS(),
-        std::vector<double, Common::AlignmentAllocator<double, kAlignedSize>>(
-            num_feature_, 0.0f));
-    const int kFeatureThreshold = 100000;
-    const size_t KSparseThreshold = static_cast<size_t>(0.01 * num_feature_);
+    const auto storage = ResolveStorage(feature_storage);
+    predict_buf_.resize(OMP_NUM_THREADS());
+    if ((predict_leaf_index || !predict_contrib) && storage == Storage::Array) {
+      for (auto& buffer : predict_buf_) {
+        buffer.resize(num_feature_, 0.0);
+      }
+    }
     if (predict_leaf_index) {
-      predict_fun_ = [=](const std::vector<std::pair<int, double>>& features,
-                         double* output) {
-        int tid = omp_get_thread_num();
-        if (num_feature_ > kFeatureThreshold &&
-            features.size() < KSparseThreshold) {
-          auto buf = CopyToPredictMap(features);
-          boosting_->PredictLeafIndexByMap(buf, output);
-        } else {
-          CopyToPredictBuffer(predict_buf_[tid].data(), features);
-          // get result for leaf index
-          boosting_->PredictLeafIndex(predict_buf_[tid].data(), output);
-          ClearPredictBuffer(predict_buf_[tid].data(), predict_buf_[tid].size(),
-                             features);
-        }
-      };
+      SelectPredictFunction<Output::Leaf>(storage);
     } else if (predict_contrib) {
       if (boosting_->IsLinear()) {
         Log::Fatal("Predicting SHAP feature contributions is not implemented for linear trees.");
       }
-      predict_fun_ = [=](const std::vector<std::pair<int, double>>& features,
-                         double* output) {
-        int tid = omp_get_thread_num();
-        CopyToPredictBuffer(predict_buf_[tid].data(), features);
-        // get feature importances
-        boosting_->PredictContrib(predict_buf_[tid].data(), output);
-        ClearPredictBuffer(predict_buf_[tid].data(), predict_buf_[tid].size(),
-                           features);
+      // SHAP chooses storage from its output API, independently of score storage.
+      predict_fun_ = [this](const std::vector<std::pair<int, double>>& features,
+                            double* output) {
+        const int tid = omp_get_thread_num();
+        EnsureArrayBuffer(tid);
+        double* buffer = predict_buf_[tid].data();
+        CopyToPredictBuffer(buffer, features);
+        boosting_->PredictContrib(buffer, output);
+        ClearPredictBuffer(buffer, num_feature_, features);
       };
-      predict_sparse_fun_ = [=](const std::vector<std::pair<int, double>>& features,
-                                std::vector<std::unordered_map<int, double>>* output) {
-        auto buf = CopyToPredictMap(features);
-        // get sparse feature importances
-        boosting_->PredictContribByMap(buf, output);
+      predict_sparse_fun_ = [this](const std::vector<std::pair<int, double>>& features,
+                                   std::vector<std::unordered_map<int, double>>* output) {
+        auto buffer = CopyToPredictMap(features);
+        boosting_->PredictContribByMap(buffer, output);
       };
-
+    } else if (is_raw_score) {
+      SelectPredictFunction<Output::Raw>(storage);
     } else {
-      if (is_raw_score) {
-        predict_fun_ = [=](const std::vector<std::pair<int, double>>& features,
-                           double* output) {
-          int tid = omp_get_thread_num();
-          if (num_feature_ > kFeatureThreshold &&
-              features.size() < KSparseThreshold) {
-            auto buf = CopyToPredictMap(features);
-            boosting_->PredictRawByMap(buf, output, &early_stop_);
-          } else {
-            CopyToPredictBuffer(predict_buf_[tid].data(), features);
-            boosting_->PredictRaw(predict_buf_[tid].data(), output,
-                                  &early_stop_);
-            ClearPredictBuffer(predict_buf_[tid].data(),
-                               predict_buf_[tid].size(), features);
-          }
-        };
-      } else {
-        predict_fun_ = [=](const std::vector<std::pair<int, double>>& features,
-                           double* output) {
-          int tid = omp_get_thread_num();
-          if (num_feature_ > kFeatureThreshold &&
-              features.size() < KSparseThreshold) {
-            auto buf = CopyToPredictMap(features);
-            boosting_->PredictByMap(buf, output, &early_stop_);
-          } else {
-            CopyToPredictBuffer(predict_buf_[tid].data(), features);
-            boosting_->Predict(predict_buf_[tid].data(), output, &early_stop_);
-            ClearPredictBuffer(predict_buf_[tid].data(),
-                               predict_buf_[tid].size(), features);
-          }
-        };
-      }
+      SelectPredictFunction<Output::Normal>(storage);
     }
   }
 
@@ -257,6 +214,82 @@ class Predictor {
   }
 
  private:
+  friend class PredictorTestPeer;
+
+  enum class Storage { Array, Map, Auto };
+  enum class Output { Normal, Raw, Leaf };
+
+  Storage ResolveStorage(const std::string& storage) const {
+    if (storage == "array") return Storage::Array;
+    if (storage == "map") return Storage::Map;
+    if (storage != "auto") {
+      Log::Fatal("Unknown predict_feature_storage: %s", storage.c_str());
+    }
+    return num_feature_ <= 100000 ? Storage::Array : Storage::Auto;
+  }
+
+  void EnsureArrayBuffer(int tid) {
+    if (predict_buf_[tid].empty()) {
+      predict_buf_[tid].resize(num_feature_, 0.0);
+    }
+  }
+
+  template <Storage storage, Output output_type>
+  void PredictRow(const std::vector<std::pair<int, double>>& features, double* output) {
+    if constexpr (storage != Storage::Array) {
+      if (storage == Storage::Map ||
+          features.size() < static_cast<size_t>(0.01 * num_feature_)) {
+        auto buffer = CopyToPredictMap(features);
+        if constexpr (output_type == Output::Leaf) {
+          boosting_->PredictLeafIndexByMap(buffer, output);
+        } else if constexpr (output_type == Output::Raw) {
+          boosting_->PredictRawByMap(buffer, output, &early_stop_);
+        } else {
+          boosting_->PredictByMap(buffer, output, &early_stop_);
+        }
+        return;
+      }
+    }
+    if constexpr (storage != Storage::Map) {
+      const int tid = omp_get_thread_num();
+      if constexpr (storage == Storage::Auto) {
+        EnsureArrayBuffer(tid);
+      }
+      double* buffer = predict_buf_[tid].data();
+      CopyToPredictBuffer(buffer, features);
+      if constexpr (output_type == Output::Leaf) {
+        boosting_->PredictLeafIndex(buffer, output);
+      } else if constexpr (output_type == Output::Raw) {
+        boosting_->PredictRaw(buffer, output, &early_stop_);
+      } else {
+        boosting_->Predict(buffer, output, &early_stop_);
+      }
+      ClearPredictBuffer(buffer, num_feature_, features);
+    }
+  }
+
+  template <Storage storage, Output output_type>
+  void SetPredictFunction() {
+    predict_fun_ = [this](const std::vector<std::pair<int, double>>& features,
+                          double* output) {
+      PredictRow<storage, output_type>(features, output);
+    };
+  }
+
+  template <Output output_type>
+  void SelectPredictFunction(Storage storage) {
+    switch (storage) {
+      case Storage::Array:
+        SetPredictFunction<Storage::Array, output_type>();
+        break;
+      case Storage::Map:
+        SetPredictFunction<Storage::Map, output_type>();
+        break;
+      case Storage::Auto:
+        SetPredictFunction<Storage::Auto, output_type>();
+        break;
+    }
+  }
   void CopyToPredictBuffer(double* pred_buf, const std::vector<std::pair<int, double>>& features) {
     for (const auto &feature : features) {
       if (feature.first < num_feature_) {

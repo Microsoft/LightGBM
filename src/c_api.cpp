@@ -83,12 +83,13 @@ class SingleRowPredictorInner {
     } else if (predict_type == C_API_PREDICT_CONTRIB) {
       predict_contrib = true;
     }
+    feature_storage_ = config.predict_feature_storage;
     early_stop_ = config.pred_early_stop;
     early_stop_freq_ = config.pred_early_stop_freq;
     early_stop_margin_ = config.pred_early_stop_margin;
     iter_ = num_iter;
     predictor_.reset(new Predictor(boosting, start_iter, iter_, is_raw_score, is_predict_leaf, predict_contrib,
-                                   early_stop_, early_stop_freq_, early_stop_margin_));
+                                   early_stop_, early_stop_freq_, early_stop_margin_, feature_storage_));
     num_pred_in_one_row = boosting->NumPredictOneRow(start_iter, iter_, is_predict_leaf, predict_contrib);
     predict_function = predictor_->GetPredictFunction();
     num_total_model_ = boosting->NumberOfTotalModel();
@@ -97,7 +98,8 @@ class SingleRowPredictorInner {
   ~SingleRowPredictorInner() {}
 
   bool IsPredictorEqual(const Config& config, int iter, Boosting* boosting) {
-    return early_stop_ == config.pred_early_stop &&
+    return feature_storage_ == config.predict_feature_storage &&
+      early_stop_ == config.pred_early_stop &&
       early_stop_freq_ == config.pred_early_stop_freq &&
       early_stop_margin_ == config.pred_early_stop_margin &&
       iter_ == iter &&
@@ -106,6 +108,7 @@ class SingleRowPredictorInner {
 
  private:
   std::unique_ptr<Predictor> predictor_;
+  std::string feature_storage_;
   bool early_stop_;
   int early_stop_freq_;
   double early_stop_margin_;
@@ -490,7 +493,8 @@ class Booster {
     }
 
     return std::make_shared<Predictor>(boosting_.get(), start_iteration, num_iteration, is_raw_score, is_predict_leaf, predict_contrib,
-                        config.pred_early_stop, config.pred_early_stop_freq, config.pred_early_stop_margin);
+                        config.pred_early_stop, config.pred_early_stop_freq, config.pred_early_stop_margin,
+                        config.predict_feature_storage);
   }
 
   void Predict(int start_iteration, int num_iteration, int predict_type, int nrow, int ncol,
@@ -780,7 +784,8 @@ class Booster {
       is_raw_score = false;
     }
     Predictor predictor(boosting_.get(), start_iteration, num_iteration, is_raw_score, is_predict_leaf, predict_contrib,
-                        config.pred_early_stop, config.pred_early_stop_freq, config.pred_early_stop_margin);
+                        config.pred_early_stop, config.pred_early_stop_freq, config.pred_early_stop_margin,
+                        config.predict_feature_storage);
     bool bool_data_has_header = data_has_header > 0 ? true : false;
     predictor.Predict(data_filename, result_filename, bool_data_has_header, config.predict_disable_shape_check,
                       config.precise_float_parser);

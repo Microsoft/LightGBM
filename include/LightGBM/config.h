@@ -866,6 +866,15 @@ struct Config {
   bool predict_disable_shape_check = false;
 
   // [no-save]
+  // options = auto, array, map
+  // desc = feature lookup storage for normal, raw-score and leaf-index prediction
+  // desc = ``array`` uses a dense feature buffer per prediction thread and looks up values by array index
+  // desc = ``map`` stores feature index-value pairs in a hash table and looks up values by key
+  // desc = ``auto`` uses a hash table for rows with fewer than 1% stored entries when the model has more than 100000 features, and an array otherwise
+  // desc = this parameter has no effect on SHAP contribution prediction
+  std::string predict_feature_storage = "auto";
+
+  // [no-save]
   // desc = used only in ``prediction`` task
   // desc = used only in ``classification`` and ``ranking`` applications
   // desc = used only for predicting normal or raw scores
