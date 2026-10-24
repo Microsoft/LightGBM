@@ -29,7 +29,7 @@ struct PredictionEarlyStopConfig {
 };
 
 /// Create an early stopping algorithm of type `type`, with given round_period and margin threshold
-LIGHTGBM_EXPORT PredictionEarlyStopInstance CreatePredictionEarlyStopInstance(const std::string& type,
+PredictionEarlyStopInstance CreatePredictionEarlyStopInstance(const std::string& type,
                                                                               const PredictionEarlyStopConfig& config);
 
 }   // namespace LightGBM

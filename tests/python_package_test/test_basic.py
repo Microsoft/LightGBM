@@ -10,15 +10,22 @@ from pathlib import Path
 import numpy as np
 import pytest
 from scipy import sparse
-from sklearn.datasets import dump_svmlight_file, load_svmlight_file, make_blobs
-from sklearn.model_selection import train_test_split
 
 import lightgbm as lgb
 
-from .utils import BuildInfo, dummy_obj, load_breast_cancer, mse_obj, np_assert_array_equal
+from .utils import (
+    BuildInfo,
+    dummy_obj,
+    load_breast_cancer,
+    make_blobs,
+    mse_obj,
+    np_assert_array_equal,
+    train_test_split,
+)
 
 
 def test_basic(tmp_path):
+    sklearn = pytest.importorskip("sklearn")
     X_train, X_test, y_train, y_test = train_test_split(
         *load_breast_cancer(return_X_y=True), test_size=0.1, random_state=2
     )
@@ -60,7 +67,7 @@ def test_basic(tmp_path):
     bst.save_model(model_file)
     pred_from_matr = bst.predict(X_test)
     with open(tname, "w+b") as f:
-        dump_svmlight_file(X_test, y_test, f)
+        sklearn.datasets.dump_svmlight_file(X_test, y_test, f)
     pred_from_file = bst.predict(tname)
     np.testing.assert_allclose(pred_from_matr, pred_from_file)
 
@@ -88,10 +95,10 @@ def test_basic(tmp_path):
         lgb.basic.LightGBMError, bad_shape_error_msg, bst.predict, sparse.csc_matrix(bad_X_test)
     )
     with open(tname, "w+b") as f:
-        dump_svmlight_file(bad_X_test, y_test, f)
+        sklearn.datasets.dump_svmlight_file(bad_X_test, y_test, f)
     np.testing.assert_raises_regex(lgb.basic.LightGBMError, bad_shape_error_msg, bst.predict, tname)
     with open(tname, "w+b") as f:
-        dump_svmlight_file(X_test, y_test, f, zero_based=False)
+        sklearn.datasets.dump_svmlight_file(X_test, y_test, f, zero_based=False)
     np.testing.assert_raises_regex(lgb.basic.LightGBMError, bad_shape_error_msg, bst.predict, tname)
 
 
@@ -342,8 +349,9 @@ def test_save_binary_raises_on_truncated_write(tmp_path, rng):
 
 
 def test_subset_group():
+    sklearn = pytest.importorskip("sklearn")
     rank_example_dir = Path(__file__).absolute().parents[2] / "examples" / "lambdarank"
-    X_train, y_train = load_svmlight_file(str(rank_example_dir / "rank.train"))
+    X_train, y_train = sklearn.datasets.load_svmlight_file(str(rank_example_dir / "rank.train"))
     q_train = np.loadtxt(str(rank_example_dir / "rank.train.query"))
     lgb_train = lgb.Dataset(X_train, y_train, group=q_train)
     assert len(lgb_train.get_group()) == 201

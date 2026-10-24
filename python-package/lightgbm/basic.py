@@ -730,10 +730,6 @@ def _pandas_to_numpy(
     try:
         # most common case (no nullable dtypes)
         return data.to_numpy(dtype=target_dtype, copy=False)
-    except TypeError:
-        # 1.0 <= pd version < 1.1 and nullable dtypes, least common case
-        # raises error because array is casted to type(pd.NA) and there's no na_value argument
-        return data.astype(target_dtype, copy=False).values
     except ValueError:
         # data has nullable dtypes, but we can specify na_value argument and copy will be made
         return data.to_numpy(dtype=target_dtype, na_value=np.nan)

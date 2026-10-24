@@ -17,21 +17,21 @@ namespace LightGBM {
 
 class DatasetLoader {
  public:
-  LIGHTGBM_EXPORT DatasetLoader(const Config& io_config, const PredictFunction& predict_fun, int num_class, const char* filename);
+  DatasetLoader(const Config& io_config, const PredictFunction& predict_fun, int num_class, const char* filename);
 
-  LIGHTGBM_EXPORT ~DatasetLoader();
+  ~DatasetLoader();
 
-  LIGHTGBM_EXPORT Dataset* LoadFromFile(const char* filename, int rank, int num_machines);
+  Dataset* LoadFromFile(const char* filename, int rank, int num_machines);
 
-  LIGHTGBM_EXPORT Dataset* LoadFromFile(const char* filename) {
+  Dataset* LoadFromFile(const char* filename) {
     return LoadFromFile(filename, 0, 1);
   }
 
-  LIGHTGBM_EXPORT Dataset* LoadFromFileAlignWithOtherDataset(const char* filename, const Dataset* train_data);
+  Dataset* LoadFromFileAlignWithOtherDataset(const char* filename, const Dataset* train_data);
 
-  LIGHTGBM_EXPORT Dataset* LoadFromSerializedReference(const char* buffer, size_t buffer_size, data_size_t num_data, int32_t num_classes);
+  Dataset* LoadFromSerializedReference(const char* buffer, size_t buffer_size, data_size_t num_data, int32_t num_classes);
 
-  LIGHTGBM_EXPORT Dataset* ConstructFromSampleData(double** sample_values,
+  Dataset* ConstructFromSampleData(double** sample_values,
                                                    int** sample_indices,
                                                    int num_col,
                                                    const int* num_per_col,

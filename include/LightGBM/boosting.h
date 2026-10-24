@@ -25,7 +25,7 @@ struct PredictionEarlyStopInstance;
 /*!
 * \brief The interface for Boosting
 */
-class LIGHTGBM_EXPORT Boosting {
+class Boosting {
  public:
   /*! \brief virtual destructor */
   virtual ~Boosting() {}

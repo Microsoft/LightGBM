@@ -12,6 +12,7 @@ PKG_CPPFLAGS = \
     $(LGB_CPPFLAGS)
 
 PKG_CXXFLAGS = \
+    $(CXX_VISIBILITY) \
     @OPENMP_CXXFLAGS@ \
     -pthread
 

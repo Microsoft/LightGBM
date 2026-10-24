@@ -1,4 +1,7 @@
-FROM ubuntu:20.04
+FROM ubuntu:24.04
+
+ARG LIGHTGBM_GIT_REF=stable
+ARG LIGHTGBM_GIT_URL=https://github.com/lightgbm-org/LightGBM.git
 
 ENV \
     DEBIAN_FRONTEND=noninteractive \
@@ -7,30 +10,23 @@ ENV \
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
         build-essential \
-        gcc \
-        g++ \
+        ca-certificates \
+        cmake \
+        curl \
         git \
         libomp-dev && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl -L -o cmake.sh https://github.com/Kitware/CMake/releases/download/v3.29.2/cmake-3.29.2-linux-x86_64.sh && \
-    chmod +x cmake.sh && \
-    sh ./cmake.sh --prefix=/usr/local --skip-license && \
-    rm cmake.sh
-
 RUN git clone \
         --recursive \
-        --branch stable \
-        --depth 1 \
-        https://github.com/lightgbm-org/LightGBM && \
+        "${LIGHTGBM_GIT_URL}" && \
+    git -C ./LightGBM checkout ${LIGHTGBM_GIT_REF} && \
     cd ./LightGBM && \
     cmake -B build -S . && \
     cmake --build build -j4 && \
     cmake --install build && \
-    cd "${HOME}" && \
-    rm -rf LightGBM
+    cd .. && \
+    rm -rf ./LightGBM
 
 ENTRYPOINT ["lightgbm"]
