@@ -158,6 +158,8 @@ void CUDAHistogramConstructor::CalcConstructHistogramKernelDim(
   *grid_dim_x = cuda_row_data_->num_feature_partitions();
   *grid_dim_y = std::max(min_grid_dim_y_,
     ((num_data_in_smaller_leaf + NUM_DATA_PER_THREAD - 1) / NUM_DATA_PER_THREAD + (*block_dim_y) - 1) / (*block_dim_y));
+  // gridDim.y is limited to 65535; the kernels derive the rows per thread from the grid size
+  *grid_dim_y = std::min(*grid_dim_y, 65535);
 }
 
 void CUDAHistogramConstructor::ResetTrainingData(const Dataset* train_data, TrainingShareStates* share_states) {
