@@ -98,17 +98,36 @@ else
 fi
 CONDA_PYTHON_REQUIREMENT="python=${PYTHON_VERSION}[build=*_${PYTHON_ABI_TAG}]"
 
+if_else_test() {
+    cd "$BUILD_DIRECTORY/tests/cpp_tests"
+
+    mv ../../src/boosting/gbdt_prediction.cpp ../../src/boosting/gbdt_prediction.cpp.bak
+    ../../lightgbm_org config=$1 convert_model_language=cpp convert_model=../../src/boosting/gbdt_prediction.cpp
+    ../../lightgbm_org config=$2 output_result=origin.pred
+
+    cd "$BUILD_DIRECTORY"
+    rm build -rf
+    cmake -B build -S . || exit 1
+    cmake --build build --target lightgbm -j4 || exit 1
+    cd "$BUILD_DIRECTORY/tests/cpp_tests"
+    ../../lightgbm config=$2 output_result=ifelse.pred
+
+    python test.py
+
+    mv ../../src/boosting/gbdt_prediction.cpp.bak ../../src/boosting/gbdt_prediction.cpp
+    cd "$BUILD_DIRECTORY"
+}
+
 if [[ $TASK == "if-else" ]]; then
     conda create -q -y -n "${CONDA_ENV}" "${CONDA_PYTHON_REQUIREMENT}" numpy
     # shellcheck disable=SC1091
     source activate "${CONDA_ENV}"
+
     cmake -B build -S . || exit 1
     cmake --build build --target lightgbm -j4 || exit 1
-    cd "$BUILD_DIRECTORY/tests/cpp_tests"
-    ../../lightgbm config=train.conf convert_model_language=cpp convert_model=../../src/boosting/gbdt_prediction.cpp
-    ../../lightgbm config=predict.conf output_result=origin.pred
-    ../../lightgbm config=predict.conf output_result=ifelse.pred
-    python test.py
+    mv lightgbm lightgbm_org
+    if_else_test "train.conf" "predict.conf"
+    if_else_test "train_nan_input.conf" "predict_nan_input.conf"
     exit 0
 fi
 

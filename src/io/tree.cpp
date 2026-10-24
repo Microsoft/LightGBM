@@ -534,21 +534,21 @@ std::string Tree::NumericalDecisionIfElse(int node) const {
   if (missing_type != MissingType::NaN) {
     str_buf << "if (std::isnan(fval)) fval = 0.0;";
   }
+  str_buf << "if (";
   if (missing_type == MissingType::Zero) {
     if (default_left) {
-      str_buf << "if (Tree::IsZero(fval)) {";
+      str_buf << "Tree::IsZero(fval) || ";
     } else {
-      str_buf << "if (!Tree::IsZero(fval)) {";
+      str_buf << "!Tree::IsZero(fval) && ";
     }
   } else if (missing_type == MissingType::NaN) {
     if (default_left) {
-      str_buf << "if (std::isnan(fval)) {";
+      str_buf << "std::isnan(fval) || ";
     } else {
-      str_buf << "if (!std::isnan(fval)) {";
+      str_buf << "!std::isnan(fval) && ";
     }
-  } else {
-    str_buf << "if (fval <= " << threshold_[node] << ") {";
   }
+  str_buf << "fval <= " << threshold_[node] << ") {";
   return str_buf.str();
 }
 
