@@ -203,6 +203,8 @@ void LinearTreeLearner<TREE_LEARNER_TYPE>::CalculateLinear(Tree* tree, bool is_r
 
   // create array of pointers to raw data, and coefficient matrices, for each leaf
   std::vector<std::vector<int>> leaf_features;
+  // for each leaf and each surviving feature, its position in the old leaf's feature list (used when is_refit)
+  std::vector<std::vector<int>> leaf_old_coeff_idx;
   std::vector<int> leaf_num_features;
   std::vector<std::vector<const float*>> raw_data_ptr;
   size_t max_num_features = 0;
@@ -217,16 +219,22 @@ void LinearTreeLearner<TREE_LEARNER_TYPE>::CalculateLinear(Tree* tree, bool is_r
     auto new_end = std::unique(raw_features.begin(), raw_features.end());
     raw_features.erase(new_end, raw_features.end());
     std::vector<int> numerical_features;
+    std::vector<int> old_coeff_idx;
     std::vector<const float*> data_ptr;
     for (size_t j = 0; j < raw_features.size(); ++j) {
       int feat = this->train_data_->InnerFeatureIndex(raw_features[j]);
+      // feat may be -1 when a feature from the original model is absent from the refit dataset
+      // (e.g. constant-valued feature filtered out during Dataset construction); skip it
+      if (feat < 0) continue;
       auto bin_mapper = this->train_data_->FeatureBinMapper(feat);
       if (bin_mapper->bin_type() == BinType::NumericalBin) {
         numerical_features.push_back(feat);
+        old_coeff_idx.push_back(static_cast<int>(j));
         data_ptr.push_back(this->train_data_->raw_index(feat));
       }
     }
     leaf_features.push_back(numerical_features);
+    leaf_old_coeff_idx.push_back(old_coeff_idx);
     raw_data_ptr.push_back(data_ptr);
     leaf_num_features.push_back(static_cast<int>(numerical_features.size()));
     if (numerical_features.size() > max_num_features) {
@@ -363,7 +371,10 @@ void LinearTreeLearner<TREE_LEARNER_TYPE>::CalculateLinear(Tree* tree, bool is_r
     for (size_t i = 0; i < leaf_features[leaf_num].size(); ++i) {
       if (is_refit) {
         features_new.push_back(leaf_features[leaf_num][i]);
-        coeffs_vec.push_back(decay_rate * old_coeffs[i] + (1.0 - decay_rate) * coeffs(i) * shrinkage);
+        // use old_coeff_idx to correctly map position i back to the original coefficient,
+        // since some features may have been skipped (absent from the refit dataset)
+        int old_i = leaf_old_coeff_idx[leaf_num][i];
+        coeffs_vec.push_back(decay_rate * old_coeffs[old_i] + (1.0 - decay_rate) * coeffs(i) * shrinkage);
       } else {
         if (coeffs(i) < -kZeroThreshold || coeffs(i) > kZeroThreshold) {
           coeffs_vec.push_back(coeffs(i));

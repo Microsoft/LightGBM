@@ -2533,6 +2533,25 @@ def test_refit_dataset_params(rng):
     np.testing.assert_allclose(stored_weights, refit_weight)
 
 
+def test_refit_linear_tree_single_class_no_segfault():
+    # Regression test for https://github.com/microsoft/LightGBM/issues/6792.
+    # Calling refit() with data that contains only one class on a linear_tree model
+    # used to segfault because some features become constant (all-zero) in the
+    # single-class subset.  InnerFeatureIndex() then returns -1 for those features,
+    # which crashed FeatureBinMapper() in CalculateLinear.
+    X, y = load_digits(n_class=2, return_X_y=True)
+    lgb_train = lgb.Dataset(X, label=y)
+    params = {"objective": "binary", "verbose": -1, "linear_tree": True, "num_leaves": 7}
+    model = lgb.train(params, lgb_train, num_boost_round=5)
+    # refit on data with only one class — many pixel features will be constant
+    X_single = X[:50]
+    y_single = np.zeros(50)
+    refitted = model.refit(X_single, y_single)
+    assert isinstance(refitted, lgb.Booster)
+    preds = refitted.predict(X[:5])
+    assert preds.shape == (5,)
+
+
 @pytest.mark.parametrize("boosting_type", ["rf", "dart"])
 def test_mape_for_specific_boosting_types(boosting_type):
     X, y = make_synthetic_regression()
