@@ -469,8 +469,8 @@ def test_categorical_encoding(tmp_path):
 
     df = pl.DataFrame(
         {
-            "cat1": pl.Series(cat1_values, dtype=pl.Categorical(ordering="lexical")),
-            "cat2": pl.Series(cat2_values, dtype=pl.Categorical(ordering="lexical")),
+            "cat1": pl.Series(cat1_values, dtype=pl.Categorical()),
+            "cat2": pl.Series(cat2_values, dtype=pl.Categorical()),
             "cat3": pl.Series(ordered_values, dtype=pl.Enum(categories=ordered_categories)),
             "num_col": [1.0, 2.0, 3.0, 4.0, 5.0],
         }
@@ -512,13 +512,13 @@ def test_categorical_encoding_unseen_category(tmp_path):
 
     train_df = pl.DataFrame(
         {
-            "cat_col": pl.Series(train_values, dtype=pl.Categorical(ordering="lexical")),
+            "cat_col": pl.Series(train_values, dtype=pl.Categorical()),
             "num_col": [1.0, 2.0, 3.0, 4.0, 5.0],
         }
     )
     valid_df = pl.DataFrame(
         {
-            "cat_col": pl.Series(valid_values, dtype=pl.Categorical(ordering="lexical")),
+            "cat_col": pl.Series(valid_values, dtype=pl.Categorical()),
             "num_col": [6.0, 7.0, 8.0, 9.0, 10.0],
         }
     )
@@ -531,7 +531,7 @@ def test_categorical_encoding_unseen_category(tmp_path):
     # Verify unseen category is encoded as NaN
     ref_valid_df = pl.DataFrame(
         {
-            "cat_col": pl.Series(["a", "c", None, None, "a"], dtype=pl.Categorical(ordering="lexical")),
+            "cat_col": pl.Series(["a", "c", None, None, "a"], dtype=pl.Categorical()),
             "num_col": [6.0, 7.0, 8.0, 9.0, 10.0],
         }
     )
@@ -545,7 +545,7 @@ def test_categorical_encoding_registered_but_unobserved(tmp_path):
     # Define full DataFrame with all categories observed
     full_df = pl.DataFrame(
         {
-            "unordered_col": pl.Series(["a", "b", "c", "d"], dtype=pl.Categorical(ordering="lexical")),
+            "unordered_col": pl.Series(["a", "b", "c", "d"], dtype=pl.Categorical()),
             "ordered_col": pl.Series(["e", "f", "g", "h"], dtype=pl.Enum(categories=["e", "f", "g", "h"])),
         }
     )
@@ -554,7 +554,7 @@ def test_categorical_encoding_registered_but_unobserved(tmp_path):
     train_df = full_df[[0, 2, 2]]  # ["a", "c", "c"] and ["e", "g", "g"]
     valid_df = pl.DataFrame(
         {
-            "unordered_col": pl.Series(["a", "b", "d"], dtype=pl.Categorical(ordering="lexical")),
+            "unordered_col": pl.Series(["a", "b", "d"], dtype=pl.Categorical()),
             "ordered_col": pl.Series(["h", "e", "f"], dtype=pl.Enum(categories=["e", "f", "g", "h"])),
         }
     )
@@ -585,7 +585,7 @@ def test_categorical_encoding_registered_but_unobserved(tmp_path):
     # - Ordered columns: treats as continuous. Unseen values interpolate (e<f<g) or clip (h clipped to g).
     ref_valid_df = pl.DataFrame(
         {
-            "unordered_col": pl.Series(["a", None, None], dtype=pl.Categorical(ordering="lexical")),
+            "unordered_col": pl.Series(["a", None, None], dtype=pl.Categorical()),
             "ordered_col": pl.Series(["g", "e", "g"], dtype=pl.Enum(categories=["e", "f", "g", "h"])),
         }
     )
@@ -602,7 +602,7 @@ def test_categorical_with_missing_values(tmp_path):
 
     X = pl.DataFrame(
         {
-            "cat_none": pl.Series(values_none, dtype=pl.Categorical(ordering="lexical")),
+            "cat_none": pl.Series(values_none, dtype=pl.Categorical()),
             "num": [1.0, 2.0, 3.0, 4.0, 5.0],
         }
     )
