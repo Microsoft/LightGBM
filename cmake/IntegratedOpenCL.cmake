@@ -1,5 +1,5 @@
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(BOOST_VERSION_DOT "1.74")
+set(BOOST_VERSION_DOT "1.83")
 string(REPLACE "." "_" BOOST_VERSION_UNDERSCORE ${BOOST_VERSION_DOT})
 
 set(OPENCL_HEADER_REPOSITORY "https://github.com/KhronosGroup/OpenCL-Headers.git")
@@ -76,6 +76,7 @@ ProcessorCount(J)
 set(BOOST_BASE "${PROJECT_BINARY_DIR}/Boost")
 set(BOOST_INCLUDE "${BOOST_BASE}/source" CACHE PATH "")
 set(BOOST_LIBRARY "${BOOST_BASE}/source/stage/lib" CACHE PATH "")
+set(BOOST_ADDRESS_MODEL 64)
 if(WIN32)
   if(MSVC)
     # references:
@@ -92,6 +93,9 @@ if(WIN32)
       set(MSVC_TOOLCHAIN_ID "141")
     else()
       message(FATAL_ERROR "Unsupported MSVC version number: ${MSVC_VERSION}")
+    endif()
+    if("${CMAKE_GENERATOR_PLATFORM}" MATCHES "Win32")
+      set(BOOST_ADDRESS_MODEL 32)
     endif()
     list(
       APPEND
@@ -126,6 +130,7 @@ list(
     "libs/any"
     "libs/array"
     "libs/assert"
+    "libs/atomic"
     "libs/bind"
     "libs/chrono"
     "libs/compute"
@@ -134,6 +139,7 @@ list(
     "libs/container"
     "libs/container_hash"
     "libs/core"
+    "libs/describe"
     "libs/detail"
     "libs/filesystem"
     "libs/foreach"
@@ -148,6 +154,7 @@ list(
     "libs/lexical_cast"
     "libs/math"
     "libs/move"
+    "libs/mp11"
     "libs/mpl"
     "libs/multi_index"
     "libs/numeric/conversion"
@@ -203,6 +210,7 @@ ExternalProject_Add(
     runtime-link=shared
     variant=release
     threading=multi
+    address-model=${BOOST_ADDRESS_MODEL}
     cxxflags="${BOOST_FLAGS}"
   INSTALL_COMMAND ""
   # BUILD_BYPRODUCTS is necessary to support 'Ninja' builds.
