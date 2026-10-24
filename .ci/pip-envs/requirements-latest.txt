@@ -17,8 +17,3 @@ polars>=1.40.1.dev0
 pyarrow>=24.0.0.dev0
 scikit-learn>=1.9.dev0
 scipy>=1.18.0.dev0
-
-# testing-only dependencies
-cloudpickle>=3.1.2
-psutil>=7.2.2
-pytest>=9.0.2

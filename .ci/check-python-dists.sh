@@ -27,28 +27,28 @@ PY_MINOR_VER=$(python -c "import sys; print(sys.version_info.minor)")
 if [ "$PY_MINOR_VER" -gt 7 ]; then
     echo "pydistcheck..."
     pip install 'pydistcheck>=0.9.1'
-    if { test "${TASK}" = "cuda" || test "${METHOD}" = "wheel"; }; then
-        pydistcheck \
-            --inspect \
-            --ignore 'compiled-objects-have-debug-symbols'\
-            --ignore 'distro-too-large-compressed' \
-            --max-allowed-size-uncompressed '550M' \
-            --max-allowed-files 806 \
-            "$(echo "${DIST_DIR}"/*)" || exit 1
-    elif { test "$(uname -m)" = "aarch64"; }; then
+    if { test "${TASK}" = "cuda"; }; then
         pydistcheck \
             --inspect \
             --ignore 'compiled-objects-have-debug-symbols' \
-            --max-allowed-size-compressed '5M' \
-            --max-allowed-size-uncompressed '15M' \
-            --max-allowed-files 806 \
+            --ignore 'distro-too-large-compressed' \
+            --max-allowed-size-uncompressed '550M' \
+            --max-allowed-files 807 \
+            "$(echo "${DIST_DIR}"/*)" || exit 1
+    elif { test "${METHOD}" = "wheel"; }; then
+        pydistcheck \
+            --inspect \
+            --ignore 'compiled-objects-have-debug-symbols' \
+            --max-allowed-size-compressed '4M' \
+            --max-allowed-size-uncompressed '10M' \
+            --max-allowed-files 17 \
             "$(echo "${DIST_DIR}"/*)" || exit 1
     else
         pydistcheck \
             --inspect \
-            --max-allowed-size-compressed '5M' \
-            --max-allowed-size-uncompressed '15M' \
-            --max-allowed-files 806 \
+            --max-allowed-size-compressed '2M' \
+            --max-allowed-size-uncompressed '12M' \
+            --max-allowed-files 807 \
             "$(echo "${DIST_DIR}"/*)" || exit 1
     fi
 else

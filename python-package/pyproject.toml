@@ -191,6 +191,10 @@ select = [
 raises-extend-require-match-for = ["*Exception", "*Error"]
 
 [tool.ruff.lint.per-file-ignores]
+".ci/*" = [
+    # pydocstyle
+    "D"
+]
 ".ci/create-nuget.py" = [
     # (flake8-print) flake8-print
     "T201"

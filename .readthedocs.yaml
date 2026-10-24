@@ -3,6 +3,10 @@ build:
   os: "ubuntu-24.04"
   tools:
     python: "miniforge3-latest"
+  jobs:
+    post_checkout:
+      - cp CONTRIBUTING.md docs/CONTRIBUTING.md
+
 conda:
   environment: docs/env.yml
 formats:

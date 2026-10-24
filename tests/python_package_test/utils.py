@@ -10,8 +10,7 @@ from pathlib import Path
 import cloudpickle
 import joblib
 import numpy as np
-import sklearn.datasets
-from sklearn.utils import check_random_state
+import pytest
 
 import lightgbm as lgb
 
@@ -20,22 +19,32 @@ SERIALIZERS = ["pickle", "joblib", "cloudpickle"]
 
 @lru_cache(maxsize=None)
 def load_breast_cancer(**kwargs):
+    sklearn = pytest.importorskip("sklearn")
     return sklearn.datasets.load_breast_cancer(**kwargs)
 
 
 @lru_cache(maxsize=None)
 def load_digits(**kwargs):
+    sklearn = pytest.importorskip("sklearn")
     return sklearn.datasets.load_digits(**kwargs)
 
 
 @lru_cache(maxsize=None)
 def load_iris(**kwargs):
+    sklearn = pytest.importorskip("sklearn")
     return sklearn.datasets.load_iris(**kwargs)
 
 
 @lru_cache(maxsize=None)
 def load_linnerud(**kwargs):
+    sklearn = pytest.importorskip("sklearn")
     return sklearn.datasets.load_linnerud(**kwargs)
+
+
+@lru_cache(maxsize=None)
+def make_blobs(**kwargs):
+    sklearn = pytest.importorskip("sklearn")
+    return sklearn.datasets.make_blobs(**kwargs)
 
 
 def make_ranking(
@@ -77,7 +86,8 @@ def make_ranking(
     group_ids : 1-d np.array of shape = [n_samples (or np.sum(group))]
         Array of group ids, each value indicates to which group each record belongs.
     """
-    rnd_generator = check_random_state(random_state)
+    sklearn = pytest.importorskip("sklearn")
+    rnd_generator = sklearn.utils.check_random_state(random_state)
 
     y_vec, group_id_vec = np.empty((0,), dtype=int), np.empty((0,), dtype=int)
     gid = 0
@@ -121,6 +131,7 @@ def make_ranking(
 
 @lru_cache(maxsize=None)
 def make_synthetic_regression(*, n_samples=100, n_features=4, n_informative=2, random_state=42):
+    sklearn = pytest.importorskip("sklearn")
     return sklearn.datasets.make_regression(
         n_samples=n_samples, n_features=n_features, n_informative=n_informative, random_state=random_state
     )
@@ -160,6 +171,11 @@ def sklearn_multiclass_custom_objective(y_true, y_pred, weight=None):
         grad *= weight2d
         hess *= weight2d
     return grad, hess
+
+
+def train_test_split(*args, **kwargs):
+    sklearn = pytest.importorskip("sklearn")
+    return sklearn.model_selection.train_test_split(*args, **kwargs)
 
 
 def pickle_obj(obj, filepath, serializer):

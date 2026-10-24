@@ -48,7 +48,7 @@ jobs:
             method: with-sanitizers
             container: 'ubuntu:22.04'
             os-display-name: 'ubuntu22.04'
-          - os: macos-14
+          - os: macos-15
             task: cpp-tests
             compiler: clang
             method: with-sanitizers
@@ -157,6 +157,6 @@ jobs:
       statuses: read
     steps:
       - name: Note that all tests succeeded
-        uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe  # v1.2.2
+        uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35  # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}

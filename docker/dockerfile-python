@@ -1,6 +1,8 @@
-FROM ubuntu:20.04
+FROM ubuntu:24.04
 
 ARG CONDA_DIR=/opt/miniforge
+ARG LIGHTGBM_GIT_REF=stable
+ARG LIGHTGBM_GIT_URL=https://github.com/lightgbm-org/LightGBM.git
 
 ENV \
     DEBIAN_FRONTEND=noninteractive \
@@ -10,25 +12,26 @@ ENV \
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+        build-essential \
         ca-certificates \
         cmake \
-        build-essential \
-        gcc \
-        g++ \
         curl \
         git \
         libomp-dev && \
     # python environment
-    curl -sL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -o miniforge.sh && \
-    /bin/bash miniforge.sh -f -b -p $CONDA_DIR && \
-    export PATH="$CONDA_DIR/bin:$PATH" && \
+    curl -sL "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-$(arch).sh" -o miniforge.sh && \
+    /bin/bash miniforge.sh -f -b -p "${CONDA_DIR}" && \
     conda config --set always_yes yes --set changeps1 no && \
     # lightgbm
-    conda install -q -y numpy scipy scikit-learn pandas && \
-    git clone --recursive --branch stable --depth 1 https://github.com/lightgbm-org/LightGBM && \
+    conda install -q -y numpy pandas scipy scikit-learn && \
+    git clone \
+        --recursive \
+        "${LIGHTGBM_GIT_URL}" && \
+    git -C ./LightGBM checkout "${LIGHTGBM_GIT_REF}" && \
     cd ./LightGBM && \
     sh ./build-python.sh install && \
     # clean
     apt-get autoremove -y && apt-get clean && \
     conda clean -a -y && \
-    rm -rf /usr/local/src/*
+    cd .. && \
+    rm -rf ./LightGBM
