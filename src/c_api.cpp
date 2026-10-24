@@ -543,7 +543,7 @@ class Booster {
     // calculate the nonzero data and indices size
     int64_t elements_size = 0;
     for (int64_t i = 0; i < static_cast<int64_t>(agg.size()); ++i) {
-      auto row_vector = agg[i];
+      const auto& row_vector = agg[i];
       for (int j = 0; j < static_cast<int>(row_vector.size()); ++j) {
         elements_size += static_cast<int64_t>(row_vector[j].size());
       }
@@ -594,7 +594,7 @@ class Booster {
     int64_t row_vector_cnt = 0;
     for (int m = 0; m < num_matrices; ++m) {
       for (int64_t i = 0; i < static_cast<int64_t>(agg.size()); ++i) {
-        auto row_vector = agg[i];
+        const auto& row_vector = agg[i];
         auto row_vector_size = row_vector[m].size();
         // keep track of the row_vector sizes for parallelization
         row_sizes[row_vector_cnt] = static_cast<int>(row_vector_size);
@@ -626,7 +626,7 @@ class Booster {
       #pragma omp parallel for num_threads(OMP_NUM_THREADS()) schedule(static)
       for (int64_t i = 0; i < static_cast<int64_t>(agg.size()); ++i) {
         OMP_LOOP_EX_BEGIN();
-        auto row_vector = agg[i];
+        const auto& row_vector = agg[i];
         int64_t row_start_index = matrix_start_index + i;
         int64_t element_index = row_matrix_offsets[row_start_index] + matrix_offsets[m];
         int64_t indptr_loop_index = indptr_index + i;
@@ -688,7 +688,7 @@ class Booster {
     for (int m = 0; m < num_matrices; ++m) {
       column_sizes[m] = std::vector<int64_t>(num_output_cols, 0);
       for (int64_t i = 0; i < static_cast<int64_t>(agg.size()); ++i) {
-        auto row_vector = agg[i];
+        const auto& row_vector = agg[i];
         for (auto it = row_vector[m].begin(); it != row_vector[m].end(); ++it) {
           column_sizes[m][it->first] += 1;
         }
@@ -739,7 +739,7 @@ class Booster {
     for (int m = 0; m < num_matrices; ++m) {
       OMP_LOOP_EX_BEGIN();
       for (int64_t i = 0; i < static_cast<int64_t>(agg.size()); ++i) {
-        auto row_vector = agg[i];
+        const auto& row_vector = agg[i];
         for (auto it = row_vector[m].begin(); it != row_vector[m].end(); ++it) {
           int64_t col_idx = it->first;
           int64_t element_index = column_start_indices[m][col_idx] +
