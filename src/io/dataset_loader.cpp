@@ -354,6 +354,17 @@ Dataset* DatasetLoader::LoadFromFileAlignWithOtherDataset(const char* filename, 
     // checks whether there's a initial score file when loaded from binary data files
     // the initial score file should with suffix ".bin.init"
     dataset->metadata_.LoadInitialScore(bin_filename);
+
+    dataset->device_type_ = config_.device_type;
+    dataset->gpu_device_id_ = config_.gpu_device_id;
+    #ifdef USE_CUDA
+    if (config_.device_type == std::string("cuda")) {
+      dataset->CreateCUDAColumnData();
+      dataset->metadata_.CreateCUDAMetadata(dataset->gpu_device_id_);
+    } else {
+      dataset->cuda_column_data_ = nullptr;
+    }
+    #endif  // USE_CUDA
   }
   // not need to check validation data
   // check meta data

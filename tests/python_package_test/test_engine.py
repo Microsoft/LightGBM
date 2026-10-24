@@ -2222,6 +2222,26 @@ def test_init_with_subset(tmp_path, rng):
     assert subset_data_4.get_data() == lgb_train_data
 
 
+def test_train_with_validation_set_loaded_from_binary_file(tmp_path, rng):
+    X = rng.uniform(size=(200, 4))
+    y = (X[:, 0] > 0.5).astype(np.float64)
+    params = {"objective": "binary", "metric": "binary_logloss", "verbose": -1}
+    lgb.Dataset(X[:100], y[:100], params=params).save_binary(tmp_path / "train.bin")
+    train_ref = lgb.Dataset(tmp_path / "train.bin", params=params)
+    lgb.Dataset(X[100:], y[100:], params=params, reference=train_ref).save_binary(tmp_path / "valid.bin")
+    train = lgb.Dataset(tmp_path / "train.bin", params=params)
+    valid = lgb.Dataset(tmp_path / "valid.bin", reference=train, params=params)
+    evals_result = {}
+    lgb.train(
+        params,
+        train,
+        num_boost_round=5,
+        valid_sets=[valid],
+        callbacks=[lgb.record_evaluation(evals_result)],
+    )
+    assert len(evals_result["valid_0"]["binary_logloss"]) == 5
+
+
 def test_training_on_constructed_subset_without_params(rng):
     X = rng.uniform(size=(100, 10))
     y = rng.uniform(size=(100,))
