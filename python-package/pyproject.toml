@@ -134,10 +134,6 @@ quote-style = "double"
 skip-magic-trailing-comma = false
 
 [tool.ruff.lint]
-fixable = [
-    # (isort)  Import block is un-sorted or un-formatted
-    "I001"
-]
 ignore = [
     # (pydocstyle) Missing docstring in magic method
     "D105",
@@ -197,7 +193,7 @@ raises-extend-require-match-for = ["*Exception", "*Error"]
 [tool.ruff.lint.per-file-ignores]
 ".ci/*" = [
     # pydocstyle
-    "D",
+    "D"
 ]
 ".ci/create-nuget.py" = [
     # (flake8-print) flake8-print

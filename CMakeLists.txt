@@ -534,6 +534,45 @@ if(MSVC AND NOT __BUILD_FOR_R)
   set_target_properties(_lightgbm PROPERTIES OUTPUT_NAME "lib_lightgbm")
 endif()
 
+# Only the C API (functions / types with names prefixed 'LGBM_*') is considered part of LightGBM's
+# public API.
+#
+# Hiding other symbols makes library loading faster and reduce the risk of LightGBM
+# conflicting with others libraries.
+if(NOT BUILD_STATIC_LIB)
+  # hide any LightGBM symbols not explicitly marked for export
+  set_target_properties(
+    lightgbm_objs lightgbm_capi_objs _lightgbm
+    PROPERTIES
+      C_VISIBILITY_PRESET hidden
+      CXX_VISIBILITY_PRESET hidden
+      CUDA_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN TRUE
+  )
+  # Some symbols ignore -fvisibility (e.g. compiler-generated OpenMP locks) or come from
+  # statically-linked dependencies, so also restrict exports at link time.
+  if(APPLE)
+    if(__BUILD_FOR_R)
+      # The R package registers its routines with R, so it only needs to export R_init_lightgbm().
+      target_link_options(_lightgbm PRIVATE "LINKER:-exported_symbol,_R_init_lightgbm")
+    else()
+      # In non-R builds, the list of symbols to export from lightgbm.exports.
+      target_link_options(
+        _lightgbm
+        PRIVATE
+          "LINKER:-exported_symbols_list,${PROJECT_SOURCE_DIR}/cmake/lightgbm.exports"
+      )
+    endif()
+  elseif(UNIX AND NOT CYGWIN)
+    if(__BUILD_FOR_R)
+      set(LGBM_VERSION_SCRIPT "${PROJECT_SOURCE_DIR}/../inst/lightgbm.map")
+    else()
+      set(LGBM_VERSION_SCRIPT "${PROJECT_SOURCE_DIR}/cmake/lightgbm.map")
+    endif()
+    target_link_options(_lightgbm PRIVATE "LINKER:--version-script=${LGBM_VERSION_SCRIPT}")
+  endif()
+endif()
+
 if(USE_SWIG)
   set_property(SOURCE swig/lightgbmlib.i PROPERTY CPLUSPLUS ON)
   list(APPEND swig_options -package com.microsoft.ml.lightgbm)

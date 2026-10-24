@@ -495,9 +495,9 @@ class Dataset {
  public:
   friend DatasetLoader;
 
-  LIGHTGBM_EXPORT Dataset();
+  Dataset();
 
-  LIGHTGBM_EXPORT Dataset(data_size_t num_data);
+  explicit Dataset(data_size_t num_data);
 
   void Construct(
     std::vector<std::unique_ptr<BinMapper>>* bin_mappers,
@@ -511,18 +511,18 @@ class Dataset {
     const Config& io_config);
 
   /*! \brief Destructor */
-  LIGHTGBM_EXPORT ~Dataset();
+  ~Dataset();
 
   /*!
   * \brief Initialize from the given reference
   * \param num_data Number of data
   * \param reference Reference dataset
   */
-  LIGHTGBM_EXPORT void InitByReference(data_size_t num_data, const Dataset* reference) {
+  void InitByReference(data_size_t num_data, const Dataset* reference) {
     metadata_.InitByReference(num_data, &reference->metadata());
   }
 
-  LIGHTGBM_EXPORT void InitStreaming(data_size_t num_data,
+  void InitStreaming(data_size_t num_data,
                                      int32_t has_weights,
                                      int32_t has_init_scores,
                                      int32_t has_queries,
@@ -542,7 +542,7 @@ class Dataset {
     }
   }
 
-  LIGHTGBM_EXPORT bool CheckAlign(const Dataset& other) const {
+  bool CheckAlign(const Dataset& other) const {
     if (num_features_ != other.num_features_) {
       return false;
     }
@@ -687,40 +687,40 @@ class Dataset {
       const std::vector<int8_t>& is_feature_used, bool is_constant_hessian,
       bool force_col_wise, bool force_row_wise, const int num_grad_quant_bins) const;
 
-  LIGHTGBM_EXPORT void FinishLoad();
+  void FinishLoad();
 
   bool SetFieldFromArrow(const char* field_name, struct ArrowArrayStream* stream);
 
   bool SetFieldFromArrow(const char* field_name, int64_t n_chunks,
                          struct ArrowArray* chunks, struct ArrowSchema* schema);
 
-  LIGHTGBM_EXPORT bool SetFloatField(const char* field_name, const float* field_data, data_size_t num_element);
+  bool SetFloatField(const char* field_name, const float* field_data, data_size_t num_element);
 
-  LIGHTGBM_EXPORT bool SetDoubleField(const char* field_name, const double* field_data, data_size_t num_element);
+  bool SetDoubleField(const char* field_name, const double* field_data, data_size_t num_element);
 
-  LIGHTGBM_EXPORT bool SetIntField(const char* field_name, const int* field_data, data_size_t num_element);
+  bool SetIntField(const char* field_name, const int* field_data, data_size_t num_element);
 
-  LIGHTGBM_EXPORT bool GetFloatField(const char* field_name, data_size_t* out_len, const float** out_ptr);
+  bool GetFloatField(const char* field_name, data_size_t* out_len, const float** out_ptr);
 
-  LIGHTGBM_EXPORT bool GetDoubleField(const char* field_name, data_size_t* out_len, const double** out_ptr);
+  bool GetDoubleField(const char* field_name, data_size_t* out_len, const double** out_ptr);
 
-  LIGHTGBM_EXPORT bool GetIntField(const char* field_name, data_size_t* out_len, const int** out_ptr);
+  bool GetIntField(const char* field_name, data_size_t* out_len, const int** out_ptr);
 
   /*!
   * \brief Save current dataset into binary file, will save to "filename.bin"
   */
-  LIGHTGBM_EXPORT void SaveBinaryFile(const char* bin_filename);
+  void SaveBinaryFile(const char* bin_filename);
 
   /*!
    * \brief Serialize the overall Dataset definition/schema to a binary buffer (i.e., without data)
    */
-  LIGHTGBM_EXPORT void SerializeReference(ByteBuffer* out);
+  void SerializeReference(ByteBuffer* out);
 
-  LIGHTGBM_EXPORT void DumpTextFile(const char* text_filename);
+  void DumpTextFile(const char* text_filename);
 
-  LIGHTGBM_EXPORT void CopyFeatureMapperFrom(const Dataset* dataset);
+  void CopyFeatureMapperFrom(const Dataset* dataset);
 
-  LIGHTGBM_EXPORT void CreateValid(const Dataset* dataset);
+  void CreateValid(const Dataset* dataset);
 
   void InitTrain(const std::vector<int8_t>& is_feature_used,
                  TrainingShareStates* share_state) const;
@@ -924,7 +924,8 @@ class Dataset {
         std::replace(feature_name.begin(), feature_name.end(), ' ', '_');
       }
       if (feature_name_set.count(feature_name) > 0) {
-        Log::Fatal("Feature (%s) appears more than one time.", feature_name.c_str());
+        Log::Fatal("After preprocessing (including replacing whitespace with '_'), multiple features named '%s' found in Dataset. "
+                   "Ensure that feature names are unique and do not contain whitespace.", feature_name.c_str());
       }
       feature_name_set.insert(feature_name);
     }

@@ -1,3 +1,5 @@
+#! /bin/sh
+
 # Script used to generate `Makevars.win` from `Makevars.win.in`
 # on Windows
 
@@ -7,11 +9,11 @@
 
 R_EXE="${R_HOME}/bin${R_ARCH_BIN}/R"
 
-CXX17=`"${R_EXE}" CMD config CXX17`
-CXX17STD=`"${R_EXE}" CMD config CXX17STD`
+CXX17=$("${R_EXE}" CMD config CXX17)
+CXX17STD=$("${R_EXE}" CMD config CXX17STD)
 CXX="${CXX17} ${CXX17STD}"
-CXXFLAGS=`"${R_EXE}" CMD config CXX17FLAGS`
-CPPFLAGS=`"${R_EXE}" CMD config CPPFLAGS`
+CXXFLAGS=$("${R_EXE}" CMD config CXX17FLAGS)
+CPPFLAGS=$("${R_EXE}" CMD config CPPFLAGS)
 
 # LightGBM-specific flags
 LGB_CPPFLAGS=""
@@ -37,6 +39,7 @@ int main() {
 }
 EOL
 
+# shellcheck disable=SC2086
 ${CXX} ${CXXFLAGS} ${CPPFLAGS} -o conftest conftest.cpp 2>/dev/null && ./conftest && ac_mm_prefetch="yes"
 rm -f ./conftest
 rm -f ./conftest.cpp
@@ -61,6 +64,7 @@ int main() {
 }
 EOL
 
+# shellcheck disable=SC2086
 ${CXX} ${CXXFLAGS} ${CPPFLAGS} -o conftest conftest.cpp 2>/dev/null && ./conftest && ac_mm_malloc="yes"
 rm -f ./conftest
 rm -f ./conftest.cpp
@@ -86,6 +90,7 @@ int main() {
 }
 EOL
 
+# shellcheck disable=SC2086
 ${CXX} ${CXXFLAGS} ${CPPFLAGS} -o conftest conftest.cpp 2>/dev/null && ./conftest && ac_inet_pton="yes"
 rm -f ./conftest
 rm -f ./conftest.cpp

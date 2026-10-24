@@ -41,6 +41,7 @@ For more details, please refer to `Features <./Features.rst>`__.
    GPU Tutorial <GPU-Tutorial>
    Advanced Topics <Advanced-Topics>
    FAQ <FAQ>
+   Contributing <CONTRIBUTING>
    Development Guide <Development-Guide>
 
 .. toctree::

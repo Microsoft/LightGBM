@@ -1159,7 +1159,7 @@ struct Config {
 
   bool is_parallel = false;
   bool is_data_based_parallel = false;
-  LIGHTGBM_EXPORT void Set(const std::unordered_map<std::string, std::string>& params);
+  void Set(const std::unordered_map<std::string, std::string>& params);
   static const std::unordered_map<std::string, std::string>& alias_table();
   static const std::unordered_map<std::string, std::vector<std::string>>& parameter2aliases();
   static const std::unordered_set<std::string>& parameter_set();

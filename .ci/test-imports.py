@@ -1,5 +1,9 @@
 import sys
 
+# import 'numpy' first to load system libraries
+# TODO: remove when https://github.com/lightgbm-org/LightGBM/issues/7355 is resolved
+import numpy as np  # noqa: F401
+
 import lightgbm as lgb  # noqa: F401
 
 sys.stdout.write("testing Python imports\n")
@@ -8,7 +12,6 @@ sys.stdout.write("testing Python imports\n")
 lazy_imports = {
     "dask",
     "graphviz",
-    "pandas",
     "matplotlib",
 }
 

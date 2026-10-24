@@ -38,19 +38,19 @@ struct ByteBuffer final : public BinaryWriter {
     return bytes;
   }
 
-  LIGHTGBM_EXPORT void Reserve(size_t capacity) {
+  void Reserve(size_t capacity) {
     buffer_.reserve(capacity);
   }
 
-  LIGHTGBM_EXPORT size_t GetSize() const {
+  size_t GetSize() const {
     return buffer_.size();
   }
 
-  LIGHTGBM_EXPORT char GetAt(size_t index) const {
+  char GetAt(size_t index) const {
     return buffer_.at(index);
   }
 
-  LIGHTGBM_EXPORT char* Data() {
+  char* Data() {
     return buffer_.data();
   }
 
