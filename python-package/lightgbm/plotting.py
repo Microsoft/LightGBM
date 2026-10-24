@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
-from .basic import Booster, _data_from_pandas, _is_zero, _log_warning, _MissingType
+from .basic import Booster, _data_from_narwhals, _is_zero, _log_warning, _MissingType, _pandas_df_to_numpy
 from .compat import pd_DataFrame
 from .sklearn import LGBMModel
 
@@ -725,12 +725,13 @@ def create_tree_digraph(
         if example_case.shape[0] != 1:
             raise ValueError("example_case must have a single row.")
         if isinstance(example_case, pd_DataFrame):
-            example_case = _data_from_pandas(
+            example_case = _data_from_narwhals(
                 data=example_case,
                 feature_name="auto",
                 categorical_feature="auto",
                 pandas_categorical=booster.pandas_categorical,
             )[0]
+            example_case = _pandas_df_to_numpy(example_case)
         example_case = example_case[0]
 
     return _to_graphviz(

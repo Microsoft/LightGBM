@@ -502,14 +502,14 @@ def test_categorical_encoding_registered_but_unobserved(tmp_path):
     assert train_ds.params["categorical_column"] == [0]  # only unordered column is treated as categorical
 
     # Python-side encoding: both ordered and unordered columns use all registered categories to encode
-    valid_df_encoded = lgb.basic._data_from_pandas(
+    valid_df_encoded = lgb.basic._data_from_narwhals(
         data=valid_df,
         feature_name="auto",
         categorical_feature="auto",
         pandas_categorical=train_ds.pandas_categorical,
     )[0]
-    assert valid_df_encoded[:, 0].tolist() == [0.0, 1.0, 3.0]  # a -> 0, b -> 1, d -> 3
-    assert valid_df_encoded[:, 1].tolist() == [3.0, 0.0, 1.0]  # h -> 3, e -> 0, f -> 1
+    assert valid_df_encoded.iloc[:, 0].tolist() == [0.0, 1.0, 3.0]  # a -> 0, b -> 1, d -> 3
+    assert valid_df_encoded.iloc[:, 1].tolist() == [3.0, 0.0, 1.0]  # h -> 3, e -> 0, f -> 1
 
     # C++ binning
     # - Unordered columns: only codes observed during training are binned. Unseen codes are treated as missing.
@@ -581,12 +581,13 @@ def test_pandas_categorical_code_conversion_doesnt_modify_original_data(feature_
         pandas_categorical = [["a", "b"]]
     else:
         pandas_categorical = [["a"]]
-    data = lgb.basic._data_from_pandas(
+    data = lgb.basic._data_from_narwhals(
         data=df,
         feature_name=feature_name,
         categorical_feature="auto",
         pandas_categorical=pandas_categorical,
     )[0]
+    data = lgb.basic._pandas_df_to_numpy(data)
     # check that the original data wasn't modified
     np.testing.assert_equal(df["x1"], X[:, 0])
     # check that the built data has the codes
@@ -655,5 +656,5 @@ def test_pandas_unsupported_dtypes(dtype, values):
     df = pd.DataFrame({"test_col": pd.Series(values, dtype=dtype), "num_col": [1.0, 2.0, 3.0]})
     y = [0, 1, 0]
 
-    with pytest.raises(ValueError, match="pandas dtypes must be int, float or bool"):
+    with pytest.raises(ValueError, match="DataFrame dtypes must be int, float, bool, categorical or enum"):
         lgb.Dataset(df, label=y).construct()

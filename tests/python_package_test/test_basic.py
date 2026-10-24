@@ -922,9 +922,10 @@ def test_no_copy_when_single_float_dtype_dataframe(dtype, feature_name, rng):
     # a copy of the input numpy array by default
     # ref: https://github.com/pandas-dev/pandas/issues/58913
     df = pd.DataFrame(X, copy=False)
-    built_data = lgb.basic._data_from_pandas(
+    built_data = lgb.basic._data_from_narwhals(
         data=df, feature_name=feature_name, categorical_feature="auto", pandas_categorical=None
     )[0]
+    built_data = lgb.basic._pandas_df_to_numpy(built_data)
     assert built_data.dtype == dtype
     assert np.shares_memory(X, built_data)
 
@@ -940,12 +941,13 @@ def test_categorical_code_conversion_doesnt_modify_original_data(feature_name, c
         pandas_categorical = [["a", "b"]]
     else:
         pandas_categorical = [["a"]]
-    data = lgb.basic._data_from_pandas(
+    data = lgb.basic._data_from_narwhals(
         data=df,
         feature_name=feature_name,
         categorical_feature="auto",
         pandas_categorical=pandas_categorical,
     )[0]
+    data = lgb.basic._pandas_df_to_numpy(data)
     # check that the original data wasn't modified
     np.testing.assert_equal(df[column_name], X[:, 0])
     # check that the built data has the codes

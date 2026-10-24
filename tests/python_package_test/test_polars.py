@@ -1,4 +1,5 @@
 # coding: utf-8
+from datetime import date, datetime
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -17,6 +18,8 @@ pl = pytest.importorskip("polars")
 
 _INTEGER_TYPES = [pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64]
 _FLOAT_TYPES = [pl.Float32, pl.Float64]
+_POLARS_VERSION = tuple(map(int, pl.__version__.split(".")[:2]))
+_UNORDERED_CATEGORICAL = pl.Categorical(ordering="lexical") if _POLARS_VERSION < (1, 32) else pl.Categorical()
 
 
 def generate_simple_polars_frame() -> pl.DataFrame:
@@ -453,3 +456,238 @@ def test_get_data_polars_frame_subset(rng):
     assert len(subset_data) == len(used_indices)
     assert subset_data.shape == (subset_size, 3)
     assert_frame_equal(subset_data, expected_subset)
+
+
+# ------------------------------------------- CATEGORICAL ----------------------------------------- #
+
+
+def test_categorical_encoding(tmp_path):
+    cat1_categories = ["a", "b", "c"]
+    cat1_values = ["a", "b", "c", "b", "a"]
+    cat2_categories = ["b", "c", "d"]
+    cat2_values = ["b", "c", "c", "d", "d"]
+    ordered_categories = ["high", "low", "mid"]
+    ordered_values = ["low", "high", "mid", "high", "low"]
+
+    df = pl.DataFrame(
+        {
+            "cat1": pl.Series(cat1_values, dtype=_UNORDERED_CATEGORICAL),
+            "cat2": pl.Series(cat2_values, dtype=_UNORDERED_CATEGORICAL),
+            "cat3": pl.Series(ordered_values, dtype=pl.Enum(categories=ordered_categories)),
+            "num_col": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+    y = [0, 1, 0, 1, 0]
+
+    ds = lgb.Dataset(df, label=y, params=dummy_dataset_params())
+    ds.construct()
+
+    assert ds.num_data() == 5
+    assert ds.num_feature() == 4
+    assert ds.get_feature_name() == ["cat1", "cat2", "cat3", "num_col"]
+
+    assert ds.categorical_feature == "auto"
+    assert len(ds.pandas_categorical) == 3
+    assert ds.pandas_categorical[0] == cat1_categories
+    assert ds.pandas_categorical[1] == cat2_categories
+    assert ds.pandas_categorical[2] == ordered_categories
+    assert ds.params["categorical_column"] == [0, 1]  # ordered categorical not treated as categorical by default
+
+    # Verify correct encodings
+    ref_df = pl.DataFrame(
+        {
+            "cat1": [cat1_categories.index(v) for v in cat1_values],  # [0, 1, 2, 1, 0]
+            "cat2": [cat2_categories.index(v) for v in cat2_values],  # [0, 1, 1, 2, 2],
+            "cat3": [ordered_categories.index(v) for v in ordered_values],  # [1, 0, 2, 0, 1],
+            "num_col": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+    ref_ds = lgb.Dataset(ref_df, label=y, categorical_feature=[0, 1], params=dummy_dataset_params())
+    ref_ds.construct()
+
+    assert_datasets_equal(tmp_path, ds, ref_ds)
+
+
+def test_categorical_encoding_unseen_category(tmp_path):
+    train_values = ["a", "b", "c", "a", "b"]
+    valid_values = ["a", "c", "d", "d", "a"]  # "d" is unseen in training data
+
+    train_df = pl.DataFrame(
+        {
+            "cat_col": pl.Series(train_values, dtype=_UNORDERED_CATEGORICAL),
+            "num_col": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+    valid_df = pl.DataFrame(
+        {
+            "cat_col": pl.Series(valid_values, dtype=_UNORDERED_CATEGORICAL),
+            "num_col": [6.0, 7.0, 8.0, 9.0, 10.0],
+        }
+    )
+
+    train_ds = lgb.Dataset(train_df, label=[0, 1, 0, 1, 0], params=dummy_dataset_params())
+    valid_ds = lgb.Dataset(valid_df, label=[1, 0, 1, 0, 1], reference=train_ds, params=dummy_dataset_params())
+    train_ds.construct()
+    valid_ds.construct()
+
+    # Verify unseen category is encoded as NaN
+    ref_valid_df = pl.DataFrame(
+        {
+            "cat_col": pl.Series(["a", "c", None, None, "a"], dtype=_UNORDERED_CATEGORICAL),
+            "num_col": [6.0, 7.0, 8.0, 9.0, 10.0],
+        }
+    )
+    ref_valid_ds = lgb.Dataset(ref_valid_df, label=[1, 0, 1, 0, 1], reference=train_ds, params=dummy_dataset_params())
+    ref_valid_ds.construct()
+
+    assert_datasets_equal(tmp_path, valid_ds, ref_valid_ds)
+
+
+def test_categorical_encoding_registered_but_unobserved(tmp_path):
+    # Define full DataFrame with all categories observed
+    full_df = pl.DataFrame(
+        {
+            "unordered_col": pl.Series(["a", "b", "c", "d"], dtype=_UNORDERED_CATEGORICAL),
+            "ordered_col": pl.Series(["e", "f", "g", "h"], dtype=pl.Enum(categories=["e", "f", "g", "h"])),
+        }
+    )
+
+    # Slice train from full_df so all categories are preserved despite not all being observed
+    train_df = full_df[[0, 2, 2]]  # ["a", "c", "c"] and ["e", "g", "g"]
+    valid_df = pl.DataFrame(
+        {
+            "unordered_col": pl.Series(["a", "b", "d"], dtype=_UNORDERED_CATEGORICAL),
+            "ordered_col": pl.Series(["h", "e", "f"], dtype=pl.Enum(categories=["e", "f", "g", "h"])),
+        }
+    )
+
+    train_ds = lgb.Dataset(train_df, label=[0, 1, 0], params=dummy_dataset_params())
+    valid_ds = lgb.Dataset(valid_df, label=[0, 1, 0], reference=train_ds, params=dummy_dataset_params())
+    train_ds.construct()
+    valid_ds.construct()
+
+    # NOTE: Polars is deviating from the pandas behavior here. In pandas, the category set is attached to
+    # the dtype and unobserved categories are preserved. In Polars, unoberved categories are dropped.
+    assert train_ds.pandas_categorical[0] == ["a", "c"]
+    assert train_ds.pandas_categorical[1] == ["e", "f", "g", "h"]
+    assert train_ds.params["categorical_column"] == [0]  # only unordered column is treated as categorical
+
+    # Python-side encoding: both ordered and unordered columns use all registered categories to encode
+    valid_df_encoded = lgb.basic._data_from_narwhals(
+        data=valid_df,
+        feature_name="auto",
+        categorical_feature="auto",
+        pandas_categorical=train_ds.pandas_categorical,
+    )[0]
+    assert valid_df_encoded[:, 0].to_list() == [0.0, None, None]  # a -> 0, b -> None, d -> None
+    assert valid_df_encoded[:, 1].to_list() == [3.0, 0.0, 1.0]  # h -> 3, e -> 0, f -> 1
+
+    # C++ binning
+    # - Unordered columns: only codes observed during training are binned. Unseen codes are treated as missing.
+    # - Ordered columns: treats as continuous. Unseen values interpolate (e<f<g) or clip (h clipped to g).
+    ref_valid_df = pl.DataFrame(
+        {
+            "unordered_col": pl.Series(["a", None, None], dtype=_UNORDERED_CATEGORICAL),
+            "ordered_col": pl.Series(["g", "e", "g"], dtype=pl.Enum(categories=["e", "f", "g", "h"])),
+        }
+    )
+    ref_valid_ds = lgb.Dataset(ref_valid_df, label=[0, 1, 0], reference=train_ds, params=dummy_dataset_params())
+    ref_valid_ds.construct()
+
+    assert_datasets_equal(tmp_path, valid_ds, ref_valid_ds)
+
+
+def test_categorical_with_missing_values(tmp_path):
+    categories = ["a", "b"]
+    values_none = ["a", "b", None, "a", None]
+    # NOTE: Polars does not allow NaN values in categorical columns
+
+    X = pl.DataFrame(
+        {
+            "cat_none": pl.Series(values_none, dtype=_UNORDERED_CATEGORICAL),
+            "num": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+    y = [0, 1, 0, 1, 0]
+
+    ds = lgb.Dataset(X, label=y, params=dummy_dataset_params())
+    ds.construct()
+    assert ds.pandas_categorical == [categories]
+
+    ref_df = pl.DataFrame(
+        {
+            "cat_none": [0.0, 1.0, np.nan, 0.0, np.nan],
+            "num": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+    ref_ds = lgb.Dataset(ref_df, label=y, categorical_feature=[0], params=dummy_dataset_params())
+    ref_ds.construct()
+    assert_datasets_equal(tmp_path, ds, ref_ds)
+
+
+def test_dataset_construction_with_high_cardinality_categorical_succeeds(rng):
+    X = pl.DataFrame({"x1": rng.integers(low=0, high=5_000, size=(10_000,))})
+    y = rng.uniform(size=(10_000,))
+    ds = lgb.Dataset(X, y, categorical_feature=["x1"])
+    ds.construct()
+    assert ds.num_data() == 10_000
+    assert ds.num_feature() == 1
+
+
+# ---------------------------------------- DTYPE VALIDATION --------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("dtype", "values"),
+    [
+        (pl.Int8, [1, 2, 3]),
+        (pl.Int16, [1, 2, 3]),
+        (pl.Int32, [1, 2, 3]),
+        (pl.Int64, [1, 2, 3]),
+        (pl.UInt8, [1, 2, 3]),
+        (pl.UInt16, [1, 2, 3]),
+        (pl.UInt32, [1, 2, 3]),
+        (pl.UInt64, [1, 2, 3]),
+        (pl.Float32, [1.0, 2.0, 3.0]),
+        (pl.Float64, [1.0, 2.0, 3.0]),
+        (pl.Boolean, [True, False, True]),
+        # Categorical dtypes are supported, but tested separately
+    ],
+)
+def test_polars_supported_dtypes(tmp_path, dtype, values):
+    df = pl.DataFrame({"test_col": pl.Series(values, dtype=dtype), "num_col": [4.0, 5.0, 6.0]})
+    y = [0, 1, 0]
+
+    ds = lgb.Dataset(df, label=y, params=dummy_dataset_params())
+    ds.construct()
+
+    assert ds.num_data() == 3
+    assert ds.num_feature() == 2
+    assert ds.get_feature_name() == ["test_col", "num_col"]
+    assert ds.get_label().tolist() == y
+
+    # Verify values are preserved
+    ref_df = pl.DataFrame({"test_col": values, "num_col": [4.0, 5.0, 6.0]})
+    ref_ds = lgb.Dataset(ref_df, label=y, params=dummy_dataset_params())
+    ref_ds.construct()
+
+    assert_datasets_equal(tmp_path, ds, ref_ds)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "values"),
+    [
+        (pl.String, ["a", "b", "c"]),
+        (pl.Date, [date(2020, 1, 1), date(2020, 1, 2), date(2020, 1, 3)]),
+        (pl.Datetime, [datetime(2020, 1, 1), datetime(2020, 1, 2), datetime(2020, 1, 3)]),
+        (pl.Duration, [1, 2, 3]),
+        (pl.Struct, [{"a": 1}, {"a": 2}, {"a": 3}]),
+        (pl.List, [[1, 2], [3, 4], [5, 6]]),
+    ],
+)
+def test_polars_unsupported_dtypes(dtype, values):
+    df = pl.DataFrame({"test_col": pl.Series(values, dtype=dtype), "num_col": [1.0, 2.0, 3.0]})
+    y = [0, 1, 0]
+
+    with pytest.raises(ValueError, match="DataFrame dtypes must be int, float, bool, categorical or enum"):
+        lgb.Dataset(df, label=y).construct()

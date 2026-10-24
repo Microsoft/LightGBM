@@ -23,23 +23,28 @@ Categorical Feature Support
 -  Use ``categorical_feature`` to specify the categorical features.
    Refer to the parameter ``categorical_feature`` in `Parameters <./Parameters.rst#categorical_feature>`__.
 
--  Categorical features will be cast to ``int32`` (integer codes will be extracted from pandas categoricals in the Python-package) so they must be encoded as non-negative integers (negative values will be treated as missing)
+-  Categorical features will be cast to ``int32`` (integer codes will be extracted from categorical or enum dtypes in the Python-package) so they must be encoded as non-negative integers (negative values will be treated as missing)
    less than ``Int32.MaxValue`` (2147483647).
    It is best to use a contiguous range of integers started from zero.
    Floating point numbers in categorical features will be rounded towards 0.
 
--  When using ``pandas.DataFrame`` inputs with columns of dtype ``category``, LightGBM will
+-  For dataframe inputs with categorical or enum dtypes, LightGBM will
    align categories to those observed during training before converting them to integer values.
    This ensures consistent encoding between training and prediction without additional preprocessing.
 
 -  With ``categorical_feature="auto"`` (the default), LightGBM auto-detects **unordered**
-   categorical columns of a dataframe input (``pandas.Categorical(ordered=False)``)
-   and treats them as categorical features. Ordered categoricals
-   (``pandas.Categorical(ordered=True)``) are instead treated as ordinal numeric features
-   (standard ``value < threshold`` splits on the integer codes), since a declared order between
-   categories matches numeric-split semantics better than partition-based categorical splits.
-   Pass the column name explicitly via ``categorical_feature=["col"]`` to force categorical
-   handling of an ordered column.
+   categorical columns of a dataframe input and treats them as categorical features. Ordered
+   categoricals are instead treated as ordinal numeric features (standard ``value < threshold``
+   splits on the integer codes), since a declared order between categories matches numeric-split
+   semantics better than partition-based categorical splits. Pass the column name explicitly via
+   ``categorical_feature=["col"]`` to force categorical handling of an ordered column. The
+   "ordered" check is normalized across dataframe backends via
+   `narwhals.is_ordered_categorical <https://narwhals-dev.github.io/narwhals/api-reference/narwhals/#is_ordered_categorical>`__:
+
+   -  **pandas**: ``Categorical(ordered=False)`` → categorical; ``ordered=True`` → numeric.
+   -  **polars**: ``Categorical(...)`` → categorical (or numeric on polars < 2.0 when constructed
+      with the now-removed ``ordering="physical"`` argument); ``Enum([...])`` → numeric.
+   -  **pyarrow**: ``dictionary(..., ordered=False)`` → categorical; ``ordered=True`` → numeric.
 
 -  At ``predict()`` time, categories not seen during training will be treated as missing values.
 

@@ -23,9 +23,11 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, NamedTuple, Optional, Set, Tuple, Union
 
-import narwhals as nw
-import narwhals.dependencies as nwd
-import narwhals.typing as nwt
+import narwhals.stable.v2 as nw
+import narwhals.stable.v2.dependencies as nwd
+import narwhals.stable.v2.dtypes as nw_dtypes
+import narwhals.stable.v2.selectors as ncs
+import narwhals.stable.v2.typing as nwt
 import numpy as np
 import scipy.sparse
 
@@ -722,6 +724,25 @@ def _check_for_bad_pandas_dtypes(pandas_dtypes_series: pd_Series) -> None:
         )
 
 
+def _check_for_bad_narwhals_dtypes(data: nw.DataFrame) -> None:
+    # Narwhals schema inference does not support pandas' SparseDtype columns, so we need to check pandas
+    # types separately to prevent false positives (https://github.com/narwhals-dev/narwhals/issues/3722)
+    if data.implementation.is_pandas():
+        bad_types = {
+            column_name: dtype
+            for column_name, dtype in data.to_native().dtypes.items()
+            if not isinstance(dtype, pd_CategoricalDtype) and not _is_allowed_numpy_dtype(dtype.type)
+        }
+    else:
+        allowed_dtypes = (nw_dtypes.IntegerType, nw_dtypes.FloatType, nw.Boolean, nw.Categorical, nw.Enum)
+        bad_types = {col: dtype for col, dtype in data.schema.items() if not isinstance(dtype, allowed_dtypes)}
+    if bad_types:
+        raise ValueError(
+            f"DataFrame dtypes must be int, float, bool, categorical or enum.\n"
+            f"Fields with bad dtypes: {', '.join(f'{col}: {dtype}' for col, dtype in bad_types.items())}"
+        )
+
+
 def _pandas_to_numpy(
     data: pd_DataFrame,
     target_dtype: "np.typing.DTypeLike",
@@ -735,53 +756,53 @@ def _pandas_to_numpy(
         return data.to_numpy(dtype=target_dtype, na_value=np.nan)
 
 
-def _data_from_pandas(
-    data: pd_DataFrame,
+def _pandas_df_to_numpy(data: pd_DataFrame) -> np.ndarray:
+    df_dtypes = [dtype.type for dtype in data.dtypes]
+    df_dtypes.append(np.float32)
+    target_dtype = np.result_type(*df_dtypes)
+    return _pandas_to_numpy(data, target_dtype=target_dtype)
+
+
+def _data_from_narwhals(
+    data: nwt.IntoDataFrame,
     feature_name: _LGBM_FeatureNameConfiguration,
     categorical_feature: _LGBM_CategoricalFeatureConfiguration,
     pandas_categorical: Optional[List[List]],
-) -> Tuple[np.ndarray, List[str], Union[List[str], List[int]], List[List]]:
+) -> Tuple[nwt.IntoDataFrame, List[str], Union[List[str], List[int]], List[List]]:
+    data = nw.from_native(data)
+
+    # validation
     if len(data.shape) != 2 or data.shape[0] < 1:
         raise ValueError("Input data must be 2 dimensional and non empty.")
-
-    # take shallow copy in case we modify categorical columns
-    # whole column modifications don't change the original df
-    data = data.copy(deep=False)
+    _check_for_bad_narwhals_dtypes(data)
 
     # determine feature names
     if feature_name == "auto":
-        feature_name = [str(col) for col in data.columns]
+        feature_name = [str(col) for col in data.schema.names()]
 
     # determine categorical features
-    cat_cols = [
-        col for col, dtype in zip(data.columns, data.dtypes, strict=True) if isinstance(dtype, pd_CategoricalDtype)
-    ]
+    cat_cols = data.select(ncs.by_dtype(nw.Categorical, nw.Enum)).columns
     # Ordered categoricals have ordinal semantics, which means we handle them as numeric features.
     # By excluding them from ``categorical_feature``, the C++ backend uses ``value < threshold`` splits
     # on their integer codes. See docs/Advanced-Topics.rst#categorical-feature-support.
-    cat_cols_not_ordered: List[str] = [col for col in cat_cols if not data[col].cat.ordered]
+    cat_cols_not_ordered: List[str] = [col for col in cat_cols if not nw.is_ordered_categorical(data.get_column(col))]
     if pandas_categorical is None:  # train dataset
-        pandas_categorical = [list(data[col].cat.categories) for col in cat_cols]
+        pandas_categorical = [data.get_column(col).cat.get_categories().to_list() for col in cat_cols]
     else:
         if len(cat_cols) != len(pandas_categorical):
             raise ValueError("train and valid dataset categorical_feature do not match.")
-        for col, category in zip(cat_cols, pandas_categorical, strict=True):
-            if list(data[col].cat.categories) != list(category):
-                data[col] = data[col].cat.set_categories(category)
     if cat_cols:  # cat_cols is list
-        data[cat_cols] = data[cat_cols].apply(lambda x: x.cat.codes).replace({-1: np.nan})
+        data = data.with_columns(
+            nw.col(col).replace_strict({cat: i for i, cat in enumerate(categories)}, default=None).alias(col)
+            for col, categories in zip(cat_cols, pandas_categorical, strict=True)
+        )
 
     # use cat cols from DataFrame
     if categorical_feature == "auto":
         categorical_feature = cat_cols_not_ordered
 
-    df_dtypes = [dtype.type for dtype in data.dtypes]
-    # so that the target dtype considers floats
-    df_dtypes.append(np.float32)
-    target_dtype = np.result_type(*df_dtypes)
-
     return (
-        _pandas_to_numpy(data, target_dtype=target_dtype),
+        data.to_native(),
         feature_name,
         categorical_feature,
         pandas_categorical,
@@ -1058,8 +1079,8 @@ class _InnerPredictor:
         """
         if isinstance(data, Dataset):
             raise TypeError("Cannot use Dataset instance for prediction, please use raw data instead")
-        if isinstance(data, pd_DataFrame) and validate_features:
-            data_names = [str(x) for x in data.columns]
+        if nwd.is_into_dataframe(data) and validate_features:
+            data_names = [str(x) for x in nw.from_native(data).schema.names()]
             ptr_names = (ctypes.c_char_p * len(data_names))()
             ptr_names[:] = [x.encode("utf-8") for x in data_names]
             _safe_call(
@@ -1070,8 +1091,8 @@ class _InnerPredictor:
                 )
             )
 
-        if isinstance(data, pd_DataFrame):
-            data = _data_from_pandas(
+        if nwd.is_into_dataframe(data):
+            data = _data_from_narwhals(
                 data=data,
                 feature_name="auto",
                 categorical_feature="auto",
@@ -1121,6 +1142,13 @@ class _InnerPredictor:
         elif isinstance(data, np.ndarray):
             preds, nrow = self.__pred_for_np2d(
                 mat=data,
+                start_iteration=start_iteration,
+                num_iteration=num_iteration,
+                predict_type=predict_type,
+            )
+        elif isinstance(data, pd_DataFrame):
+            preds, nrow = self.__pred_for_np2d(
+                mat=_pandas_df_to_numpy(data),
                 start_iteration=start_iteration,
                 num_iteration=num_iteration,
                 predict_type=predict_type,
@@ -2079,15 +2107,13 @@ class Dataset:
         if reference is not None:
             self.pandas_categorical = reference.pandas_categorical
             categorical_feature = reference.categorical_feature
-        if isinstance(data, pd_DataFrame):
-            data, feature_name, categorical_feature, self.pandas_categorical = _data_from_pandas(
+        if nwd.is_into_dataframe(data):
+            data, feature_name, categorical_feature, self.pandas_categorical = _data_from_narwhals(
                 data=data,
                 feature_name=feature_name,
                 categorical_feature=categorical_feature,
                 pandas_categorical=self.pandas_categorical,
             )
-        if nwd.is_into_dataframe(data) and feature_name == "auto":
-            feature_name = nw.from_native(data).schema.names()
 
         # 'feature_name == "auto"' after the block above means no feature names were provided
         # by either the data type (DataFrame/pyarrow) or the user's 'feature_name' argument.
@@ -2150,6 +2176,8 @@ class Dataset:
             self.__init_from_csc(csc=data, params_str=params_str, ref_dataset=ref_dataset)
         elif isinstance(data, np.ndarray):
             self.__init_from_np2d(mat=data, params_str=params_str, ref_dataset=ref_dataset)
+        elif isinstance(data, pd_DataFrame):
+            self.__init_from_np2d(mat=_pandas_df_to_numpy(data), params_str=params_str, ref_dataset=ref_dataset)
         elif nwd.is_into_dataframe(data):
             self.__init_from_narwhals(data=nw.from_native(data), params_str=params_str, ref_dataset=ref_dataset)
         elif isinstance(data, list) and len(data) > 0:

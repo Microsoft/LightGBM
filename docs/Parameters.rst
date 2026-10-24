@@ -949,7 +949,7 @@ Dataset Parameters
 
    -  add a prefix ``name:`` for column name, e.g. ``categorical_feature=name:c1,c2,c3`` means c1, c2 and c3 are categorical features
 
-   -  **Note**: all values will be cast to ``int32`` (integer codes will be extracted from pandas categoricals in the Python-package)
+   -  **Note**: all values will be cast to ``int32`` (integer codes will be extracted from categorical or enum dtypes in the Python-package)
 
    -  **Note**: in the Python-package, when ``categorical_feature="auto"`` and the input is a dataframe with a categorical dtype, only unordered categoricals are auto-detected. Ordered categoricals are treated as ordinal numeric features (see `Categorical Feature Support <./Advanced-Topics.rst#categorical-feature-support>`__)
 
