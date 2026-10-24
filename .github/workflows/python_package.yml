@@ -1,17 +1,7 @@
 name: Python-package
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-
-# automatically cancel in-progress builds if another commit is pushed
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 
 # default to 0 permissions
 # (job-level overrides add the minimal permissions needed)
@@ -578,20 +568,3 @@ jobs:
             -t pypi \
             ${BUILD_ARTIFACTSTAGINGDIRECTORY}/lightgbm-*.tar.gz \
             ${BUILD_ARTIFACTSTAGINGDIRECTORY}/*.whl
-
-  all-python-package-jobs-successful:
-    if: always()
-    runs-on: ubuntu-latest
-    needs:
-      - test-latest-versions
-      - test
-      - test-linux-aarch64
-      - test-minimal-deps
-      - test-old-versions
-    permissions:
-      statuses: read
-    steps:
-      - name: Note that all tests succeeded
-        uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35  # v1.3.0
-        with:
-          jobs: ${{ toJSON(needs) }}

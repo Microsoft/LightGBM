@@ -3,17 +3,7 @@
 name: Build
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-
-# automatically cancel in-progress builds if another commit is pushed
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 
 # default to 0 permissions
 # (job-level overrides add the minimal permissions needed)
@@ -66,15 +56,3 @@ jobs:
             ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}/commit.txt
             ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}/LightGBM-complete_source_code_tar_gz.tar.gz
           if-no-files-found: error
-  all-build-jobs-successful:
-    if: always()
-    runs-on: ubuntu-latest
-    needs:
-      - archive
-    permissions:
-      statuses: read
-    steps:
-      - name: Note that all tests succeeded
-        uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35  # v1.3.0
-        with:
-          jobs: ${{ toJSON(needs) }}

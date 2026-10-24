@@ -1,0 +1,43 @@
+name: main
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: pr-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# default to 0 permissions
+# (job-level overrides add the minimal permissions needed)
+permissions:
+  contents: none
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: write
+  static-analysis:
+    uses: ./.github/workflows/static_analysis.yml
+    permissions:
+      contents: read
+  swig:
+    uses: ./.github/workflows/swig.yml
+    permissions:
+      contents: write
+      id-token: write
+  test-cpp:
+    uses: ./.github/workflows/cpp.yml
+    permissions:
+      contents: write
+  test-python:
+    uses: ./.github/workflows/python_package.yml
+    permissions:
+      contents: read
+      id-token: write
+  test-r:
+    uses: ./.github/workflows/r_package.yml
+    permissions:
+      contents: write
