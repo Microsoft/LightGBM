@@ -113,7 +113,7 @@ repos:
         verbose: true
         additional_dependencies:
           - matplotlib>=3.9.1
-          - narwhals>=2.11
+          - narwhals>=2.26
           - pandas>=2.0
           - scikit-learn>=1.5.2
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
