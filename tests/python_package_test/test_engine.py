@@ -3147,6 +3147,47 @@ def test_default_objective_and_metric():
     assert len(evals_result["valid_0"]["l2"]) == 5
 
 
+@pytest.mark.parametrize("seed", [123, None], ids=["fixed_seed", "randomized"])
+@pytest.mark.parametrize("update", ["custom_objective", "reset_parameter"])
+def test_feature_sampling_is_unchanged_by_unrelated_updates(seed, update):
+    if seed is None:
+        seed = int(np.random.default_rng().integers(0, 1000000))
+    rng = np.random.RandomState(1)
+    X, y = rng.randn(300, 300), rng.randn(300)
+    params = {
+        "objective": "regression",
+        "max_depth": 1,
+        "learning_rate": 0.001,
+        "feature_fraction": 0.5,
+        "seed": seed,
+        "deterministic": True,
+        "force_row_wise": True,
+        "num_threads": 1,
+        "verbosity": -1,
+    }
+    dataset = lgb.Dataset(X, label=y, init_score=np.zeros_like(y))
+    expected = lgb.train(params, dataset, num_boost_round=3)
+
+    def custom_l2(pred, data):
+        return pred - data.get_label(), np.ones_like(pred)
+
+    def reset_same_learning_rate(env):
+        if env.iteration == 0:
+            env.model.reset_parameter({"learning_rate": params["learning_rate"]})
+
+    reset_same_learning_rate.before_iteration = True
+    if update == "custom_objective":
+        params["objective"] = custom_l2
+        callbacks = None
+    else:
+        callbacks = [reset_same_learning_rate]
+    actual = lgb.train(params, dataset, num_boost_round=3, callbacks=callbacks)
+    expected_features = [tree["tree_structure"]["split_feature"] for tree in expected.dump_model()["tree_info"]]
+    actual_features = [tree["tree_structure"]["split_feature"] for tree in actual.dump_model()["tree_info"]]
+    assert actual_features == expected_features, f"seed={seed}"
+    np.testing.assert_allclose(actual.predict(X), expected.predict(X), err_msg=f"seed={seed}")
+
+
 @pytest.mark.parametrize("use_weight", [True, False])
 def test_multiclass_custom_objective(use_weight):
     def custom_obj(y_pred, ds):

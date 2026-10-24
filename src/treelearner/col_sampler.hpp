@@ -53,8 +53,11 @@ class ColSampler {
   }
 
   void SetConfig(const Config* config) {
-    fraction_bytree_ = config->feature_fraction;
     fraction_bynode_ = config->feature_fraction_bynode;
+    if (fraction_bytree_ == config->feature_fraction && seed_ == config->feature_fraction_seed) {
+      return;
+    }
+    fraction_bytree_ = config->feature_fraction;
     is_feature_used_.resize(train_data_->num_features(), 1);
     // seed is changed
     if (seed_ != config->feature_fraction_seed) {
