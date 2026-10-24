@@ -1301,6 +1301,29 @@ def test_continue_train_multiclass():
     assert evals_result["valid_0"]["multi_logloss"][-1] == pytest.approx(ret)
 
 
+def test_continue_train_different_feature_size(capsys):
+    np.random.seed(0)
+    train_X = np.hstack([np.ones(800).reshape(-1, 8), np.arange(200, 0, -1).reshape(-1, 2)])
+    train_y = np.sum(train_X[:, -2:], axis=1)
+    train_data = lgb.Dataset(train_X, label=train_y)
+    params = {
+        "objective": "regression",
+        "num_trees": 10,
+        "num_leaves": 31,
+        "verbose": -1,
+        'predict_disable_shape_check': True,
+    }
+    model = lgb.train(train_set=train_data, params=params)
+
+    train_X_cont = np.random.rand(100, 5)
+    train_y_cont = np.sum(train_X_cont, axis=1)
+    train_data_cont = lgb.Dataset(train_X_cont, label=train_y_cont)
+    params.update({"verbose": 2})
+    lgb.train(train_set=train_data_cont, params=params, init_model=model)
+    captured = capsys.readouterr()
+    assert captured.out.find("features found in dataset for continual training, but at least") != -1
+
+
 def test_cv():
     X_train, y_train = make_synthetic_regression()
     params = {"verbose": -1}
