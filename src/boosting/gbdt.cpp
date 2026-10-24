@@ -445,6 +445,8 @@ bool GBDT::TrainOneIter(const score_t* gradients, const score_t* hessians) {
     // add model
     models_.push_back(std::move(new_tree));
   }
+  // the new trees need RecomputeMaxDepth() before the next pred_contrib
+  models_initialized_ = false;
 
   if (!should_continue) {
     Log::Warning("Stopped training because there are no more leaves that meet the split requirements");
