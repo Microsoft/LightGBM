@@ -45,8 +45,6 @@ class RF : public GBDT {
       for (int cur_tree_id = 0; cur_tree_id < num_tree_per_iteration_; ++cur_tree_id) {
         MultiplyScore(cur_tree_id, 1.0f / num_init_iteration_);
       }
-    } else {
-      CHECK_EQ(train_data->metadata().init_score(), nullptr);
     }
     CHECK_EQ(num_tree_per_iteration_, num_class_);
     // not shrinkage rate for the RF
@@ -110,6 +108,10 @@ class RF : public GBDT {
   }
 
   bool TrainOneIter(const score_t* gradients, const score_t* hessians) override {
+    if (num_init_iteration_ == 0) {
+      CHECK_EQ(train_data_->metadata().init_score(), nullptr);
+    }
+
     // bagging logic
     data_sample_strategy_ ->Bagging(iter_, tree_learner_.get(), gradients_.data(), hessians_.data());
     const bool is_use_subset = data_sample_strategy_->is_use_subset();

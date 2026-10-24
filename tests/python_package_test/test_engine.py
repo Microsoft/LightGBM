@@ -1259,6 +1259,28 @@ def test_continue_train_reused_dataset():
     assert gbm.current_iteration() == 20
 
 
+def test_continue_train_rf(tmp_path):
+    X, y = make_synthetic_regression()
+    params = {
+        "boosting_type": "rf",
+        "objective": "regression",
+        "bagging_freq": 1,
+        "bagging_fraction": 0.5,
+        "verbose": -1,
+    }
+
+    lgb_train = lgb.Dataset(X, y)
+    init_gbm = lgb.train(params, lgb_train, num_boost_round=10)
+
+    model_path = tmp_path / "model.txt"
+    init_gbm.save_model(model_path)
+
+    lgb_train = lgb.Dataset(X, y)
+    gbm = lgb.train(params, lgb_train, num_boost_round=10, init_model=model_path)
+
+    assert gbm.num_trees() == 20
+
+
 def test_continue_train_dart():
     X, y = make_synthetic_regression()
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
