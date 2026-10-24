@@ -194,3 +194,10 @@ docker build \
     --build-arg R_VERSION=4.5 \
     .
 ```
+
+## Other Configuration
+
+The following build arguments are supported by all Dockerfiles:
+
+* `LIGHTGBM_GIT_URL` = URL to `git` repo with LightGBM source code (defaults to https://github.com/lightgbm-org/LightGBM.git)
+* `LIGHTGBM_GIT_REF` = branch, commit, or tag of `LightGBM` to build

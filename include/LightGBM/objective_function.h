@@ -96,13 +96,13 @@ class ObjectiveFunction {
   * \param type Specific type of objective function
   * \param config Config for objective function
   */
-  LIGHTGBM_EXPORT static ObjectiveFunction* CreateObjectiveFunction(const std::string& type,
+  static ObjectiveFunction* CreateObjectiveFunction(const std::string& type,
     const Config& config);
 
   /*!
   * \brief Load objective function from string object
   */
-  LIGHTGBM_EXPORT static ObjectiveFunction* CreateObjectiveFunction(const std::string& str);
+  static ObjectiveFunction* CreateObjectiveFunction(const std::string& str);
 
   /*!
   * \brief Whether boosting is done on CUDA
@@ -131,7 +131,7 @@ class ObjectiveFunction {
   * \param type Specific type of objective function
   * \param config Config for objective function
   */
-  LIGHTGBM_EXPORT static ObjectiveFunction* CreateObjectiveFunctionCUDA(const std::string& type,
+  static ObjectiveFunction* CreateObjectiveFunctionCUDA(const std::string& type,
     const Config& config);
 
   #endif  // USE_CUDA

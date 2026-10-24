@@ -1,16 +1,19 @@
 ARG R_VERSION=latest
 FROM rocker/verse:${R_VERSION}
 
+ARG LIGHTGBM_GIT_REF=stable
+ARG LIGHTGBM_GIT_URL=https://github.com/lightgbm-org/LightGBM.git
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
         libomp-dev && \
     git clone \
         --recursive \
-        --branch stable \
-        --depth 1 https://github.com/lightgbm-org/LightGBM && \
+        "${LIGHTGBM_GIT_URL}" && \
+    git -C ./LightGBM checkout ${LIGHTGBM_GIT_REF} && \
     cd ./LightGBM && \
     sh build-cran-package.sh --no-build-vignettes && \
-    R CMD INSTALL ./lightgbm_*.tar.gz && \
+    MAKEFLAGS="-j2" R CMD INSTALL ./lightgbm_*.tar.gz && \
     cd .. && \
     rm -rf ./LightGBM

@@ -1,10 +1,19 @@
 # coding: utf-8
+import argparse
 from pathlib import Path
 
 import pandas as pd
 from sklearn.metrics import mean_squared_error
 
 import lightgbm as lgb
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--device",
+    default="cpu",
+    help="device to train on: 'cpu', 'gpu', or 'cuda' (default: 'cpu')",
+)
+args = parser.parse_args()
 
 print("Loading data...")
 # load or create your dataset
@@ -24,6 +33,7 @@ lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
 # specify your configurations as a dict
 params = {
     "boosting_type": "gbdt",
+    "device_type": args.device,
     "objective": "regression",
     "metric": {"l2", "l1"},
     "num_leaves": 31,

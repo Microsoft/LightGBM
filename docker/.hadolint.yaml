@@ -1,0 +1,5 @@
+ignored:
+  - DL3003  # use WORKDIR instead of cd
+  - DL3007  # do not use latest
+  - DL3008  # pin versions in apt
+  - DL3013  # pin versions in pip

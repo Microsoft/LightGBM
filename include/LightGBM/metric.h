@@ -55,7 +55,7 @@ class Metric {
   * \param type Specific type of metric
   * \param config Config for metric
   */
-  LIGHTGBM_EXPORT static Metric* CreateMetric(const std::string& type, const Config& config);
+  static Metric* CreateMetric(const std::string& type, const Config& config);
 
   /*!
   * \brief Whether boosting is done on CUDA
