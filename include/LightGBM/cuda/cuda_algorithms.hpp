@@ -88,17 +88,14 @@ __device__ __forceinline__ T ShufflePrefixSumExclusive(T value, T* shared_mem_bu
     shared_mem_buffer[warpLane] = warp_sum;
   }
   __syncthreads();
+  // sum of all values in the previous warps (0 for the first warp)
   const T warp_base = warpID == 0 ? 0 : shared_mem_buffer[warpID - 1];
   const T inclusive_result = warp_base + value;
-  if (threadIdx.x % warpSize == warpSize - 1) {
-    shared_mem_buffer[warpLane] = inclusive_result;
-  }
-  __syncthreads();
+  // the exclusive result of a thread is the inclusive result of the previous thread,
+  // for the first thread of a warp this is the sum of all values in the previous warps
   T exclusive_result = __shfl_up_sync(mask, inclusive_result, 1);
-  if (threadIdx.x == 0) {
-    exclusive_result = 0;
-  } else if (threadIdx.x % warpSize == 0) {
-    exclusive_result = shared_mem_buffer[warpLane - 1];
+  if (warpLane == 0) {
+    exclusive_result = warp_base;
   }
   return exclusive_result;
 }

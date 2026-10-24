@@ -2464,6 +2464,72 @@ def test_small_max_bin(rng_fixed_seed):
     lgb.train(params, lgb_x, num_boost_round=5)
 
 
+@pytest.mark.parametrize(
+    "feature_kind",
+    [
+        # largest category value is a multiple of 32, which needs one more bitset word than (max_value + 31) // 32
+        "categorical_257",
+        # more bins than threads in a CUDA block (256): uses the global memory best split finder
+        "categorical_1000",
+        # numerical feature with more bins than threads in a CUDA block, including missing values
+        "numerical_max_bin_1023",
+    ],
+)
+def test_features_with_many_bins_match_cpu(feature_kind, rng_fixed_seed):
+    # regression test for https://github.com/microsoft/LightGBM/issues/7417
+    n = 50_000
+    x1 = rng_fixed_seed.normal(size=n)
+    x2 = rng_fixed_seed.normal(size=n)
+    params = {
+        "objective": "regression",
+        "metric": "l2",
+        "verbose": -1,
+        "seed": 0,
+        "num_leaves": 31,
+        "learning_rate": 0.1,
+        "num_threads": 2,
+    }
+    if feature_kind.startswith("categorical"):
+        num_categories = int(feature_kind.split("_")[1])
+        cat = rng_fixed_seed.integers(0, num_categories, size=n)
+        # every category has its own effect on the target
+        y = x1 + 0.5 * np.sin(cat) + rng_fixed_seed.normal(scale=0.5, size=n)
+        X = np.column_stack([x1, x2, cat])
+        categorical_feature = [2]
+    else:
+        params["max_bin"] = 1023
+        x2[rng_fixed_seed.random(size=n) < 0.3] = np.nan
+        y = x1 + np.sin(3 * np.nan_to_num(x2)) + rng_fixed_seed.normal(scale=0.5, size=n)
+        X = np.column_stack([x1, x2])
+        categorical_feature = []
+    num_boost_round = 20
+    train_l2 = {}
+    preds = {}
+    # train on the device of the build under test (the default) and on CPU
+    for name, device_params in [("default", {}), ("cpu", {"device_type": "cpu"})]:
+        ds = lgb.Dataset(X, label=y, categorical_feature=categorical_feature, free_raw_data=False)
+        evals_result = {}
+        bst = lgb.train(
+            {**params, **device_params},
+            ds,
+            num_boost_round=num_boost_round,
+            valid_sets=[ds],
+            valid_names=["train"],
+            callbacks=[lgb.record_evaluation(evals_result)],
+        )
+        assert bst.num_trees() == num_boost_round
+        train_l2[name] = evals_result["train"]["l2"]
+        preds[name] = bst.predict(X)
+        assert np.all(np.isfinite(preds[name]))
+    # both models must actually learn the signal
+    baseline_l2 = np.var(y)
+    assert train_l2["default"][-1] < 0.6 * baseline_l2
+    assert train_l2["cpu"][-1] < 0.6 * baseline_l2
+    # and the result on the device under test must be close to the CPU result
+    np.testing.assert_allclose(train_l2["default"], train_l2["cpu"], rtol=0.05)
+    assert np.corrcoef(preds["default"], preds["cpu"])[0, 1] > 0.98
+
+
 def test_refit():
     X, y = load_breast_cancer(return_X_y=True)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)

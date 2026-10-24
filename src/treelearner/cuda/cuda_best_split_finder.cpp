@@ -94,15 +94,6 @@ void CUDABestSplitFinder::Init() {
   CUDASUCCESS_OR_FATAL(cudaStreamCreate(&cuda_streams_[0]));
   CUDASUCCESS_OR_FATAL(cudaStreamCreate(&cuda_streams_[1]));
   cuda_best_split_info_buffer_.Resize(8);
-  if (use_global_memory_) {
-    cuda_feature_hist_grad_buffer_.Resize(static_cast<size_t>(num_total_bin_));
-    cuda_feature_hist_hess_buffer_.Resize(static_cast<size_t>(num_total_bin_));
-    if (has_categorical_feature_) {
-      cuda_feature_hist_stat_buffer_.Resize(static_cast<size_t>(num_total_bin_));
-      cuda_feature_hist_index_buffer_.Resize(static_cast<size_t>(num_total_bin_));
-    }
-  }
-
   if (select_features_by_node_) {
     is_feature_used_by_smaller_node_.Resize(num_features_);
     is_feature_used_by_larger_node_.Resize(num_features_);
@@ -219,6 +210,23 @@ void CUDABestSplitFinder::InitCUDAFeatureMetaInfo() {
     }
   }
   CHECK_EQ(cur_task_index, static_cast<int>(split_find_tasks_.size()));
+
+  // when the histogram of a feature does not fit in the shared memory of a block (use_global_memory_),
+  // each task gets its own region in the global memory buffers, since the tasks run concurrently
+  // (a feature with missing values has two tasks, which therefore cannot share the region of the feature)
+  uint32_t buffer_offset = 0;
+  for (SplitFindTask& task : split_find_tasks_) {
+    task.buffer_offset = buffer_offset;
+    buffer_offset += task.num_bin - task.mfb_offset;
+  }
+  if (use_global_memory_) {
+    cuda_feature_hist_grad_buffer_.Resize(static_cast<size_t>(buffer_offset));
+    cuda_feature_hist_hess_buffer_.Resize(static_cast<size_t>(buffer_offset));
+    if (has_categorical_feature_) {
+      cuda_feature_hist_stat_buffer_.Resize(static_cast<size_t>(buffer_offset));
+      cuda_feature_hist_index_buffer_.Resize(static_cast<size_t>(buffer_offset));
+    }
+  }
 
   if (extra_trees_) {
     cuda_randoms_.Resize(num_tasks_ * 2);

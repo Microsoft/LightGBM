@@ -743,12 +743,10 @@ __global__ void FixHistogramKernel(
   const uint32_t* cuda_feature_hist_offsets,
   const uint32_t* cuda_feature_most_freq_bins,
   const int* cuda_need_fix_histogram_features,
-  const uint32_t* cuda_need_fix_histogram_features_num_bin_aligned,
   const CUDALeafSplitsStruct* cuda_smaller_leaf_splits) {
   __shared__ hist_t shared_mem_buffer[WARPSIZE];
   const unsigned int blockIdx_x = blockIdx.x;
   const int feature_index = cuda_need_fix_histogram_features[blockIdx_x];
-  const uint32_t num_bin_aligned = cuda_need_fix_histogram_features_num_bin_aligned[blockIdx_x];
   const uint32_t feature_hist_offset = cuda_feature_hist_offsets[feature_index];
   const uint32_t most_freq_bin = cuda_feature_most_freq_bins[feature_index];
   const double leaf_sum_gradients = cuda_smaller_leaf_splits->sum_of_gradients;
@@ -756,11 +754,18 @@ __global__ void FixHistogramKernel(
   hist_t* feature_hist = cuda_smaller_leaf_splits->hist_in_leaf + feature_hist_offset * 2;
   const unsigned int threadIdx_x = threadIdx.x;
   const uint32_t num_bin = cuda_feature_num_bins[feature_index];
-  const uint32_t hist_pos = threadIdx_x << 1;
-  const hist_t bin_gradient = (threadIdx_x < num_bin && threadIdx_x != most_freq_bin) ? feature_hist[hist_pos] : 0.0f;
-  const hist_t bin_hessian = (threadIdx_x < num_bin && threadIdx_x != most_freq_bin) ? feature_hist[hist_pos + 1] : 0.0f;
-  const hist_t sum_gradient = ShuffleReduceSum<hist_t>(bin_gradient, shared_mem_buffer, num_bin_aligned);
-  const hist_t sum_hessian = ShuffleReduceSum<hist_t>(bin_hessian, shared_mem_buffer, num_bin_aligned);
+  // a feature can have more bins than there are threads in the block
+  hist_t bin_gradient = 0.0f;
+  hist_t bin_hessian = 0.0f;
+  for (uint32_t bin = threadIdx_x; bin < num_bin; bin += blockDim.x) {
+    if (bin != most_freq_bin) {
+      bin_gradient += feature_hist[bin << 1];
+      bin_hessian += feature_hist[(bin << 1) + 1];
+    }
+  }
+  const hist_t sum_gradient = ShuffleReduceSum<hist_t>(bin_gradient, shared_mem_buffer, blockDim.x);
+  __syncthreads();
+  const hist_t sum_hessian = ShuffleReduceSum<hist_t>(bin_hessian, shared_mem_buffer, blockDim.x);
   if (threadIdx_x == 0) {
     feature_hist[most_freq_bin << 1] = leaf_sum_gradients - sum_gradient;
     feature_hist[(most_freq_bin << 1) + 1] = leaf_sum_hessians - sum_hessian;
@@ -834,12 +839,10 @@ __global__ void FixHistogramDiscretizedKernel(
   const uint32_t* cuda_feature_hist_offsets,
   const uint32_t* cuda_feature_most_freq_bins,
   const int* cuda_need_fix_histogram_features,
-  const uint32_t* cuda_need_fix_histogram_features_num_bin_aligned,
   const CUDALeafSplitsStruct* cuda_smaller_leaf_splits) {
   __shared__ int64_t shared_mem_buffer[WARPSIZE];
   const unsigned int blockIdx_x = blockIdx.x;
   const int feature_index = cuda_need_fix_histogram_features[blockIdx_x];
-  const uint32_t num_bin_aligned = cuda_need_fix_histogram_features_num_bin_aligned[blockIdx_x];
   const uint32_t feature_hist_offset = cuda_feature_hist_offsets[feature_index];
   const uint32_t most_freq_bin = cuda_feature_most_freq_bins[feature_index];
   if (USE_16BIT_HIST) {
@@ -849,11 +852,17 @@ __global__ void FixHistogramDiscretizedKernel(
     int32_t* feature_hist = reinterpret_cast<int32_t*>(cuda_smaller_leaf_splits->hist_in_leaf) + feature_hist_offset;
     const unsigned int threadIdx_x = threadIdx.x;
     const uint32_t num_bin = cuda_feature_num_bins[feature_index];
-    const int32_t bin_gradient_hessian = (threadIdx_x < num_bin && threadIdx_x != most_freq_bin) ? feature_hist[threadIdx_x] : 0;
+    // a feature can have more bins than there are threads in the block
+    int32_t bin_gradient_hessian = 0;
+    for (uint32_t bin = threadIdx_x; bin < num_bin; bin += blockDim.x) {
+      if (bin != most_freq_bin) {
+        bin_gradient_hessian += feature_hist[bin];
+      }
+    }
     const int32_t sum_gradient_hessian = ShuffleReduceSum<int32_t>(
       bin_gradient_hessian,
       reinterpret_cast<int32_t*>(shared_mem_buffer),
-      num_bin_aligned);
+      blockDim.x);
     if (threadIdx_x == 0) {
       feature_hist[most_freq_bin] = leaf_sum_gradients_hessians - sum_gradient_hessian;
     }
@@ -862,8 +871,14 @@ __global__ void FixHistogramDiscretizedKernel(
     int64_t* feature_hist = reinterpret_cast<int64_t*>(cuda_smaller_leaf_splits->hist_in_leaf) + feature_hist_offset;
     const unsigned int threadIdx_x = threadIdx.x;
     const uint32_t num_bin = cuda_feature_num_bins[feature_index];
-    const int64_t bin_gradient_hessian = (threadIdx_x < num_bin && threadIdx_x != most_freq_bin) ? feature_hist[threadIdx_x] : 0;
-    const int64_t sum_gradient_hessian = ShuffleReduceSum<int64_t>(bin_gradient_hessian, shared_mem_buffer, num_bin_aligned);
+    // a feature can have more bins than there are threads in the block
+    int64_t bin_gradient_hessian = 0;
+    for (uint32_t bin = threadIdx_x; bin < num_bin; bin += blockDim.x) {
+      if (bin != most_freq_bin) {
+        bin_gradient_hessian += feature_hist[bin];
+      }
+    }
+    const int64_t sum_gradient_hessian = ShuffleReduceSum<int64_t>(bin_gradient_hessian, shared_mem_buffer, blockDim.x);
     if (threadIdx_x == 0) {
       feature_hist[most_freq_bin] = leaf_sum_gradients_hessians - sum_gradient_hessian;
     }
@@ -887,7 +902,6 @@ void CUDAHistogramConstructor::LaunchSubtractHistogramKernel(
           cuda_feature_hist_offsets_.RawData(),
           cuda_feature_most_freq_bins_.RawData(),
           cuda_need_fix_histogram_features_.RawData(),
-          cuda_need_fix_histogram_features_num_bin_aligned_.RawData(),
           cuda_smaller_leaf_splits);
       }
       global_timer.Stop("CUDAHistogramConstructor::FixHistogramKernel");
@@ -908,7 +922,6 @@ void CUDAHistogramConstructor::LaunchSubtractHistogramKernel(
             cuda_feature_hist_offsets_.RawData(),
             cuda_feature_most_freq_bins_.RawData(),
             cuda_need_fix_histogram_features_.RawData(),
-            cuda_need_fix_histogram_features_num_bin_aligned_.RawData(),
             cuda_smaller_leaf_splits);
         } else {
           FixHistogramDiscretizedKernel<false><<<need_fix_histogram_features_.size(), FIX_HISTOGRAM_BLOCK_SIZE, 0, cuda_stream_>>>(
@@ -916,7 +929,6 @@ void CUDAHistogramConstructor::LaunchSubtractHistogramKernel(
             cuda_feature_hist_offsets_.RawData(),
             cuda_feature_most_freq_bins_.RawData(),
             cuda_need_fix_histogram_features_.RawData(),
-            cuda_need_fix_histogram_features_num_bin_aligned_.RawData(),
             cuda_smaller_leaf_splits);
         }
       }

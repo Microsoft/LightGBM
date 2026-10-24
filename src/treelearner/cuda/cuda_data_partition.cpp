@@ -140,6 +140,15 @@ void CUDADataPartition::Split(
   data_size_t* global_left_leaf_num_data,
   data_size_t* global_right_leaf_num_data) {
   CalcBlockDim(num_data_in_leaf);
+  // the number of blocks is not monotonic in the number of data (the block size is rounded up to a power of 2),
+  // so a leaf can need more blocks than the whole training data did when the offset buffers were allocated
+  if (grid_dim_ > max_num_split_indices_blocks_) {
+    max_num_split_indices_blocks_ = grid_dim_;
+    cuda_block_data_to_left_offset_.Resize(static_cast<size_t>(max_num_split_indices_blocks_) + 1);
+    cuda_block_data_to_right_offset_.Resize(static_cast<size_t>(max_num_split_indices_blocks_) + 1);
+    SetCUDAMemory<data_size_t>(cuda_block_data_to_left_offset_.RawData(), 0, static_cast<size_t>(max_num_split_indices_blocks_) + 1, __FILE__, __LINE__);
+    SetCUDAMemory<data_size_t>(cuda_block_data_to_right_offset_.RawData(), 0, static_cast<size_t>(max_num_split_indices_blocks_) + 1, __FILE__, __LINE__);
+  }
   global_timer.Start("GenDataToLeftBitVector");
   GenDataToLeftBitVector(num_data_in_leaf,
                          leaf_best_split_feature,

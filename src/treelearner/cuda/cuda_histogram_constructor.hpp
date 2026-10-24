@@ -150,7 +150,6 @@ class CUDAHistogramConstructor {
   /*! \brief indices of feature whose histograms need to be fixed */
   std::vector<int> need_fix_histogram_features_;
   /*! \brief aligned number of bins of the features whose histograms need to be fixed */
-  std::vector<uint32_t> need_fix_histogram_features_num_bin_aligend_;
   /*! \brief minimum number of blocks allowed in the y dimension */
   const int min_grid_dim_y_ = 160;
 
@@ -172,7 +171,6 @@ class CUDAHistogramConstructor {
   /*! \brief indices of feature whose histograms need to be fixed */
   CUDAVector<int> cuda_need_fix_histogram_features_;
   /*! \brief aligned number of bins of the features whose histograms need to be fixed */
-  CUDAVector<uint32_t> cuda_need_fix_histogram_features_num_bin_aligned_;
   /*! \brief histogram buffer used in histogram subtraction with different number of bits for histogram bins */
   CUDAVector<hist_t> hist_buffer_for_num_bit_change_;
 

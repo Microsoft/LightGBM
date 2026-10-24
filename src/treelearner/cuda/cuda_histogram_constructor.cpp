@@ -45,7 +45,6 @@ CUDAHistogramConstructor::~CUDAHistogramConstructor() {
 
 void CUDAHistogramConstructor::InitFeatureMetaInfo(const Dataset* train_data, const std::vector<uint32_t>& feature_hist_offsets) {
   need_fix_histogram_features_.clear();
-  need_fix_histogram_features_num_bin_aligend_.clear();
   feature_num_bins_.clear();
   feature_most_freq_bins_.clear();
   for (int feature_index = 0; feature_index < train_data->num_features(); ++feature_index) {
@@ -53,13 +52,6 @@ void CUDAHistogramConstructor::InitFeatureMetaInfo(const Dataset* train_data, co
     const uint32_t most_freq_bin = bin_mapper->GetMostFreqBin();
     if (most_freq_bin != 0) {
       need_fix_histogram_features_.emplace_back(feature_index);
-      uint32_t num_bin_ref = static_cast<uint32_t>(bin_mapper->num_bin()) - 1;
-      uint32_t num_bin_aligned = 1;
-      while (num_bin_ref > 0) {
-        num_bin_aligned <<= 1;
-        num_bin_ref >>= 1;
-      }
-      need_fix_histogram_features_num_bin_aligend_.emplace_back(num_bin_aligned);
     }
     feature_num_bins_.emplace_back(static_cast<uint32_t>(bin_mapper->num_bin()));
     feature_most_freq_bins_.emplace_back(most_freq_bin);
@@ -95,7 +87,6 @@ void CUDAHistogramConstructor::Init(const Dataset* train_data, TrainingShareStat
   CUDASUCCESS_OR_FATAL(cudaStreamCreate(&cuda_stream_));
 
   cuda_need_fix_histogram_features_.InitFromHostVector(need_fix_histogram_features_);
-  cuda_need_fix_histogram_features_num_bin_aligned_.InitFromHostVector(need_fix_histogram_features_num_bin_aligend_);
 
   if (cuda_row_data_->NumLargeBinPartition() > 0) {
     int grid_dim_x = 0, grid_dim_y = 0, block_dim_x = 0, block_dim_y = 0;
@@ -175,7 +166,6 @@ void CUDAHistogramConstructor::ResetTrainingData(const Dataset* train_data, Trai
   cuda_row_data_->Init(train_data, share_states);
 
   cuda_need_fix_histogram_features_.InitFromHostVector(need_fix_histogram_features_);
-  cuda_need_fix_histogram_features_num_bin_aligned_.InitFromHostVector(need_fix_histogram_features_num_bin_aligend_);
 }
 
 void CUDAHistogramConstructor::ResetConfig(const Config* config) {

@@ -197,7 +197,7 @@ __global__ void ReduceBlockMaxLen(size_t* out_len_buffer, const int num_blocks) 
   }
   const size_t all_max_len = ShuffleReduceMax<size_t>(max_len, shared_mem_buffer, blockDim.x);
   if (threadIdx.x == 0) {
-    out_len_buffer[0] = max_len;
+    out_len_buffer[0] = all_max_len;
   }
 }
 

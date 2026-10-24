@@ -255,6 +255,9 @@ Tree* CUDASingleGPUTreeLearner::Train(const score_t* gradients,
       parent_num_bits_bin,
       smaller_num_bits_bin,
       larger_num_bits_bin);
+    // the histograms are constructed on the stream of the histogram constructor, while the best split finder
+    // reads them on its own streams, so wait for the histograms to be complete before finding the best splits
+    SynchronizeCUDADevice(__FILE__, __LINE__);
 
     SelectFeatureByNode(tree.get());
 
@@ -562,9 +565,11 @@ void CUDASingleGPUTreeLearner::AllocateBitset() {
         max_cat_num_bin = std::max(bin_mapper->num_bin(), max_cat_num_bin);
       }
     }
+    // a bitset holding values in [0, max_value] needs (max_value / 32) + 1 words (see CalcBitsetLenKernel and Common::ConstructBitset),
+    // e.g. the value 256 needs 9 words while (256 + 31) / 32 only gives 8
     // std::max(..., 1UL) to avoid error in the case when there are NaN's in the categorical values
-    const size_t cuda_bitset_max_size = std::max(static_cast<size_t>((max_cat_value + 31) / 32), 1UL);
-    const size_t cuda_bitset_inner_max_size = std::max(static_cast<size_t>((max_cat_num_bin + 31) / 32), 1UL);
+    const size_t cuda_bitset_max_size = std::max(static_cast<size_t>(max_cat_value / 32 + 1), 1UL);
+    const size_t cuda_bitset_inner_max_size = std::max(static_cast<size_t>((max_cat_num_bin - 1) / 32 + 1), 1UL);
     AllocateCUDAMemory<uint32_t>(&cuda_bitset_, cuda_bitset_max_size, __FILE__, __LINE__);
     AllocateCUDAMemory<uint32_t>(&cuda_bitset_inner_, cuda_bitset_inner_max_size, __FILE__, __LINE__);
     const int max_cat_in_split = std::min(config_->max_cat_threshold, max_cat_num_bin / 2);
