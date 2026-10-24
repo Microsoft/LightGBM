@@ -283,6 +283,11 @@ class Tree {
 
   void RecomputeMaxDepth();
 
+  /*! \brief Check that child and split feature indices read from a text model
+   *  are in range, to reject malformed models instead of accessing memory
+   *  out of bounds during prediction. */
+  void ValidateStructure(int num_features) const;
+
   int NextLeafId() const { return num_leaves_; }
 
   /*! \brief Get the linear model constant term (bias) of one leaf */

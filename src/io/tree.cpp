@@ -1060,4 +1060,69 @@ void Tree::RecomputeMaxDepth() {
   }
 }
 
+void Tree::ValidateStructure(int num_features) const {
+  for (int i = 0; i < num_leaves_ - 1; ++i) {
+    for (int child : {left_child_[i], right_child_[i]}) {
+      // a child is either a leaf, encoded as ~leaf_index with
+      // leaf_index in [0, num_leaves_), or an internal node index;
+      // index 0 is the root and can never be a child
+      bool is_leaf_ref = (child < 0) && (child >= -num_leaves_);
+      bool is_internal_ref = (child > 0) && (child < num_leaves_ - 1);
+      if (!is_leaf_ref && !is_internal_ref) {
+        Log::Fatal("Tree model string format error, child index out of range: %d", child);
+      }
+    }
+    if (split_feature_[i] < 0 || split_feature_[i] >= num_features) {
+      Log::Fatal("Tree model string format error, split_feature out of range: %d", split_feature_[i]);
+    }
+  }
+
+  // the internal nodes must form a valid tree: no cycles, no node with
+  // multiple parents, and every node reachable from the root
+  if (num_leaves_ > 1) {
+    // 0 = unvisited, 1 = on the current path, 2 = fully processed
+    std::vector<int8_t> state(num_leaves_ - 1, 0);
+    std::vector<std::pair<int, int>> stack;
+    stack.emplace_back(0, 0);
+    state[0] = 1;
+    while (!stack.empty()) {
+      int node = stack.back().first;
+      int phase = stack.back().second;
+      if (phase == 2) {
+        state[node] = 2;
+        stack.pop_back();
+        continue;
+      }
+      stack.back().second = phase + 1;
+      int child = (phase == 0) ? left_child_[node] : right_child_[node];
+      if (child >= 0) {
+        if (state[child] == 1) {
+          Log::Fatal("Tree model string format error, cycle detected at internal node %d", child);
+        }
+        if (state[child] == 2) {
+          Log::Fatal("Tree model string format error, internal node %d has multiple parents", child);
+        }
+        state[child] = 1;
+        stack.emplace_back(child, 0);
+      }
+    }
+    for (int i = 0; i < num_leaves_ - 1; ++i) {
+      if (state[i] == 0) {
+        Log::Fatal("Tree model string format error, internal node %d is not reachable from the root", i);
+      }
+    }
+  }
+
+  if (is_linear_) {
+    // linear leaf models index into the feature vector at prediction time
+    for (int leaf = 0; leaf < num_leaves_; ++leaf) {
+      for (int feat : leaf_features_[leaf]) {
+        if (feat < 0 || feat >= num_features) {
+          Log::Fatal("Tree model string format error, leaf_features out of range: %d", feat);
+        }
+      }
+    }
+  }
+}
+
 }  // namespace LightGBM

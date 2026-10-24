@@ -540,6 +540,7 @@ bool GBDT::LoadModelFromString(const char* buffer, size_t len) {
           p = Common::SkipNewLine(p);
           size_t used_len = 0;
           models_.emplace_back(new Tree(p, &used_len));
+          models_.back()->ValidateStructure(max_feature_idx_ + 1);
           p += used_len;
         } else {
           break;
@@ -567,6 +568,7 @@ bool GBDT::LoadModelFromString(const char* buffer, size_t len) {
         cur_p = Common::SkipNewLine(cur_p);
         size_t used_len = 0;
         models_[i].reset(new Tree(cur_p, &used_len));
+        models_[i]->ValidateStructure(max_feature_idx_ + 1);
       } else {
         Log::Fatal("Model format error, expect a tree here. met %s", cur_line.c_str());
       }
