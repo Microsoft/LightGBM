@@ -18,12 +18,11 @@ from urllib.parse import urlparse
 
 import numpy as np
 import scipy.sparse as ss
+from sklearn.exceptions import NotFittedError
 
 from .basic import LightGBMError, _choose_param_value, _ConfigAliases, _log_info, _log_warning
 from .compat import (
     PANDAS_INSTALLED,
-    SKLEARN_INSTALLED,
-    LGBMNotFittedError,
     concat,
     pd_DataFrame,
     pd_Series,
@@ -550,7 +549,7 @@ def _train(
         from dask import delayed  # noqa: PLC0415
         from dask.distributed import wait  # noqa: PLC0415
     except _DaskImportErrorTypes as err:
-        raise LightGBMError("dask is required for lightgbm.dask") from err
+        raise ImportError("dask is required for lightgbm.dask") from err
 
     params = deepcopy(params)
 
@@ -966,8 +965,8 @@ def _predict(
     X_SHAP_values : Dask Array of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes] or (if multi-class and using sparse inputs) a list of ``n_classes`` Dask Arrays of shape = [n_samples, n_features + 1]
         If ``pred_contrib=True``, the feature contributions for each sample.
     """
-    if not all((PANDAS_INSTALLED, SKLEARN_INSTALLED)):
-        raise LightGBMError("pandas and scikit-learn are required for lightgbm.dask")
+    if not PANDAS_INSTALLED:
+        raise ImportError("pandas is required for lightgbm.dask")
 
     try:
         import dask.array  # noqa: PLC0415
@@ -975,7 +974,7 @@ def _predict(
         import dask.dataframe  # noqa: PLC0415
         from dask import delayed  # noqa: PLC0415
     except _DaskImportErrorTypes as err:
-        raise LightGBMError("dask is required for lightgbm.dask") from err
+        raise ImportError("dask is required for lightgbm.dask") from err
 
     if isinstance(data, dask.dataframe.DataFrame):
         # Bind prediction options into the callable to give each mode distinct task keys.
@@ -1093,7 +1092,7 @@ class _DaskLGBMModel:
         with ``model.set_params(client=client)``.
         """
         if not getattr(self, "fitted_", False):
-            raise LGBMNotFittedError("Cannot access property client_ before calling fit().")
+            raise NotFittedError("Cannot access property client_ before calling fit().")
 
         return _get_dask_client(client=self.client)
 
@@ -1127,8 +1126,8 @@ class _DaskLGBMModel:
         eval_at: Optional[Union[List[int], Tuple[int, ...]]] = None,
         **kwargs: Any,
     ) -> "_DaskLGBMModel":
-        if not all((PANDAS_INSTALLED, SKLEARN_INSTALLED)):
-            raise LightGBMError("pandas and scikit-learn are required for lightgbm.dask")
+        if not PANDAS_INSTALLED:
+            raise ImportError("pandas is required for lightgbm.dask")
 
         params = self.get_params(True)  # type: ignore[attr-defined]
         params.pop("client", None)

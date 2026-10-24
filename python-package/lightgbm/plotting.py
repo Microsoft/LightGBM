@@ -10,7 +10,6 @@ import numpy as np
 
 from .basic import Booster, _data_from_pandas, _is_zero, _log_warning, _MissingType
 from .compat import pd_DataFrame
-from .sklearn import LGBMModel
 
 __all__ = [
     "create_tree_digraph",
@@ -22,6 +21,8 @@ __all__ = [
 
 if TYPE_CHECKING:
     import matplotlib
+
+    from .sklearn import LGBMModel
 
 
 def _check_not_tuple_of_2_elements(obj: Any, obj_name: str) -> None:
@@ -35,7 +36,7 @@ def _float2str(value: float, precision: Optional[int]) -> str:
 
 
 def plot_importance(
-    booster: Union[Booster, LGBMModel],
+    booster: Union[Booster, "LGBMModel"],
     ax: "Optional[matplotlib.axes.Axes]" = None,
     height: float = 0.2,
     xlim: Optional[Tuple[float, float]] = None,
@@ -108,15 +109,19 @@ def plot_importance(
     except ImportError as err:
         raise ImportError("You must install matplotlib and restart your session to plot importance.") from err
 
-    if isinstance(booster, LGBMModel):
-        if importance_type == "auto":
-            importance_type = booster.importance_type
-        booster = booster.booster_
-    elif isinstance(booster, Booster):
+    # NOTE: check Booster first to try to defer 'sklearn' imports until absolutely needed
+    if isinstance(booster, Booster):
         if importance_type == "auto":
             importance_type = "split"
     else:
-        raise TypeError("booster must be Booster or LGBMModel.")
+        from .sklearn import LGBMModel  # noqa: PLC0415
+
+        if isinstance(booster, LGBMModel):
+            if importance_type == "auto":
+                importance_type = booster.importance_type
+            booster = booster.booster_
+        else:
+            raise TypeError("booster must be Booster or LGBMModel.")
 
     importance = booster.feature_importance(importance_type=importance_type)
     feature_name = booster.feature_name()
@@ -174,7 +179,7 @@ def plot_importance(
 
 
 def plot_split_value_histogram(
-    booster: Union[Booster, LGBMModel],
+    booster: Union[Booster, "LGBMModel"],
     feature: Union[int, str],
     bins: Union[int, str, None] = None,
     ax: "Optional[matplotlib.axes.Axes]" = None,
@@ -247,10 +252,14 @@ def plot_split_value_histogram(
             "You must install matplotlib and restart your session to plot split value histogram."
         ) from err
 
-    if isinstance(booster, LGBMModel):
-        booster = booster.booster_
-    elif not isinstance(booster, Booster):
-        raise TypeError("booster must be Booster or LGBMModel.")
+    # NOTE: check Booster first to try to defer 'sklearn' imports until absolutely needed
+    if not isinstance(booster, Booster):
+        from .sklearn import LGBMModel  # noqa: PLC0415
+
+        if isinstance(booster, LGBMModel):
+            booster = booster.booster_
+        else:
+            raise TypeError("booster must be Booster or LGBMModel.")
 
     hist, split_bins = booster.get_split_value_histogram(feature=feature, bins=bins, xgboost_style=False)
     if np.count_nonzero(hist) == 0:
@@ -292,7 +301,7 @@ def plot_split_value_histogram(
 
 
 def plot_metric(
-    booster: Union[Dict, LGBMModel],
+    booster: Union[Dict, "LGBMModel"],
     metric: Optional[str] = None,
     dataset_names: Optional[List[str]] = None,
     ax: "Optional[matplotlib.axes.Axes]" = None,
@@ -353,16 +362,20 @@ def plot_metric(
     except ImportError as err:
         raise ImportError("You must install matplotlib and restart your session to plot metric.") from err
 
-    if isinstance(booster, LGBMModel):
-        eval_results = deepcopy(booster.evals_result_)
-    elif isinstance(booster, dict):
+    # NOTE: check dict and Booster first to try to defer 'sklearn' imports until absolutely needed
+    if isinstance(booster, dict):
         eval_results = deepcopy(booster)
     elif isinstance(booster, Booster):
         raise TypeError(
             "booster must be dict or LGBMModel. To use plot_metric with Booster type, first record the metrics using record_evaluation callback then pass that to plot_metric as argument `booster`"
         )
     else:
-        raise TypeError("booster must be dict or LGBMModel.")
+        from .sklearn import LGBMModel  # noqa: PLC0415
+
+        if isinstance(booster, LGBMModel):
+            eval_results = deepcopy(booster.evals_result_)
+        else:
+            raise TypeError("booster must be dict or LGBMModel.")
 
     num_data = len(eval_results)
 
@@ -621,7 +634,7 @@ def _to_graphviz(
 
 
 def create_tree_digraph(
-    booster: Union[Booster, LGBMModel],
+    booster: Union[Booster, "LGBMModel"],
     tree_index: int = 0,
     show_info: Optional[List[str]] = None,
     precision: Optional[int] = 3,
@@ -701,10 +714,14 @@ def create_tree_digraph(
     graph : graphviz.Digraph
         The digraph representation of specified tree.
     """
-    if isinstance(booster, LGBMModel):
-        booster = booster.booster_
-    elif not isinstance(booster, Booster):
-        raise TypeError("booster must be Booster or LGBMModel.")
+    # NOTE: check Booster first to try to defer 'sklearn' imports until absolutely needed
+    if not isinstance(booster, Booster):
+        from .sklearn import LGBMModel  # noqa: PLC0415
+
+        if isinstance(booster, LGBMModel):
+            booster = booster.booster_
+        else:
+            raise TypeError("booster must be Booster or LGBMModel.")
 
     model = booster.dump_model()
     tree_infos = model["tree_info"]
@@ -747,7 +764,7 @@ def create_tree_digraph(
 
 
 def plot_tree(
-    booster: Union[Booster, LGBMModel],
+    booster: Union[Booster, "LGBMModel"],
     ax: "Optional[matplotlib.axes.Axes]" = None,
     tree_index: int = 0,
     figsize: Optional[Tuple[float, float]] = None,

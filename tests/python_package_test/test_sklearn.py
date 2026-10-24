@@ -19,6 +19,7 @@ from sklearn.base import clone
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.datasets import load_svmlight_file, make_blobs, make_multilabel_classification
 from sklearn.ensemble import StackingClassifier, StackingRegressor
+from sklearn.exceptions import NotFittedError
 from sklearn.metrics import accuracy_score, log_loss, mean_squared_error, r2_score
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, train_test_split
 from sklearn.multioutput import ClassifierChain, MultiOutputClassifier, MultiOutputRegressor, RegressorChain
@@ -29,7 +30,6 @@ import lightgbm as lgb
 from lightgbm.basic import LGBMDeprecationWarning
 from lightgbm.compat import (
     PANDAS_INSTALLED,
-    _sklearn_version,
     pd_DataFrame,
     pd_Series,
 )
@@ -50,7 +50,7 @@ from .utils import (
     softmax,
 )
 
-SKLEARN_MAJOR, SKLEARN_MINOR, *_ = _sklearn_version.split(".")
+SKLEARN_MAJOR, SKLEARN_MINOR = lgb.sklearn._sklearn_major_minor()
 SKLEARN_VERSION_GTE_1_6 = (int(SKLEARN_MAJOR), int(SKLEARN_MINOR)) >= (1, 6)
 SKLEARN_VERSION_GTE_1_7 = (int(SKLEARN_MAJOR), int(SKLEARN_MINOR)) >= (1, 7)
 
@@ -1622,7 +1622,7 @@ def test_check_is_fitted():
     models = (est, clf, reg, rnk)
     for model in models:
         err_msg = f"This {type(model).__name__} instance is not fitted yet. Call 'fit' with appropriate arguments before using this estimator."
-        with pytest.raises(lgb.compat.LGBMNotFittedError, match=err_msg):
+        with pytest.raises(NotFittedError, match=err_msg):
             check_is_fitted(model)
     est.fit(X, y)
     clf.fit(X, y)
@@ -1714,13 +1714,13 @@ def test_fit_only_raises_num_rounds_warning_when_expected(capsys):
 @pytest.mark.parametrize("estimator_class", estimator_classes)
 def test_cannot_access_feature_names_before_fitting(estimator_class):
     model = estimator_class()
-    with pytest.raises(lgb.compat.LGBMNotFittedError):  # noqa: PT011
+    with pytest.raises(NotFittedError):  # noqa: PT011
         model.feature_name_
-    with pytest.raises(lgb.compat.LGBMNotFittedError):  # noqa: PT011
+    with pytest.raises(NotFittedError):  # noqa: PT011
         model.feature_names_in_
-    with pytest.raises(lgb.compat.LGBMNotFittedError):  # noqa: PT011
+    with pytest.raises(NotFittedError):  # noqa: PT011
         model.n_features_
-    with pytest.raises(lgb.compat.LGBMNotFittedError):  # noqa: PT011
+    with pytest.raises(NotFittedError):  # noqa: PT011
         model.n_features_in_
 
 
@@ -2403,7 +2403,7 @@ def test_ranking_minimally_works_with_all_accepted_data_types(
     g_type,
     rng,
 ):
-    if any(t.startswith("pd_") for t in [X_type, y_type, g_type]) and not PANDAS_INSTALLED:
+    if any(t.startswith("pd_") for t in [X_type, y_type]) and not PANDAS_INSTALLED:
         pytest.skip("pandas is not installed")
     _run_minimal_test(X_type=X_type, y_type=y_type, g_type=g_type, task="ranking", rng=rng)
 

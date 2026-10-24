@@ -6,7 +6,7 @@ import json
 from collections import OrderedDict, defaultdict
 from operator import attrgetter
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -15,7 +15,6 @@ from .basic import (
     Booster,
     Dataset,
     EvalResult,
-    LightGBMError,
     _choose_param_value,
     _ConfigAliases,
     _InnerPredictor,
@@ -23,7 +22,6 @@ from .basic import (
     _LGBM_EvalFunctionResultType,
     _log_warning,
 )
-from .compat import SKLEARN_INSTALLED, _LGBMBaseCrossValidator, _LGBMGroupKFold, _LGBMStratifiedKFold
 
 __all__ = [
     "cv",
@@ -31,6 +29,8 @@ __all__ = [
     "train",
 ]
 
+if TYPE_CHECKING:
+    from sklearn.model_selection import BaseCrossValidator
 
 _LGBM_CustomMetricFunction = Union[
     Callable[
@@ -526,7 +526,7 @@ class CVBooster:
 def _make_n_folds(
     *,
     full_data: Dataset,
-    folds: Optional[Union[Iterable[Tuple[np.ndarray, np.ndarray]], _LGBMBaseCrossValidator]],
+    folds: Optional[Union[Iterable[Tuple[np.ndarray, np.ndarray]], "BaseCrossValidator"]],
     nfold: int,
     params: Dict[str, Any],
     seed: int,
@@ -558,17 +558,25 @@ def _make_n_folds(
             in {"lambdarank", "rank_xendcg", "xendcg", "xe_ndcg", "xe_ndcg_mart", "xendcg_mart"}
             for obj_alias in _ConfigAliases.get("objective")
         ):
-            if not SKLEARN_INSTALLED:
-                raise LightGBMError("scikit-learn is required for ranking cv")
+            try:
+                from sklearn.model_selection import GroupKFold  # noqa: PLC0415
+            except ImportError as err:
+                raise ImportError(
+                    "Failed to import 'sklearn.model_selection.GroupKFold'. scikit-learn is required."
+                ) from err
             # ranking task, split according to groups
             group_info = np.asarray(full_data.get_group(), dtype=np.int32)
             flatted_group = np.repeat(range(len(group_info)), repeats=group_info)
-            group_kfold = _LGBMGroupKFold(n_splits=nfold)
+            group_kfold = GroupKFold(n_splits=nfold)
             folds = group_kfold.split(X=np.empty(num_data), groups=flatted_group)
         elif stratified:
-            if not SKLEARN_INSTALLED:
-                raise LightGBMError("scikit-learn is required for stratified cv")
-            skf = _LGBMStratifiedKFold(n_splits=nfold, shuffle=shuffle, random_state=seed)
+            try:
+                from sklearn.model_selection import StratifiedKFold  # noqa: PLC0415
+            except ImportError as err:
+                raise ImportError(
+                    "Failed to import 'sklearn.model_selection.StratifiedKFold' (required for lightgbm)"
+                ) from err
+            skf = StratifiedKFold(n_splits=nfold, shuffle=shuffle, random_state=seed)
             folds = skf.split(X=np.empty(num_data), y=full_data.get_label())
         else:
             if shuffle:
@@ -640,7 +648,7 @@ def cv(
     params: Dict[str, Any],
     train_set: Dataset,
     num_boost_round: int = 100,
-    folds: Optional[Union[Iterable[Tuple[np.ndarray, np.ndarray]], _LGBMBaseCrossValidator]] = None,
+    folds: Optional[Union[Iterable[Tuple[np.ndarray, np.ndarray]], "BaseCrossValidator"]] = None,
     nfold: int = 5,
     stratified: bool = True,
     shuffle: bool = True,

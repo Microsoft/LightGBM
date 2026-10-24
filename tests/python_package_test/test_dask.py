@@ -11,6 +11,7 @@ from sys import platform
 from urllib.parse import urlparse
 
 import pytest
+from sklearn.exceptions import NotFittedError
 from sklearn.metrics import accuracy_score, r2_score
 
 import lightgbm as lgb
@@ -1015,7 +1016,7 @@ def test_training_works_if_client_not_provided_or_set_after_construction(task, c
         # should be able to use the class without specifying a client
         dask_model = model_factory(**params)
         assert dask_model.client is None
-        with pytest.raises(lgb.compat.LGBMNotFittedError, match="Cannot access property client_ before calling fit"):
+        with pytest.raises(NotFittedError, match="Cannot access property client_ before calling fit"):
             dask_model.client_
 
         dask_model.fit(dX, dy, group=dg)
@@ -1044,7 +1045,7 @@ def test_training_works_if_client_not_provided_or_set_after_construction(task, c
         dask_model.set_params(client=client)
         assert dask_model.client == client
 
-        with pytest.raises(lgb.compat.LGBMNotFittedError, match="Cannot access property client_ before calling fit"):
+        with pytest.raises(NotFittedError, match="Cannot access property client_ before calling fit"):
             dask_model.client_
 
         dask_model.fit(dX, dy, group=dg)
@@ -1098,9 +1099,7 @@ def test_model_and_local_version_are_picklable_whether_or_not_client_set_explici
             else:
                 assert dask_model.client is None
 
-            with pytest.raises(
-                lgb.compat.LGBMNotFittedError, match="Cannot access property client_ before calling fit"
-            ):
+            with pytest.raises(NotFittedError, match="Cannot access property client_ before calling fit"):
                 dask_model.client_
 
             assert "client" not in local_model.get_params()
@@ -1121,9 +1120,7 @@ def test_model_and_local_version_are_picklable_whether_or_not_client_set_explici
             else:
                 assert dask_model.client is None
 
-            with pytest.raises(
-                lgb.compat.LGBMNotFittedError, match="Cannot access property client_ before calling fit"
-            ):
+            with pytest.raises(NotFittedError, match="Cannot access property client_ before calling fit"):
                 dask_model.client_
 
             # client will always be None after unpickling
