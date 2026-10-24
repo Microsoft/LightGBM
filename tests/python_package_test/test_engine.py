@@ -4218,6 +4218,34 @@ def test_reset_params_works_with_metric_num_class_and_boosting():
     assert new_bst.params == expected_params
 
 
+@pytest.mark.parametrize("seed", [123, None], ids=["fixed_seed", "randomized"])
+@pytest.mark.parametrize("histogram_mode", ["col", "row"])
+@pytest.mark.parametrize("new_fraction", [0.8, 1.0], ids=["indices", "full_data"])
+def test_reset_bagging_subset(seed, histogram_mode, new_fraction):
+    if seed is None:
+        seed = int(np.random.default_rng().integers(0, 1000000))
+    X = np.random.RandomState(0).normal(size=(600, 4))
+    y = X @ np.arange(1, 5)
+    params = {
+        "objective": "regression",
+        "bagging_fraction": 0.4,
+        "bagging_freq": 1,
+        "seed": seed,
+        "max_depth": 3,
+        "num_threads": 1,
+        "verbosity": -1,
+        f"force_{histogram_mode}_wise": True,
+    }
+    actual = lgb.train(params, lgb.Dataset(X, label=y), num_boost_round=1, keep_training_booster=True)
+    for fraction in [new_fraction, 0.4]:
+        params["bagging_fraction"] = fraction
+        expected = lgb.train(params, lgb.Dataset(X, label=y), num_boost_round=2, init_model=actual)
+        actual.reset_parameter({"bagging_fraction": fraction})
+        for _ in range(2):
+            actual.update()
+        np.testing.assert_allclose(actual.predict(X), expected.predict(X), err_msg=f"seed={seed}, fraction={fraction}")
+
+
 @pytest.mark.parametrize("linear_tree", [False, True])
 def test_dump_model_stump(linear_tree):
     X, y = load_breast_cancer(return_X_y=True)

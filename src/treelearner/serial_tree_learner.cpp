@@ -32,6 +32,7 @@ SerialTreeLearner::~SerialTreeLearner() {
 }
 
 void SerialTreeLearner::Init(const Dataset* train_data, bool is_constant_hessian) {
+  full_train_data_ = train_data;
   train_data_ = train_data;
   num_data_ = train_data_->num_data();
   num_features_ = train_data_->num_features();

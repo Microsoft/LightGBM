@@ -134,6 +134,8 @@ class BaggingSampleStrategy : public SampleStrategy {
         }
         #endif  // USE_CUDA
       }
+    } else if (bag_data_cnt_ == num_data_ && config_->device_type != std::string("cuda")) {
+      tree_learner->SetBaggingData(nullptr, nullptr, num_data_);
     }
   }
 
@@ -205,6 +207,7 @@ class BaggingSampleStrategy : public SampleStrategy {
         need_resize_gradients_ = true;
       }
     } else {
+      config_ = config;
       bag_data_cnt_ = num_data_;
       bag_data_indices_.clear();
       #ifdef USE_CUDA

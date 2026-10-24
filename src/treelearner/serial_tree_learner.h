@@ -57,6 +57,7 @@ class SerialTreeLearner: public TreeLearner {
 
   void ResetTrainingData(const Dataset* train_data,
                          bool is_constant_hessian) override {
+    full_train_data_ = train_data;
     ResetTrainingDataInner(train_data, is_constant_hessian, true);
   }
 
@@ -87,10 +88,14 @@ class SerialTreeLearner: public TreeLearner {
 
   void SetBaggingData(const Dataset* subset, const data_size_t* used_indices, data_size_t num_data) override {
     if (subset == nullptr) {
+      if (train_data_ != full_train_data_) {
+        ResetTrainingDataInner(full_train_data_, share_state_->is_constant_hessian, false);
+      }
       data_partition_->SetUsedDataIndices(used_indices, num_data);
       share_state_->SetUseSubrow(false);
     } else {
       ResetTrainingDataInner(subset, share_state_->is_constant_hessian, false);
+      data_partition_->SetUsedDataIndices(nullptr, num_data);
       share_state_->SetUseSubrow(true);
       share_state_->SetSubrowCopied(false);
       share_state_->bagging_use_indices = used_indices;
@@ -187,7 +192,9 @@ class SerialTreeLearner: public TreeLearner {
   data_size_t num_data_;
   /*! \brief number of features */
   int num_features_;
-  /*! \brief training data */
+  /*! \brief full training data before bagging */
+  const Dataset* full_train_data_;
+  /*! \brief current training data, possibly a bagging subset */
   const Dataset* train_data_;
   /*! \brief gradients of current iteration */
   const score_t* gradients_;
