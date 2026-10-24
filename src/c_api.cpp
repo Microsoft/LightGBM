@@ -2568,6 +2568,9 @@ int LGBM_BoosterPredictForMat(BoosterHandle handle,
                               int64_t* out_len,
                               double* out_result) {
   API_BEGIN();
+  if (out_result == nullptr) {
+    Log::Fatal("LGBM_BoosterPredictForMat out_result is nullptr. You should pre-allocate memory for out_result.");
+  }
   auto param = Config::Str2Map(parameter);
   Config config;
   config.Set(param);
@@ -2591,6 +2594,9 @@ int LGBM_BoosterPredictForMatSingleRow(BoosterHandle handle,
                                        int64_t* out_len,
                                        double* out_result) {
   API_BEGIN();
+  if (out_result == nullptr) {
+    Log::Fatal("LGBM_BoosterPredictForMatSingleRow out_result is nullptr. You should pre-allocate memory for out_result.");
+  }
   auto param = Config::Str2Map(parameter);
   Config config;
   config.Set(param);
