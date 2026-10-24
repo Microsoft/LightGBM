@@ -555,7 +555,17 @@ def _make_n_folds(
     else:
         if any(
             params.get(obj_alias, "")
-            in {"lambdarank", "rank_xendcg", "xendcg", "xe_ndcg", "xe_ndcg_mart", "xendcg_mart"}
+            in {
+                "lambdarank",
+                "rank_xendcg",
+                "xendcg",
+                "xe_ndcg",
+                "xe_ndcg_mart",
+                "xendcg_mart",
+                "symmetric_lambdarank",
+                "symmetric_ndcg",
+                "symmetric_xendcg",
+            }
             for obj_alias in _ConfigAliases.get("objective")
         ):
             if not SKLEARN_INSTALLED:

@@ -182,8 +182,18 @@ class LambdarankNDCG : public RankingObjective {
                                       const label_t* label, const double* score,
                                       score_t* lambdas,
                                       score_t* hessians) const override {
-    // get max DCG on current query
-    const double inverse_max_dcg = inverse_max_dcgs_[query_id];
+    CalculatePairwiseLambdas(cnt, label, score, inverse_max_dcgs_[query_id], lambdas, hessians);
+  }
+
+  /*!
+   * \brief Compute LambdaRank pairwise lambdas and hessians for a single query.
+   *        The rank direction and the DCG normalization are supplied by the caller,
+   *        so that the same routine can be reused both for the forward ranking and
+   *        for the reversed (symmetric) ranking.
+   */
+  inline void CalculatePairwiseLambdas(data_size_t cnt, const label_t* label,
+                                       const double* score, double inverse_max_dcg,
+                                       score_t* lambdas, score_t* hessians) const {
     // initialize with zero
     for (data_size_t i = 0; i < cnt; ++i) {
       lambdas[i] = 0.0f;
@@ -379,6 +389,92 @@ class LambdarankNDCG : public RankingObjective {
 };
 
 /*!
+ * \brief Objective function for symmetric LambdaRank with NDCG.
+ *
+ * Weights both the top and the bottom of each ranking while down-weighting the
+ * middle, by averaging the plain objective computed on the forward list and on
+ * a reversed list (negated scores, flipped labels).
+ */
+class SymmetricNDCG : public LambdarankNDCG {
+ public:
+  explicit SymmetricNDCG(const Config& config) : LambdarankNDCG(config) {}
+
+  explicit SymmetricNDCG(const std::vector<std::string>& strs)
+      : LambdarankNDCG(strs) {}
+
+  ~SymmetricNDCG() {}
+
+  void Init(const Metadata& metadata, data_size_t num_data) override {
+    LambdarankNDCG::Init(metadata, num_data);
+    // Precompute the inverse max DCG for each query on the flipped labels, so the
+    // reversed term of the symmetric combination is a properly normalized NDCG too.
+    inverse_max_dcgs_rev_.resize(num_queries_);
+#pragma omp parallel for num_threads(OMP_NUM_THREADS()) schedule(static)
+    for (data_size_t i = 0; i < num_queries_; ++i) {
+      const data_size_t start = query_boundaries_[i];
+      const data_size_t cnt = query_boundaries_[i + 1] - query_boundaries_[i];
+      label_t max_label = 0;
+      for (data_size_t j = 0; j < cnt; ++j) {
+        if (label_[start + j] > max_label) {
+          max_label = label_[start + j];
+        }
+      }
+      std::vector<label_t> label_rev(cnt);
+      for (data_size_t j = 0; j < cnt; ++j) {
+        label_rev[j] = static_cast<label_t>(max_label - label_[start + j]);
+      }
+      double inv_max_dcg_rev = DCGCalculator::CalMaxDCGAtK(
+          truncation_level_, label_rev.data(), cnt);
+      if (inv_max_dcg_rev > 0.0) {
+        inv_max_dcg_rev = 1.0f / inv_max_dcg_rev;
+      }
+      inverse_max_dcgs_rev_[i] = inv_max_dcg_rev;
+    }
+  }
+
+  inline void GetGradientsForOneQuery(data_size_t query_id, data_size_t cnt,
+                                      const label_t* label, const double* score,
+                                      score_t* lambdas,
+                                      score_t* hessians) const override {
+    // forward term on the original list
+    CalculatePairwiseLambdas(cnt, label, score, inverse_max_dcgs_[query_id],
+                             lambdas, hessians);
+
+    // reversed term on the negated scores and flipped labels
+    label_t max_label = 0;
+    for (data_size_t i = 0; i < cnt; ++i) {
+      if (label[i] > max_label) {
+        max_label = label[i];
+      }
+    }
+    std::vector<label_t> label_rev(cnt);
+    std::vector<double> score_rev(cnt);
+    for (data_size_t i = 0; i < cnt; ++i) {
+      label_rev[i] = static_cast<label_t>(max_label - label[i]);
+      score_rev[i] = -score[i];
+    }
+    std::vector<score_t> lambdas_rev(cnt);
+    std::vector<score_t> hessians_rev(cnt);
+    CalculatePairwiseLambdas(cnt, label_rev.data(), score_rev.data(),
+                             inverse_max_dcgs_rev_[query_id],
+                             lambdas_rev.data(), hessians_rev.data());
+
+    // Gradient of the reversed term w.r.t. the original scores carries a minus
+    // sign (chain rule: d/ds f(-s) = -f'(-s)); the hessian does not.
+    for (data_size_t i = 0; i < cnt; ++i) {
+      lambdas[i] = static_cast<score_t>((lambdas[i] - lambdas_rev[i]) * 0.5);
+      hessians[i] = static_cast<score_t>((hessians[i] + hessians_rev[i]) * 0.5);
+    }
+  }
+
+  const char* GetName() const override { return "symmetric_lambdarank"; }
+
+ protected:
+  /*! \brief Cache inverse max DCG of the flipped labels, speed up calculation */
+  std::vector<double> inverse_max_dcgs_rev_;
+};
+
+/*!
  * \brief Implementation of the learning-to-rank objective function, XE_NDCG
  * [arxiv.org/abs/1911.09798].
  */
@@ -402,6 +498,23 @@ class RankXENDCG : public RankingObjective {
                                       const label_t* label, const double* score,
                                       score_t* lambdas,
                                       score_t* hessians) const override {
+    std::vector<double> g(cnt);
+    for (data_size_t i = 0; i < cnt; ++i) {
+      g[i] = rands_[query_id].NextFloat();
+    }
+    CalculateXENDCGGradients(cnt, label, score, lambdas, hessians, g);
+  }
+
+  /*!
+   * \brief Compute the XE-NDCG gradients for a single query. Reused both for the
+   *        forward ranking and for the reversed (symmetric) ranking.
+   * \param g Random values shared by the forward and reversed terms, so that
+   *        the sampling noise cancels in the symmetric combination.
+   */
+  inline void CalculateXENDCGGradients(data_size_t cnt,
+                                       const label_t* label, const double* score,
+                                       score_t* lambdas, score_t* hessians,
+                                       const std::vector<double>& g) const {
     // Skip groups with too few items.
     if (cnt <= 1) {
       for (data_size_t i = 0; i < cnt; ++i) {
@@ -421,7 +534,7 @@ class RankXENDCG : public RankingObjective {
 
     double inv_denominator = 0;
     for (data_size_t i = 0; i < cnt; ++i) {
-      params[i] = Phi(label[i], rands_[query_id].NextFloat());
+      params[i] = Phi(label[i], g[i]);
       inv_denominator += params[i];
     }
     // sum_labels will always be positive number
@@ -460,6 +573,65 @@ class RankXENDCG : public RankingObjective {
 
  protected:
   mutable std::vector<Random> rands_;
+};
+
+/*!
+ * \brief Objective function for symmetric XE-NDCG.
+ *
+ * Weights both the top and the bottom of each ranking while down-weighting the
+ * middle, by averaging the plain objective computed on the forward list and on
+ * a reversed list (negated scores, flipped labels).
+ */
+class SymmetricXENDCG : public RankXENDCG {
+ public:
+  explicit SymmetricXENDCG(const Config& config) : RankXENDCG(config) {}
+
+  explicit SymmetricXENDCG(const std::vector<std::string>& strs)
+      : RankXENDCG(strs) {}
+
+  ~SymmetricXENDCG() {}
+
+  inline void GetGradientsForOneQuery(data_size_t query_id, data_size_t cnt,
+                                      const label_t* label, const double* score,
+                                      score_t* lambdas,
+                                      score_t* hessians) const override {
+    // Draw the random perturbations once; both terms use the same values so
+    // that the sampling noise cancels in the symmetric combination.
+    std::vector<double> g(cnt);
+    for (data_size_t i = 0; i < cnt; ++i) {
+      g[i] = rands_[query_id].NextFloat();
+    }
+
+    // forward term on the original list
+    CalculateXENDCGGradients(cnt, label, score, lambdas, hessians, g);
+
+    // reversed term on the negated scores and flipped labels
+    label_t max_label = 0;
+    for (data_size_t i = 0; i < cnt; ++i) {
+      if (label[i] > max_label) {
+        max_label = label[i];
+      }
+    }
+    std::vector<label_t> label_rev(cnt);
+    std::vector<double> score_rev(cnt);
+    for (data_size_t i = 0; i < cnt; ++i) {
+      label_rev[i] = static_cast<label_t>(max_label - label[i]);
+      score_rev[i] = -score[i];
+    }
+    std::vector<score_t> lambdas_rev(cnt);
+    std::vector<score_t> hessians_rev(cnt);
+    CalculateXENDCGGradients(cnt, label_rev.data(), score_rev.data(),
+                             lambdas_rev.data(), hessians_rev.data(), g);
+
+    // Gradient of the reversed term w.r.t. the original scores carries a minus
+    // sign (chain rule: d/ds f(-s) = -f'(-s)); the hessian does not.
+    for (data_size_t i = 0; i < cnt; ++i) {
+      lambdas[i] = static_cast<score_t>((lambdas[i] - lambdas_rev[i]) * 0.5);
+      hessians[i] = static_cast<score_t>((hessians[i] + hessians_rev[i]) * 0.5);
+    }
+  }
+
+  const char* GetName() const override { return "symmetric_xendcg"; }
 };
 
 }  // namespace LightGBM

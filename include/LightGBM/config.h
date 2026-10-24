@@ -132,7 +132,7 @@ struct Config {
   // [no-automatically-extract]
   // [no-save]
   // type = enum
-  // options = regression, regression_l1, huber, fair, poisson, quantile, mape, gamma, tweedie, binary, multiclass, multiclassova, cross_entropy, cross_entropy_lambda, lambdarank, rank_xendcg
+  // options = regression, regression_l1, huber, fair, poisson, quantile, mape, gamma, tweedie, binary, multiclass, multiclassova, cross_entropy, cross_entropy_lambda, lambdarank, rank_xendcg, symmetric_lambdarank, symmetric_xendcg
   // alias = objective_type, app, application, loss
   // desc = regression application
   // descl2 = ``regression``, L2 loss, aliases: ``regression_l2``, ``l2``, ``mean_squared_error``, ``mse``, ``l2_root``, ``root_mean_squared_error``, ``rmse``
@@ -159,6 +159,8 @@ struct Config {
   // descl2 = ``lambdarank``, `lambdarank <https://proceedings.neurips.cc/paper/2006/hash/af44c4c56f385c43f2529f9b1b018f6a-Abstract.html>`__ objective. `label_gain <#label_gain>`__ can be used to set the gain (weight) of ``int`` label and all values in ``label`` must be smaller than number of elements in ``label_gain``
   // descl2 = ``rank_xendcg``, `XE_NDCG_MART <https://arxiv.org/abs/1911.09798>`__ ranking objective function, aliases: ``xendcg``, ``xe_ndcg``, ``xe_ndcg_mart``, ``xendcg_mart``
   // descl2 = ``rank_xendcg`` is faster than and achieves the similar performance as ``lambdarank``
+  // descl2 = ``symmetric_lambdarank``, symmetric variant of ``lambdarank`` that weights both the top and the bottom of each ranking (down-weighting the middle) by averaging ``lambdarank`` computed on the forward list and on a reversed list (negated scores, flipped ``int`` labels), aliases: ``symmetric_ndcg``
+  // descl2 = ``symmetric_xendcg``, symmetric variant of ``rank_xendcg`` that weights both the top and the bottom of each ranking (down-weighting the middle) by averaging ``rank_xendcg`` computed on the forward list and on a reversed list (negated scores, flipped ``int`` labels)
   // descl2 = label should be ``int`` type, and larger number represents the higher relevance (e.g. 0:bad, 1:fair, 2:good, 3:perfect)
   // desc = custom objective function (gradients and hessians not computed directly by LightGBM)
   // descl2 = ``custom``
@@ -1311,7 +1313,8 @@ inline std::string ParseMetricAlias(const std::string& type) {
   } else if (type == std::string("binary_logloss") || type == std::string("binary")) {
     return "binary_logloss";
   } else if (type == std::string("ndcg") || type == std::string("lambdarank") || type == std::string("rank_xendcg")
-             || type == std::string("xendcg") || type == std::string("xe_ndcg") || type == std::string("xe_ndcg_mart") || type == std::string("xendcg_mart")) {
+             || type == std::string("xendcg") || type == std::string("xe_ndcg") || type == std::string("xe_ndcg_mart") || type == std::string("xendcg_mart")
+             || type == std::string("symmetric_lambdarank") || type == std::string("symmetric_ndcg") || type == std::string("symmetric_xendcg")) {
     return "ndcg";
   } else if (type == std::string("map") || type == std::string("mean_average_precision")) {
     return "map";

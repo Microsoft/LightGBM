@@ -116,7 +116,7 @@ Core Parameters
 
    -  **Note**: can be used only in CLI version; for language-specific packages you can use the correspondent functions
 
--  ``objective`` :raw-html:`<a id="objective" title="Permalink to this parameter" href="#objective">&#x1F517;&#xFE0E;</a>`, default = ``regression``, type = enum, options: ``regression``, ``regression_l1``, ``huber``, ``fair``, ``poisson``, ``quantile``, ``mape``, ``gamma``, ``tweedie``, ``binary``, ``multiclass``, ``multiclassova``, ``cross_entropy``, ``cross_entropy_lambda``, ``lambdarank``, ``rank_xendcg``, aliases: ``objective_type``, ``app``, ``application``, ``loss``
+-  ``objective`` :raw-html:`<a id="objective" title="Permalink to this parameter" href="#objective">&#x1F517;&#xFE0E;</a>`, default = ``regression``, type = enum, options: ``regression``, ``regression_l1``, ``huber``, ``fair``, ``poisson``, ``quantile``, ``mape``, ``gamma``, ``tweedie``, ``binary``, ``multiclass``, ``multiclassova``, ``cross_entropy``, ``cross_entropy_lambda``, ``lambdarank``, ``rank_xendcg``, ``symmetric_lambdarank``, ``symmetric_xendcg``, aliases: ``objective_type``, ``app``, ``application``, ``loss``
 
    -  regression application
 
@@ -167,6 +167,10 @@ Core Parameters
       -  ``rank_xendcg``, `XE_NDCG_MART <https://arxiv.org/abs/1911.09798>`__ ranking objective function, aliases: ``xendcg``, ``xe_ndcg``, ``xe_ndcg_mart``, ``xendcg_mart``
 
       -  ``rank_xendcg`` is faster than and achieves the similar performance as ``lambdarank``
+
+      -  ``symmetric_lambdarank``, symmetric variant of ``lambdarank`` that weights both the top and the bottom of each ranking (down-weighting the middle) by averaging ``lambdarank`` computed on the forward list and on a reversed list (negated scores, flipped ``int`` labels), aliases: ``symmetric_ndcg``
+
+      -  ``symmetric_xendcg``, symmetric variant of ``rank_xendcg`` that weights both the top and the bottom of each ranking (down-weighting the middle) by averaging ``rank_xendcg`` computed on the forward list and on a reversed list (negated scores, flipped ``int`` labels)
 
       -  label should be ``int`` type, and larger number represents the higher relevance (e.g. 0:bad, 1:fair, 2:good, 3:perfect)
 

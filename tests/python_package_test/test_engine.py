@@ -5025,3 +5025,191 @@ def test_equal_predict_from_row_major_and_col_major_data():
     preds_col = bst.predict(X_col)
 
     np.testing.assert_allclose(preds_row, preds_col)
+
+
+def _make_synthetic_ranking_data(seed=0, group_sizes=(8, 6, 10, 7, 9)):
+    """Create random ranking data with a minimum label of 0 in every group.
+
+    The label flip used by the symmetric-objective tests is an exact involution
+    only when every group contains label 0: the flip constant is derived from
+    the labels the objective observes, so any group whose minimum label is not
+    0 would make the mirrored-run flip land on ``label - min_label`` instead of
+    ``label``.
+    """
+    rng = np.random.RandomState(seed)
+    X_parts, y_parts = [], []
+    for size in group_sizes:
+        X_parts.append(rng.rand(size, 4) * 2.0 - 1.0)
+        y_parts.append(rng.randint(0, 4, size=size))
+    X = np.vstack(X_parts)
+    y = np.concatenate(y_parts)
+    start = 0
+    for size in group_sizes:
+        y[start] = 0  # guarantee a minimum label of 0 in every group
+        start += size
+    group = np.array(group_sizes, dtype=np.int32)
+    return X, y, group
+
+
+def _mirror_ranking_data(X, y, group):
+    """Flip each label in place as ``max_label - label``, keeping the row order.
+
+    The symmetric objectives are invariant to the in-place transform
+    ``(pred, label) -> (-pred, max_label - label)``. Reversing the row order is
+    NOT a symmetry, because the per-pair DCG discounts are tied to the sorted
+    positions, which change when the rows are permuted.
+    """
+    y_mirror = y.copy()
+    start = 0
+    for size in group:
+        yg = y[start : start + size]
+        max_label = yg.max()
+        y_mirror[start : start + size] = max_label - yg
+        start += size
+    return X.copy(), y_mirror, group.copy()
+
+
+def _make_learnable_ranking_data(seed, n_queries, docs_per_query):
+    """Create ranking data whose labels are a function of the first feature."""
+    rng = np.random.RandomState(seed)
+    X = rng.rand(n_queries * docs_per_query, 4) * 2.0 - 1.0
+    y = np.clip(np.round((X[:, 0] + 1.0) * 1.5), 0, 3).astype(np.int32)
+    group = np.full(n_queries, docs_per_query, dtype=np.int32)
+    return X, y, group
+
+
+@pytest.mark.parametrize(
+    ("objective", "extra_params", "group_sizes"),
+    [
+        ("symmetric_lambdarank", {}, (8, 6, 10, 7, 9)),
+        ("symmetric_ndcg", {}, (8, 6, 10, 7, 9)),
+        ("symmetric_xendcg", {}, (8, 6, 10, 7, 9)),
+        ("symmetric_lambdarank", {"lambdarank_norm": True}, (8, 6, 10, 7, 9)),
+        ("symmetric_lambdarank", {"lambdarank_truncation_level": 5}, (40, 40, 40)),
+        ("symmetric_ndcg", {"lambdarank_truncation_level": 5}, (40, 40, 40)),
+        ("symmetric_xendcg", {}, (40, 40, 40)),
+    ],
+)
+def test_symmetric_objective_is_invariant_to_label_flip(objective, extra_params, group_sizes):
+    params = {
+        "objective": objective,
+        "verbose": -1,
+        "num_threads": 1,
+        "seed": 7,
+        "deterministic": True,
+        "num_leaves": 7,
+        "min_data_in_leaf": 1,
+        "learning_rate": 0.1,
+    }
+    params.update(extra_params)
+    X, y, group = _make_synthetic_ranking_data(group_sizes=group_sizes)
+    X_mirror, y_mirror, group_mirror = _mirror_ranking_data(X, y, group)
+    booster_original = lgb.train(params, lgb.Dataset(X, y, group=group), num_boost_round=20)
+    booster_mirror = lgb.train(
+        params,
+        lgb.Dataset(X_mirror, y_mirror, group=group_mirror),
+        num_boost_round=20,
+    )
+    pred_original = booster_original.predict(X)
+    pred_mirror = booster_mirror.predict(X_mirror)
+    np.testing.assert_allclose(pred_mirror, -pred_original, atol=1e-3)
+
+
+@pytest.mark.parametrize(
+    ("objective", "plain_objective"),
+    [
+        ("symmetric_lambdarank", "lambdarank"),
+        ("symmetric_ndcg", "lambdarank"),
+        ("symmetric_xendcg", "rank_xendcg"),
+    ],
+)
+def test_symmetric_objective_reaches_plain_objective_ndcg(objective, plain_objective):
+    """The symmetric objectives must rank clean data as well as the plain ones.
+
+    This also checks the default metric derivation: no ``metric`` parameter is
+    passed, so LightGBM must auto-derive ``ndcg`` from the objective.
+    """
+    X, y, group = _make_learnable_ranking_data(seed=0, n_queries=10, docs_per_query=20)
+    params = {
+        "verbose": -1,
+        "num_threads": 1,
+        "seed": 7,
+        "deterministic": True,
+        "num_leaves": 7,
+        "min_data_in_leaf": 1,
+        "learning_rate": 0.1,
+    }
+    ndcgs = {}
+    for name in (objective, plain_objective):
+        booster = lgb.train(
+            dict(params, objective=name),
+            lgb.Dataset(X, y, group=group),
+            num_boost_round=50,
+            valid_sets=[lgb.Dataset(X, y, group=group)],
+        )
+        ndcgs[name] = booster.best_score["valid_0"]["ndcg@5"]
+    assert ndcgs[objective] >= 0.95
+    assert ndcgs[objective] >= ndcgs[plain_objective] - 0.05
+
+
+@pytest.mark.parametrize("objective", ["symmetric_lambdarank", "symmetric_xendcg"])
+def test_symmetric_objective_recovers_ground_truth_ranking(objective):
+    """Each query's documents must be ranked in label-descending order."""
+    X, y, group = _make_learnable_ranking_data(seed=1, n_queries=3, docs_per_query=8)
+    params = {
+        "objective": objective,
+        "verbose": -1,
+        "num_threads": 1,
+        "seed": 7,
+        "deterministic": True,
+        "num_leaves": 31,
+        "min_data_in_leaf": 1,
+        "learning_rate": 0.2,
+    }
+    booster = lgb.train(params, lgb.Dataset(X, y, group=group), num_boost_round=100)
+    pred = booster.predict(X)
+    start = 0
+    for size in group:
+        labels_in_pred_order = y[start : start + size][np.argsort(-pred[start : start + size])]
+        assert np.all(np.diff(labels_in_pred_order) <= 0)
+        start += size
+
+
+@pytest.mark.parametrize(
+    ("objective", "plain_objective"),
+    [
+        ("symmetric_lambdarank", "lambdarank"),
+        ("symmetric_ndcg", "lambdarank"),
+        ("symmetric_xendcg", "rank_xendcg"),
+    ],
+)
+def test_symmetric_objective_reaches_plain_objective_ndcg_on_lambdarank_example(objective, plain_objective):
+    rank_example_dir = Path(__file__).absolute().parents[2] / "examples" / "lambdarank"
+    X_train, y_train = load_svmlight_file(str(rank_example_dir / "rank.train"))
+    q_train = np.loadtxt(str(rank_example_dir / "rank.train.query"))
+    X_test, y_test = load_svmlight_file(str(rank_example_dir / "rank.test"))
+    q_test = np.loadtxt(str(rank_example_dir / "rank.test.query"))
+    train_ds = lgb.Dataset(X_train, y_train, group=q_train)
+    test_ds = lgb.Dataset(X_test, y_test, group=q_test, reference=train_ds)
+    params = {
+        "verbose": -1,
+        "num_threads": 1,
+        "seed": 7,
+        "deterministic": True,
+        "num_leaves": 7,
+        "min_data_in_leaf": 1,
+        "learning_rate": 0.1,
+    }
+    ndcgs = {}
+    for name in (objective, plain_objective):
+        booster = lgb.train(
+            dict(params, objective=name),
+            train_ds,
+            num_boost_round=50,
+            valid_sets=[test_ds],
+        )
+        ndcgs[name] = booster.best_score["valid_0"]["ndcg@5"]
+    pred = booster.predict(X_test)
+    assert np.all(np.isfinite(pred))
+    assert ndcgs[objective] >= 0.60
+    assert ndcgs[objective] >= ndcgs[plain_objective] - 0.05

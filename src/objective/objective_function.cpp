@@ -43,6 +43,12 @@ ObjectiveFunction* ObjectiveFunction::CreateObjectiveFunctionCUDA(const std::str
     return new CUDALambdarankNDCG(config);
   } else if (type == std::string("rank_xendcg")) {
     return new CUDARankXENDCG(config);
+  } else if (type == std::string("symmetric_lambdarank") || type == std::string("symmetric_ndcg")) {
+    Log::Warning("Objective symmetric_lambdarank is not implemented in cuda version. Fall back to boosting on CPU.");
+    return new SymmetricNDCG(config);
+  } else if (type == std::string("symmetric_xendcg")) {
+    Log::Warning("Objective symmetric_xendcg is not implemented in cuda version. Fall back to boosting on CPU.");
+    return new SymmetricXENDCG(config);
   } else if (type == std::string("multiclass")) {
     return new CUDAMulticlassSoftmax(config);
   } else if (type == std::string("multiclassova")) {
@@ -95,6 +101,10 @@ ObjectiveFunction* ObjectiveFunction::CreateObjectiveFunction(const std::string&
       return new LambdarankNDCG(config);
     } else if (type == std::string("rank_xendcg")) {
       return new RankXENDCG(config);
+    } else if (type == std::string("symmetric_lambdarank") || type == std::string("symmetric_ndcg")) {
+      return new SymmetricNDCG(config);
+    } else if (type == std::string("symmetric_xendcg")) {
+      return new SymmetricXENDCG(config);
     } else if (type == std::string("multiclass")) {
       return new MulticlassSoftmax(config);
     } else if (type == std::string("multiclassova")) {
@@ -140,6 +150,10 @@ ObjectiveFunction* ObjectiveFunction::CreateObjectiveFunction(const std::string&
     return new LambdarankNDCG(strs);
   } else if (type == std::string("rank_xendcg")) {
     return new RankXENDCG(strs);
+  } else if (type == std::string("symmetric_lambdarank") || type == std::string("symmetric_ndcg")) {
+    return new SymmetricNDCG(strs);
+  } else if (type == std::string("symmetric_xendcg")) {
+    return new SymmetricXENDCG(strs);
   } else if (type == std::string("multiclass")) {
     return new MulticlassSoftmax(strs);
   } else if (type == std::string("multiclassova")) {
