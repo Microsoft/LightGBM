@@ -1505,8 +1505,13 @@ def test_dask_methods_and_sklearn_equivalents_have_similar_signatures(methods):
     assert dask_spec.varargs == sklearn_spec.varargs
     if sklearn_spec.varkw:
         assert dask_spec.varkw == sklearn_spec.varkw[: len(dask_spec.varkw)]
-    assert dask_spec.kwonlyargs == sklearn_spec.kwonlyargs
-    assert dask_spec.kwonlydefaults == sklearn_spec.kwonlydefaults
+    # Dask estimators require that 'categorical_feature' and 'feature_name' are keyword-only,
+    # otherwise should have identical keywordarguments
+    kwonly_diff = set(dask_spec.kwonlyargs).difference(set(sklearn_spec.kwonlyargs))
+    if kwonly_diff:
+        assert kwonly_diff == {"categorical_feature", "feature_name"}
+        shared_keys = list(set(dask_spec.kwonlyargs).intersection(set(sklearn_spec.kwonlyargs)))
+        assert dask_spec.kwonlydefaults.fromkeys(shared_keys) == sklearn_spec.kwonlydefaults.fromkeys(shared_keys)
     for param in dask_spec.args:
         error_msg = f"param '{param}' has different default values in the methods"
         assert dask_params[param].default == sklearn_params[param].default, error_msg
@@ -1857,24 +1862,33 @@ def test_estimator_fit_docstrings_are_consistent():
             @@ -52 +52 @@
             -eval_init_score : list of array (same types as ``init_score`` supports), or None, optional (default=None)
             +eval_init_score : list of Dask Array, Dask Series or Dask DataFrame (for multi-class task), or None, optional (default=None)
-            @@ -73,14 +73,2 @@
+            @@ -60,3 +59,0 @@
+            -feature_name : list of str, or 'auto', optional (default='auto')
+            -    Feature names.
+            -    If 'auto' and data is pandas DataFrame, data columns names are used.
+            @@ -73,6 +70 @@
             -callbacks : list of callable, or None, optional (default=None)
             -    List of callback functions that are applied at each iteration.
             -    See Callbacks in Python API for more information.
             -init_model : str, pathlib.Path, Booster, LGBMModel or None, optional (default=None)
             -    Filename of LightGBM model, Booster instance or LGBMModel instance used for continue training.
             -eval_X : numpy array, pandas DataFrame, pyarrow Table, polars DataFrame, scipy.sparse, list of lists of int or float of shape = [n_samples, n_features], or tuple of such inputs, or None, optional (default=None)
-            -    Feature matrix or tuple thereof, e.g. ``(X_val0, X_val1)``, to use as validation sets.
+            +eval_X : Dask Array or Dask DataFrame, tuple thereof or None, optional (default=None)
+            @@ -80,4 +72 @@
             -
             -    .. versionadded:: 4.7.0
             -
             -eval_y : numpy array, pandas DataFrame, pandas Series, list of int or float, pyarrow ChunkedArray or polars Series of shape = [n_samples], or tuple of such inputs, or None, optional (default=None)
-            -    Target values or tuple thereof, e.g. ``(y_val0, y_val1)``, to use as validation sets.
+            +eval_y : Dask Array or Dask DataFrame or Dask Series, tuple thereof or None, optional (default=None)
+            @@ -85,2 +74,5 @@
             -
             -    .. versionadded:: 4.7.0
+            +feature_name : list of str, or 'auto', optional (default='auto')
+            +    Feature names.
+            +    If 'auto' and data is pandas DataFrame, data columns names are used.
             +**kwargs
             +    Other parameters passed through to ``LGBMClassifier.fit()``.
-            @@ -90 +78 @@
+            @@ -90 +82 @@
             -self : LGBMClassifier
             +self : lightgbm.DaskLGBMClassifier
         """),
@@ -1915,10 +1929,10 @@ def test_estimator_fit_docstrings_are_consistent():
             @@ -59,0 +73,2 @@
             +eval_at : list or tuple of int, optional (default=(1, 2, 3, 4, 5))
             +    The evaluation positions of the specified metric.
-            @@ -74 +89 @@
+            @@ -78 +93 @@
             -    Other parameters passed through to ``LGBMClassifier.fit()``.
             +    Other parameters passed through to ``LGBMRanker.fit()``.
-            @@ -78 +93 @@
+            @@ -82 +97 @@
             -self : lightgbm.DaskLGBMClassifier
             +self : lightgbm.DaskLGBMRanker
         """),
@@ -1951,10 +1965,10 @@ def test_estimator_fit_docstrings_are_consistent():
             @@ -73,2 +57,0 @@
             -eval_at : list or tuple of int, optional (default=(1, 2, 3, 4, 5))
             -    The evaluation positions of the specified metric.
-            @@ -89 +72 @@
+            @@ -93 +76 @@
             -    Other parameters passed through to ``LGBMRanker.fit()``.
             +    Other parameters passed through to ``LGBMRegressor.fit()``.
-            @@ -93 +76 @@
+            @@ -97 +80 @@
             -self : lightgbm.DaskLGBMRanker
             +self : lightgbm.DaskLGBMRegressor
         """),

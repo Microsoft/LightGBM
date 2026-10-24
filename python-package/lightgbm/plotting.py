@@ -102,7 +102,7 @@ def plot_importance(
     -------
     ax : matplotlib.axes.Axes
         The plot with model's feature importances.
-    """
+    """  # noqa: DOC105
     try:
         import matplotlib.pyplot as plt  # noqa: PLC0415
     except ImportError as err:
@@ -238,7 +238,7 @@ def plot_split_value_histogram(
     -------
     ax : matplotlib.axes.Axes
         The plot with specified model's feature split value histogram.
-    """
+    """  # noqa: DOC105
     try:
         import matplotlib.pyplot as plt  # noqa: PLC0415
         from matplotlib.ticker import MaxNLocator  # noqa: PLC0415
@@ -347,7 +347,7 @@ def plot_metric(
     -------
     ax : matplotlib.axes.Axes
         The plot with metric's history over the training.
-    """
+    """  # noqa: DOC105
     try:
         import matplotlib.pyplot as plt  # noqa: PLC0415
     except ImportError as err:
@@ -700,7 +700,7 @@ def create_tree_digraph(
     -------
     graph : graphviz.Digraph
         The digraph representation of specified tree.
-    """
+    """  # noqa: DOC105
     if isinstance(booster, LGBMModel):
         booster = booster.booster_
     elif not isinstance(booster, Booster):
@@ -817,7 +817,7 @@ def plot_tree(
     -------
     ax : matplotlib.axes.Axes
         The plot with single tree.
-    """
+    """  # noqa: DOC105
     try:
         import matplotlib.image  # noqa: PLC0415
         import matplotlib.pyplot as plt  # noqa: PLC0415

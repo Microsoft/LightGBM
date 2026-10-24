@@ -100,6 +100,54 @@ disallow_untyped_defs = true
 exclude = 'build/*|compile/*|docs/*|examples/*|external_libs/*|lightgbm-python/*|.pixi/*|tests/*'
 ignore_missing_imports = true
 
+[tool.numpydoc_validation]
+checks = [
+    # report on all checks, except those listed after "all"
+    "all",
+    # "No extended summary found"
+    "ES01",
+    # "No examples section found"
+    "EX01",
+    # "Found unknown section "Note"
+    # (false positive because this project uses 'napoleon')
+    "GL06",
+    # "Sections are in the wrong order"
+    "GL07",
+    # "The object does not have a docstring"
+    "GL08",
+    # "Parameters not documented"
+    # This is raised for every function with a docstring, even if that docstring does not have a 'Parameters' section.
+    # 'pydoclint' raises a similar warning but only for docstrings with a 'Parameters' section, so we just rely on that.
+    "PR01",
+    # "No Returns section found"
+    "RT01",
+    # "The first line of the Returns section should contain only the type, unless multiple values are returned"
+    "RT02",
+    # "See Also section not found"
+    "SA01",
+]
+exclude_files = [
+    '^examples/.*',
+    '^tests/.*',
+]
+
+[tool.pydoclint]
+allow_init_docstring = true
+check_arg_defaults = false
+check_arg_order = true
+check_return_types = false
+exclude = '^examples/|^tests/'
+
+# look for 'noqa:' statements on the closing triple quotes of the docstring
+# TODO(jameslamb): may be able to remove this when https://github.com/jsh9/pydoclint/issues/228 is resolved
+native_mode_noqa_location = 'docstring'
+
+# avoid warnings like
+# 'DOC501: Function `plot_metric` has raise statements, but the docstring does not have a "Raises" section'
+skip_checking_raises = true
+
+style = "numpy"
+
 [tool.rstcheck]
 report_level = "WARNING"
 ignore_directives = [

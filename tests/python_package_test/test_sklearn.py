@@ -1939,10 +1939,10 @@ def test_estimator_fit_docstrings_are_consistent():
             -    .. versionadded:: 4.7.0
             -        Support for ``polars`` inputs
             -
-            @@ -67,2 +53,0 @@
+            @@ -68,2 +54,0 @@
             -eval_group : list of array (same types as ``group`` supports), or None, optional (default=None)
             -    Group data of eval data.
-            @@ -105 +90 @@
+            @@ -106 +91 @@
             -self : LGBMModel
             +self : LGBMClassifier
         """),
@@ -1969,16 +1969,16 @@ def test_estimator_fit_docstrings_are_consistent():
             +    .. versionadded:: 4.7.0
             +        Support for ``polars`` inputs
             +
-            @@ -50,2 +62,0 @@
+            @@ -51,2 +63,0 @@
             -eval_class_weight : list or None, optional (default=None)
             -    Class weights of eval data.
-            @@ -53,0 +65,2 @@
+            @@ -54,0 +66,2 @@
             +eval_group : list of array (same types as ``group`` supports), or None, optional (default=None)
             +    Group data of eval data.
-            @@ -59,0 +73,2 @@
+            @@ -60,0 +74,2 @@
             +eval_at : list or tuple of int, optional (default=(1, 2, 3, 4, 5))
             +    The evaluation positions of the specified metric.
-            @@ -90 +105 @@
+            @@ -91 +106 @@
             -self : LGBMClassifier
             +self : LGBMRanker
         """),
@@ -2005,13 +2005,13 @@ def test_estimator_fit_docstrings_are_consistent():
             -    .. versionadded:: 4.7.0
             -        Support for ``polars`` inputs
             -
-            @@ -65,2 +51,0 @@
+            @@ -66,2 +52,0 @@
             -eval_group : list of array (same types as ``group`` supports), or None, optional (default=None)
             -    Group data of eval data.
-            @@ -73,2 +57,0 @@
+            @@ -74,2 +58,0 @@
             -eval_at : list or tuple of int, optional (default=(1, 2, 3, 4, 5))
             -    The evaluation positions of the specified metric.
-            @@ -105 +88 @@
+            @@ -106 +89 @@
             -self : LGBMRanker
             +self : LGBMRegressor
         """),

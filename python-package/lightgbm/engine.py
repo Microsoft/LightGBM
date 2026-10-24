@@ -67,12 +67,19 @@ def _choose_num_iterations(*, num_boost_round_kwarg: int, params: Dict[str, Any]
     This function handles that choice, and issuing helpful warnings in the cases where the
     result might be surprising.
 
+    Parameters
+    ----------
+    num_boost_round_kwarg : int
+        Value of the ``num_boost_round`` keyword argument from ``cv()`` or ``train()``.
+    params : dict
+        Parameters.
+
     Returns
     -------
     params : dict
         Parameters, with ``"num_iterations"`` set to the preferred value and all other
         aliases of ``num_iterations`` removed.
-    """
+    """  # noqa: DOC105
     num_iteration_configs_provided = {
         alias: params[alias] for alias in _ConfigAliases.get("num_iterations") if alias in params
     }
@@ -190,7 +197,7 @@ def train(
     -------
     booster : Booster
         The trained Booster model.
-    """
+    """  # noqa: DOC105
     if not isinstance(train_set, Dataset):
         raise TypeError(f"train() only accepts Dataset object, train_set has type '{type(train_set).__name__}'.")
 
@@ -375,7 +382,10 @@ class CVBooster:
         The list of underlying fitted models.
     best_iteration : int
         The best iteration of fitted model.
-    """
+    """  # noqa: DOC605
+
+    boosters: list[Booster]
+    best_iteration: int
 
     def __init__(
         self,
@@ -387,7 +397,7 @@ class CVBooster:
         ----------
         model_file : str, pathlib.Path or None, optional (default=None)
             Path to the CVBooster model file.
-        """
+        """  # noqa: DOC105
         self.boosters: List[Booster] = []
         self.best_iteration = -1
 
@@ -478,7 +488,7 @@ class CVBooster:
         -------
         str_repr : str
             JSON string representation of CVBooster.
-        """
+        """  # noqa: DOC105
         return json.dumps(
             self._to_dict(num_iteration=num_iteration, start_iteration=start_iteration, importance_type=importance_type)
         )
@@ -511,7 +521,7 @@ class CVBooster:
         -------
         self : CVBooster
             Returns self.
-        """
+        """  # noqa: DOC105
         with open(filename, "w") as file:
             json.dump(
                 self._to_dict(
@@ -751,7 +761,7 @@ def cv(
         {'train metric1-mean': [values], 'valid metric1-mean': [values],
         'train metric2-mean': [values], 'valid metric2-mean': [values],
         ...}.
-    """
+    """  # noqa: DOC105
     if not isinstance(train_set, Dataset):
         raise TypeError(f"cv() only accepts Dataset object, train_set has type '{type(train_set).__name__}'.")
 

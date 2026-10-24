@@ -228,7 +228,7 @@ def register_logger(
         Method used to log info messages.
     warning_method_name : str, optional (default="warning")
         Method used to log warning messages.
-    """
+    """  # noqa: DOC105
     if not _has_method(logger, info_method_name) or not _has_method(logger, warning_method_name):
         raise TypeError(f"Logger must provide '{info_method_name}' and '{warning_method_name}' method")
 
@@ -579,7 +579,7 @@ def _choose_param_value(main_param_name: str, params: Dict[str, Any], default_va
     params : dict
         A ``params`` dict with exactly one value for ``main_param_name``, and all aliases ``main_param_name`` removed.
         If both ``main_param_name`` and one or more aliases for it are found, the value of ``main_param_name`` will be preferred.
-    """
+    """  # noqa: DOC105
     # avoid side effects on passed-in parameters
     params = deepcopy(params)
 
@@ -856,7 +856,7 @@ class Sequence(abc.ABC):
         Default size of a batch.
     """
 
-    batch_size = 4096  # Defaults to read 4K rows in each batch.
+    batch_size: int = 4096  # Defaults to read 4K rows in each batch.
 
     @abc.abstractmethod
     def __getitem__(self, idx: Union[int, slice, List[int]]) -> np.ndarray:
@@ -885,7 +885,7 @@ class Sequence(abc.ABC):
         -------
         result : numpy 1-D array or numpy 2-D array
             1-D array if idx is int, 2-D array if idx is slice or list.
-        """
+        """  # noqa: DOC105
         raise NotImplementedError("Sub-classes of lightgbm.Sequence must implement __getitem__()")
 
     @abc.abstractmethod
@@ -925,7 +925,7 @@ class _InnerPredictor:
             Other parameters for the prediction.
         manage_handle : bool
             If ``True``, free the corresponding Booster on the C++ side when this Python object is deleted.
-        """
+        """  # noqa: DOC105
         self._handle = booster_handle
         self.__is_manage_handle = manage_handle
         self.pandas_categorical = pandas_categorical
@@ -954,7 +954,12 @@ class _InnerPredictor:
             Booster.
         pred_parameter : dict
             Other parameters for the prediction.
-        """
+
+        Returns
+        -------
+        _InnerPredictor
+            An ``_InnerPredictor`` instance.
+        """  # noqa: DOC105
         return cls(
             booster_handle=booster._handle,
             pandas_categorical=booster.pandas_categorical,
@@ -976,7 +981,12 @@ class _InnerPredictor:
             Path to the model file.
         pred_parameter : dict
             Other parameters for the prediction.
-        """
+
+        Returns
+        -------
+        _InnerPredictor
+            An ``_InnerPredictor`` instance.
+        """  # noqa: DOC105
         booster_handle = ctypes.c_void_p()
         out_num_iterations = ctypes.c_int(0)
         _safe_call(
@@ -1025,11 +1035,11 @@ class _InnerPredictor:
             Data source for prediction.
             If str or pathlib.Path, it represents the path to a text file (CSV, TSV, or LibSVM).
 
-        .. versionadded:: 4.2.0
-            Support for ``pyarrow`` inputs
+            .. versionadded:: 4.2.0
+                Support for ``pyarrow`` inputs
 
-        .. versionadded:: 4.7.0
-            Support for ``polars`` inputs
+            .. versionadded:: 4.7.0
+                Support for ``polars`` inputs
 
         start_iteration : int, optional (default=0)
             Start index of the iteration to predict.
@@ -1055,7 +1065,7 @@ class _InnerPredictor:
         result : numpy array, scipy.sparse or list of scipy.sparse
             Prediction result.
             Can be sparse or a list of sparse objects (each element represents predictions for one class) for feature contributions (when ``pred_contrib=True``).
-        """
+        """  # noqa: DOC105
         if isinstance(data, Dataset):
             raise TypeError("Cannot use Dataset instance for prediction, please use raw data instead")
         if isinstance(data, pd_DataFrame) and validate_features:
@@ -1779,7 +1789,7 @@ class Dataset:
             If True, raw data is freed after constructing inner Dataset.
         position : numpy 1-D array, pandas Series, pyarrow ChunkedArray, polars Series or None, optional (default=None)
             Position of items used in unbiased learning-to-rank task.
-        """
+        """  # noqa: DOC105
         self._handle: Optional[_DatasetHandle] = None
         self.data = data
         self.label = label
@@ -1865,7 +1875,7 @@ class Dataset:
         -------
         self : Dataset
             Constructed Dataset object.
-        """
+        """  # noqa: DOC105
         self._handle = ctypes.c_void_p()
         _safe_call(
             _LIB.LGBM_DatasetCreateByReference(
@@ -1900,7 +1910,7 @@ class Dataset:
         -------
         self : Dataset
             Constructed Dataset object.
-        """
+        """  # noqa: DOC105
         ncol = len(sample_indices)
         assert len(sample_data) == ncol, "#sample data column != #column indices"
 
@@ -1952,7 +1962,7 @@ class Dataset:
         -------
         self : Dataset
             Dataset object.
-        """
+        """  # noqa: DOC105
         nrow, ncol = data.shape
         data = data.reshape(data.size)
         data_ptr, data_type, _ = _c_float_array(data)
@@ -2208,10 +2218,20 @@ class Dataset:
 
         Mimics behavior in c_api.cpp:LGBM_DatasetCreateFromMats()
 
+        Parameters
+        ----------
+        seqs : list of Sequence
+            List of ``Sequence`` objects to sample from.
+        total_nrow : int
+            Total (not per-sequence) rows to return.
+
         Returns
         -------
-            sampled_rows, sampled_row_indices
-        """
+        sampled_rows : np.ndarray
+            Sample data.
+        sampled_rows_indices : np.ndarray
+            0-based indices in the original data that would select ``sampled_rows``.
+        """  # noqa: DOC105
         indices = self._create_sample_indices(total_nrow=total_nrow)
 
         # Select sampled rows, transpose to column order.
@@ -2465,7 +2485,7 @@ class Dataset:
         -------
         compare_result : bool
           Returns whether two dictionaries with params are equal.
-        """
+        """  # noqa: DOC105
         for k, v in other_params.items():
             if k not in ignore_keys:
                 if k not in params or params[k] != v:
@@ -2644,7 +2664,7 @@ class Dataset:
         -------
         valid : Dataset
             Validation Dataset with reference to self.
-        """
+        """  # noqa: DOC105
         ret = Dataset(
             data,
             label=label,
@@ -2678,7 +2698,7 @@ class Dataset:
         -------
         subset : Dataset
             Subset of the current Dataset.
-        """
+        """  # noqa: DOC105
         if params is None:
             params = self.params
         ret = Dataset(
@@ -2711,7 +2731,7 @@ class Dataset:
         -------
         self : Dataset
             Returns self.
-        """
+        """  # noqa: DOC105
         _safe_call(
             _LIB.LGBM_DatasetSaveBinary(
                 self.construct()._handle,
@@ -2778,7 +2798,7 @@ class Dataset:
         -------
         self : Dataset
             Dataset with set property.
-        """
+        """  # noqa: DOC105
         if self._handle is None:
             raise Exception(f"Cannot set {field_name} before construct dataset")
         if data is None:
@@ -2926,7 +2946,7 @@ class Dataset:
         -------
         self : Dataset
             Dataset with set categorical features.
-        """
+        """  # noqa: DOC105
         if self.categorical_feature == categorical_feature:
             return self
         if self.data is not None:
@@ -3028,7 +3048,7 @@ class Dataset:
         -------
         self : Dataset
             Dataset with set feature name.
-        """
+        """  # noqa: DOC105
         if feature_name != "auto":
             self.feature_name = feature_name
             self._has_non_default_feature_names = True
@@ -3065,7 +3085,7 @@ class Dataset:
         -------
         self : Dataset
             Dataset with set label.
-        """
+        """  # noqa: DOC105
         self.label = label
         if self._handle is not None:
             if isinstance(label, pd_DataFrame):
@@ -3101,7 +3121,7 @@ class Dataset:
         -------
         self : Dataset
             Dataset with set weight.
-        """
+        """  # noqa: DOC105
         # Check if the weight contains values other than one
         if weight is not None:
             if nwd.is_into_series(weight):
@@ -3140,7 +3160,7 @@ class Dataset:
         -------
         self : Dataset
             Dataset with set init score.
-        """
+        """  # noqa: DOC105
         self.init_score = init_score
         if self._handle is not None and init_score is not None:
             self.set_field("init_score", init_score)
@@ -3172,7 +3192,7 @@ class Dataset:
         -------
         self : Dataset
             Dataset with set group.
-        """
+        """  # noqa: DOC105
         self.group = group
         if self._handle is not None and group is not None:
             if isinstance(group, pd_Series) or not nwd.is_into_series(group):
@@ -3199,7 +3219,7 @@ class Dataset:
         -------
         self : Dataset
             Dataset with set position.
-        """
+        """  # noqa: DOC105
         self.position = position
         if self._handle is not None and position is not None:
             if isinstance(position, pd_Series) or not nwd.is_into_series(position):
@@ -3445,7 +3465,7 @@ class Dataset:
         -------
         number_of_bins : int
             The number of constructed bins for the feature in the Dataset.
-        """
+        """  # noqa: DOC105
         if self._handle is not None:
             if isinstance(feature, str):
                 feature_index = self.feature_name.index(feature)
@@ -3479,7 +3499,7 @@ class Dataset:
         -------
         ref_chain : set of Dataset
             Chain of references of the Datasets.
-        """
+        """  # noqa: DOC105
         head = self
         ref_chain: Set[Dataset] = set()
         while len(ref_chain) < ref_limit:
@@ -3587,7 +3607,7 @@ class Dataset:
         -------
         self : Dataset
             Returns self.
-        """
+        """  # noqa: DOC105
         _safe_call(
             _LIB.LGBM_DatasetDumpText(
                 self.construct()._handle,
@@ -3613,7 +3633,7 @@ _LGBM_CustomEvalFunction = Union[
 ]
 
 
-class EvalResult(NamedTuple):
+class EvalResult(NamedTuple):  # numpydoc ignore=PR02
     """
     Result from computing an evaluation metric on a dataset.
 
@@ -3635,7 +3655,7 @@ class EvalResult(NamedTuple):
     metric_std_dev : float or None
         If not ``None``, the standard deviation of metric values computed over a range of results.
         For example, used when aggregating over cross-validation folds in ``cv()``.
-    """
+    """  # noqa: DOC601, DOC603
 
     dataset_name: str
     metric_name: str
@@ -3689,7 +3709,7 @@ class Booster:
             Path to the model file.
         model_str : str or None, optional (default=None)
             Model will be loaded from this string.
-        """
+        """  # noqa: DOC105
         self._handle = ctypes.c_void_p()
         self._network = False
         self.__need_reload_eval_info = True
@@ -3921,7 +3941,7 @@ class Booster:
         -------
         self : Booster
             Booster with set network.
-        """
+        """  # noqa: DOC105
         if isinstance(machines, (list, set)):
             machines = ",".join(machines)
         _safe_call(
@@ -4165,7 +4185,7 @@ class Booster:
         -------
         self : Booster
             Booster with new parameters.
-        """
+        """  # noqa: DOC105
         params_str = _param_dict_to_str(params)
         if params_str:
             _safe_call(
@@ -4219,7 +4239,7 @@ class Booster:
             case. For example, if you have added any randomness (like column sampling by
             setting ``feature_fraction_bynode < 1.0``), it is possible that another call
             to ``update()`` would produce a non-empty tree.
-        """
+        """  # noqa: DOC105
         # need reset training data
         if train_set is None and self.train_set_version != self.train_set.version:
             train_set = self.train_set
@@ -4291,7 +4311,7 @@ class Booster:
             case. For example, if you have added any randomness (like column sampling by
             setting ``feature_fraction_bynode < 1.0``), it is possible that another call
             to ``__boost()`` would produce a non-empty tree.
-        """
+        """  # noqa: DOC105
         if self.__num_class > 1:
             grad = grad.ravel(order="F")
             hess = hess.ravel(order="F")
@@ -4455,7 +4475,7 @@ class Booster:
         result : list[EvalResult]
             List of ``lightgbm.EvalResult`` objects, named tuples of the form
             (dataset_name, metric_name, metric_value, maximize).
-        """
+        """  # noqa: DOC105
         if not isinstance(data, Dataset):
             raise TypeError("Can only eval for Dataset instance")
         data_idx = -1
@@ -4505,7 +4525,7 @@ class Booster:
         result : list[EvalResult]
             List of ``lightgbm.EvalResult`` objects, named tuples of the form
             (dataset_name, metric_name, metric_value, maximize).
-        """
+        """  # noqa: DOC105
         return self.__inner_eval(data_name=self._train_data_name, data_idx=0, feval=feval)
 
     def eval_valid(
@@ -4540,7 +4560,7 @@ class Booster:
         result : list
             List of ``lightgbm.EvalResult`` objects, named tuples of the form
             (dataset_name, metric_name, metric_value, maximize).
-        """
+        """  # noqa: DOC105
         return [
             item
             for i in range(1, self.__num_dataset)
@@ -4575,7 +4595,7 @@ class Booster:
         -------
         self : Booster
             Returns self.
-        """
+        """  # noqa: DOC105
         if num_iteration is None:
             num_iteration = self.best_iteration
         importance_type_int = _FEATURE_IMPORTANCE_TYPE_MAPPER[importance_type]
@@ -4610,7 +4630,7 @@ class Booster:
         -------
         self : Booster
             Booster with shuffled models.
-        """
+        """  # noqa: DOC105
         _safe_call(
             _LIB.LGBM_BoosterShuffleModels(
                 self._handle,
@@ -4682,7 +4702,7 @@ class Booster:
         -------
         str_repr : str
             String representation of Booster.
-        """
+        """  # noqa: DOC105
         if num_iteration is None:
             num_iteration = self.best_iteration
         importance_type_int = _FEATURE_IMPORTANCE_TYPE_MAPPER[importance_type]
@@ -4756,7 +4776,7 @@ class Booster:
         -------
         json_repr : dict
             JSON format of Booster.
-        """
+        """  # noqa: DOC105
         if num_iteration is None:
             num_iteration = self.best_iteration
         importance_type_int = _FEATURE_IMPORTANCE_TYPE_MAPPER[importance_type]
@@ -4858,7 +4878,7 @@ class Booster:
         result : numpy array, scipy.sparse or list of scipy.sparse
             Prediction result.
             Can be sparse or a list of sparse objects (each element represents predictions for one class) for feature contributions (when ``pred_contrib=True``).
-        """
+        """  # noqa: DOC105
         predictor = _InnerPredictor.from_booster(
             booster=self,
             pred_parameter=deepcopy(kwargs),
@@ -5003,7 +5023,7 @@ class Booster:
         -------
         result : Booster
             Refitted Booster.
-        """
+        """  # noqa: DOC105
         if self.__set_objective_to_none:
             raise LightGBMError("Cannot refit due to null objective function.")
         if dataset_params is None:
@@ -5232,7 +5252,7 @@ class Booster:
         -------
         result : numpy array
             Array with feature importances.
-        """
+        """  # noqa: DOC105
         if iteration is None:
             iteration = self.best_iteration
         importance_type_int = _FEATURE_IMPORTANCE_TYPE_MAPPER[importance_type]
@@ -5287,7 +5307,7 @@ class Booster:
             and the bin edges.
         result_array_like : numpy array or pandas DataFrame (if pandas is installed)
             If ``xgboost_style=True``, the histogram of used splitting values for the specified feature.
-        """
+        """  # noqa: DOC105
 
         def add(root: Dict[str, Any]) -> None:
             """Recursively add thresholds."""

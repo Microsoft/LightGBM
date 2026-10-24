@@ -2,10 +2,12 @@
 exclude: |
   (?x)^(
       build|
+      dist|
       external_libs|
       lightgbm-python|
       lightgbm_r|
       \.pixi|
+      \.venv|
   )$
   |R-package/configure$
   |R-package/inst/Makevars$
@@ -77,6 +79,16 @@ repos:
           - ./.ci/parameter-generator.py
         language: python
         pass_filenames: false
+  - repo: https://github.com/numpy/numpydoc
+    rev: v1.11.0
+    hooks:
+      - id: numpydoc-validation
+        args: [--config=python-package]
+  - repo: https://github.com/jsh9/pydoclint
+    rev: 0.10.1
+    hooks:
+      - id: pydoclint
+        args: [--config=python-package/pyproject.toml]
   - repo: https://github.com/rstcheck/rstcheck
     rev: v6.2.5
     hooks:

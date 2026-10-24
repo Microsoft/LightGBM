@@ -56,7 +56,7 @@ class EarlyStopException(Exception):
 
         .. versionadded:: 4.7.0
             ``best_score`` is stored on the instance as a list of ``lightgbm.EvalResult`` objects.
-        """
+        """  # noqa: DOC105
         super().__init__()
         self.best_iteration = best_iteration
         self.best_score: List[EvalResult] = [EvalResult(*score_tuple) for score_tuple in best_score]
@@ -129,7 +129,7 @@ def log_evaluation(period: int = 1, show_stdv: bool = True) -> _LogEvaluationCal
     -------
     callback : _LogEvaluationCallback
         The callback that logs the evaluation results every ``period`` boosting iteration(s).
-    """
+    """  # noqa: DOC105
     return _LogEvaluationCallback(period=period, show_stdv=show_stdv)
 
 
@@ -211,7 +211,7 @@ def record_evaluation(eval_result: Dict[str, Dict[str, List[Any]]]) -> Callable:
     -------
     callback : _RecordEvaluationCallback
         The callback that records the evaluation history into the passed dictionary.
-    """
+    """  # noqa: DOC105
     return _RecordEvaluationCallback(eval_result=eval_result)
 
 
@@ -270,7 +270,7 @@ def reset_parameter(**kwargs: Union[list, Callable]) -> Callable:
     -------
     callback : _ResetParameterCallback
         The callback that resets the parameter after the first iteration.
-    """
+    """  # noqa: DOC105
     return _ResetParameterCallback(**kwargs)
 
 
@@ -506,7 +506,7 @@ def early_stopping(
     -------
     callback : _EarlyStoppingCallback
         The callback that activates early stopping.
-    """
+    """  # noqa: DOC105
     return _EarlyStoppingCallback(
         stopping_rounds=stopping_rounds,
         first_metric_only=first_metric_only,

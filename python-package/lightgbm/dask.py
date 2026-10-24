@@ -19,7 +19,15 @@ from urllib.parse import urlparse
 import numpy as np
 import scipy.sparse as ss
 
-from .basic import LightGBMError, _choose_param_value, _ConfigAliases, _log_info, _log_warning
+from .basic import (
+    LightGBMError,
+    _choose_param_value,
+    _ConfigAliases,
+    _LGBM_CategoricalFeatureConfiguration,
+    _LGBM_FeatureNameConfiguration,
+    _log_info,
+    _log_warning,
+)
 from .compat import (
     PANDAS_INSTALLED,
     SKLEARN_INSTALLED,
@@ -109,7 +117,7 @@ def _get_dask_client(client: Optional["distributed.Client"]) -> "distributed.Cli
     -------
     client : distributed.Client
         A Dask client.
-    """
+    """  # noqa: DOC105
     from dask.distributed import default_client  # noqa: PLC0415
 
     if client is None:
@@ -125,13 +133,20 @@ def _assign_open_ports_to_workers(
 ) -> Tuple[Dict[str, "distributed.client.Future"], Dict[str, int]]:
     """Assign an open port to each worker.
 
+    Parameters
+    ----------
+    client : distributed.Client
+        Dask client.
+    workers : list of str
+        List of worker IPs.
+
     Returns
     -------
     worker_to_socket_future: dict
-        mapping from worker address to a future pointing to the remote socket.
+        Mapping from worker address to a future pointing to the remote socket.
     worker_to_port: dict
-        mapping from worker address to an open port in the worker's host.
-    """
+        Mapping from worker address to an open port in the worker's host.
+    """  # noqa: DOC105
     # Acquire port in worker
     worker_to_future = {}
     for worker in workers:
@@ -413,7 +428,7 @@ def _machines_to_worker_map(
     -------
     result : Dict[str, int]
         Dictionary where keys are work addresses in the form expected by Dask and values are a port for LightGBM to use.
-    """
+    """  # noqa: DOC105
     machine_addresses = machines.split(",")
 
     if len(set(machine_addresses)) != len(machine_addresses):
@@ -446,6 +461,8 @@ def _train(
     sample_weight: Optional[_DaskVectorLike] = None,
     init_score: Optional[_DaskCollection] = None,
     group: Optional[_DaskVectorLike] = None,
+    categorical_feature: _LGBM_CategoricalFeatureConfiguration = "auto",
+    feature_name: _LGBM_FeatureNameConfiguration = "auto",
     eval_set: Optional[List[Tuple[_DaskMatrixLike, _DaskCollection]]] = None,
     eval_names: Optional[List[str]] = None,
     eval_X: Optional[Union[_DaskMatrixLike, Tuple[_DaskMatrixLike]]] = None,
@@ -482,6 +499,19 @@ def _train(
         sum(group) = n_samples.
         For example, if you have a 100-document dataset with ``group = [10, 20, 40, 10, 10, 10]``, that means that you have 6 groups,
         where the first 10 records are in the first group, records 11-30 are in the second group, records 31-70 are in the third group, etc.
+    categorical_feature : list of str or int, or 'auto', optional (default='auto')
+        Categorical features.
+        If list of int, interpreted as indices.
+        If list of str, interpreted as feature names (need to specify ``feature_name`` as well).
+        If 'auto' and data is pandas DataFrame, pandas unordered categorical columns are used.
+        All values in categorical features will be cast to int32 and thus should be less than int32 max value (2147483647).
+        Large values could be memory consuming. Consider using consecutive integers starting from zero.
+        All negative values in categorical features will be treated as missing values.
+        The output cannot be monotonically constrained with respect to a categorical feature.
+        Floating point numbers in categorical features will be rounded towards 0.
+    feature_name : list of str, or 'auto', optional (default='auto')
+        Feature names.
+        If 'auto' and data is pandas DataFrame, data columns names are used.
     eval_set : list of (X, y) tuples of Dask data collections, or None, optional (default=None)
         List of (X, y) tuple pairs to use as validation sets.
         Note, that not all workers may receive chunks of every eval set within ``eval_set``. When the returned
@@ -545,7 +575,7 @@ def _train(
     If ``local_listen_port`` is provided in ``params`` and ``machines`` is not, this function
     constructs ``machines`` from the list of Dask workers which hold some piece of the
     training data, assuming that each one will use the same ``local_listen_port``.
-    """
+    """  # noqa: DOC105
     try:
         from dask import delayed  # noqa: PLC0415
         from dask.distributed import wait  # noqa: PLC0415
@@ -946,6 +976,8 @@ def _predict(
         Fitted underlying model.
     data : Dask Array or Dask DataFrame of shape = [n_samples, n_features]
         Input feature matrix.
+    client : distributed.Client
+        Dask client.
     raw_score : bool, optional (default=False)
         Whether to predict raw scores.
     pred_proba : bool, optional (default=False)
@@ -965,7 +997,7 @@ def _predict(
         If ``pred_leaf=True``, the predicted leaf of every tree for each sample.
     X_SHAP_values : Dask Array of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes] or (if multi-class and using sparse inputs) a list of ``n_classes`` Dask Arrays of shape = [n_samples, n_features + 1]
         If ``pred_contrib=True``, the feature contributions for each sample.
-    """
+    """  # noqa: DOC105
     if not all((PANDAS_INSTALLED, SKLEARN_INSTALLED)):
         raise LightGBMError("pandas and scikit-learn are required for lightgbm.dask")
 
@@ -1330,7 +1362,7 @@ class DaskLGBMClassifier(LGBMClassifier, _DaskLGBMModel):
 
         For multi-class task, y_pred is a numpy 2-D array of shape = [n_samples, n_classes],
         and grad and hess should be returned in the same format.
-        """
+        """  # noqa: DOC105
         self.client = client
         super().__init__(
             boosting_type=boosting_type,
@@ -1371,8 +1403,10 @@ class DaskLGBMClassifier(LGBMClassifier, _DaskLGBMModel):
         eval_init_score: Optional[List[_DaskCollection]] = None,
         eval_metric: Optional[_LGBM_ScikitEvalMetricType] = None,
         *,
+        categorical_feature: _LGBM_CategoricalFeatureConfiguration = "auto",
         eval_X: Optional[Union[_DaskMatrixLike, Tuple[_DaskMatrixLike]]] = None,
         eval_y: Optional[Union[_DaskCollection, Tuple[_DaskCollection]]] = None,
+        feature_name: _LGBM_FeatureNameConfiguration = "auto",
         **kwargs: Any,
     ) -> "DaskLGBMClassifier":
         """
@@ -1417,8 +1451,9 @@ class DaskLGBMClassifier(LGBMClassifier, _DaskLGBMModel):
                 Support for ``polars`` inputs
 
         eval_set : list or None, optional (default=None)
+            A list of (X, y) tuple pairs to use as validation sets.
+
             .. deprecated:: 4.7.0
-                A list of (X, y) tuple pairs to use as validation sets.
                 Use ``eval_X`` and ``eval_y`` instead.
         eval_names : list of str, or None, optional (default=None)
             Unique identifiers for each evaluation dataset.
@@ -1435,9 +1470,6 @@ class DaskLGBMClassifier(LGBMClassifier, _DaskLGBMModel):
             If list, it can be a list of built-in metrics, a list of custom evaluation metrics, or a mix of both.
             In either case, the ``metric`` from the model parameters will be evaluated and used as well.
             Default: 'l2' for LGBMRegressor, 'logloss' for LGBMClassifier, 'ndcg' for LGBMRanker.
-        feature_name : list of str, or 'auto', optional (default='auto')
-            Feature names.
-            If 'auto' and data is pandas DataFrame, data columns names are used.
         categorical_feature : list of str or int, or 'auto', optional (default='auto')
             Categorical features.
             If list of int, interpreted as indices.
@@ -1448,6 +1480,13 @@ class DaskLGBMClassifier(LGBMClassifier, _DaskLGBMModel):
             All negative values in categorical features will be treated as missing values.
             The output cannot be monotonically constrained with respect to a categorical feature.
             Floating point numbers in categorical features will be rounded towards 0.
+        eval_X : Dask Array or Dask DataFrame, tuple thereof or None, optional (default=None)
+            Feature matrix or tuple thereof, e.g. ``(X_val0, X_val1)``, to use as validation sets.
+        eval_y : Dask Array or Dask DataFrame or Dask Series, tuple thereof or None, optional (default=None)
+            Target values or tuple thereof, e.g. ``(y_val0, y_val1)``, to use as validation sets.
+        feature_name : list of str, or 'auto', optional (default='auto')
+            Feature names.
+            If 'auto' and data is pandas DataFrame, data columns names are used.
         **kwargs
             Other parameters passed through to ``LGBMClassifier.fit()``.
 
@@ -1484,13 +1523,15 @@ class DaskLGBMClassifier(LGBMClassifier, _DaskLGBMModel):
                 Value of the evaluation metric.
             maximize : bool
                 Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
-        """
+        """  # noqa: DOC105
         self._lgb_dask_fit(
             model_factory=LGBMClassifier,
             X=X,
             y=y,
             sample_weight=sample_weight,
             init_score=init_score,
+            categorical_feature=categorical_feature,
+            feature_name=feature_name,
             eval_set=eval_set,
             eval_names=eval_names,
             eval_X=eval_X,
@@ -1558,7 +1599,7 @@ class DaskLGBMClassifier(LGBMClassifier, _DaskLGBMModel):
             If ``pred_leaf=True``, the predicted leaf of every tree for each sample.
         X_SHAP_values : Dask Array of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes] or (if multi-class and using sparse inputs) a list of ``n_classes`` Dask Arrays of shape = [n_samples, n_features + 1]
             If ``pred_contrib=True``, the feature contributions for each sample.
-        """
+        """  # noqa: DOC105
         return _predict(
             model=self.to_local(),
             data=X,
@@ -1627,7 +1668,7 @@ class DaskLGBMClassifier(LGBMClassifier, _DaskLGBMModel):
             If ``pred_leaf=True``, the predicted leaf of every tree for each sample.
         X_SHAP_values : Dask Array of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes] or (if multi-class and using sparse inputs) a list of ``n_classes`` Dask Arrays of shape = [n_samples, n_features + 1]
             If ``pred_contrib=True``, the feature contributions for each sample.
-        """
+        """  # noqa: DOC105
         return _predict(
             model=self.to_local(),
             data=X,
@@ -1802,7 +1843,7 @@ class DaskLGBMRegressor(LGBMRegressor, _DaskLGBMModel):
 
         For multi-class task, y_pred is a numpy 2-D array of shape = [n_samples, n_classes],
         and grad and hess should be returned in the same format.
-        """
+        """  # noqa: DOC105
         self.client = client
         super().__init__(
             boosting_type=boosting_type,
@@ -1842,8 +1883,10 @@ class DaskLGBMRegressor(LGBMRegressor, _DaskLGBMModel):
         eval_init_score: Optional[List[_DaskVectorLike]] = None,
         eval_metric: Optional[_LGBM_ScikitEvalMetricType] = None,
         *,
+        categorical_feature: _LGBM_CategoricalFeatureConfiguration = "auto",
         eval_X: Optional[Union[_DaskMatrixLike, Tuple[_DaskMatrixLike]]] = None,
         eval_y: Optional[Union[_DaskCollection, Tuple[_DaskCollection]]] = None,
+        feature_name: _LGBM_FeatureNameConfiguration = "auto",
         **kwargs: Any,
     ) -> "DaskLGBMRegressor":
         """
@@ -1888,8 +1931,9 @@ class DaskLGBMRegressor(LGBMRegressor, _DaskLGBMModel):
                 Support for ``polars`` inputs
 
         eval_set : list or None, optional (default=None)
+            A list of (X, y) tuple pairs to use as validation sets.
+
             .. deprecated:: 4.7.0
-                A list of (X, y) tuple pairs to use as validation sets.
                 Use ``eval_X`` and ``eval_y`` instead.
         eval_names : list of str, or None, optional (default=None)
             Unique identifiers for each evaluation dataset.
@@ -1904,9 +1948,6 @@ class DaskLGBMRegressor(LGBMRegressor, _DaskLGBMModel):
             If list, it can be a list of built-in metrics, a list of custom evaluation metrics, or a mix of both.
             In either case, the ``metric`` from the model parameters will be evaluated and used as well.
             Default: 'l2' for LGBMRegressor, 'logloss' for LGBMClassifier, 'ndcg' for LGBMRanker.
-        feature_name : list of str, or 'auto', optional (default='auto')
-            Feature names.
-            If 'auto' and data is pandas DataFrame, data columns names are used.
         categorical_feature : list of str or int, or 'auto', optional (default='auto')
             Categorical features.
             If list of int, interpreted as indices.
@@ -1917,6 +1958,13 @@ class DaskLGBMRegressor(LGBMRegressor, _DaskLGBMModel):
             All negative values in categorical features will be treated as missing values.
             The output cannot be monotonically constrained with respect to a categorical feature.
             Floating point numbers in categorical features will be rounded towards 0.
+        eval_X : Dask Array or Dask DataFrame, tuple thereof or None, optional (default=None)
+            Feature matrix or tuple thereof, e.g. ``(X_val0, X_val1)``, to use as validation sets.
+        eval_y : Dask Array or Dask DataFrame or Dask Series, tuple thereof or None, optional (default=None)
+            Target values or tuple thereof, e.g. ``(y_val0, y_val1)``, to use as validation sets.
+        feature_name : list of str, or 'auto', optional (default='auto')
+            Feature names.
+            If 'auto' and data is pandas DataFrame, data columns names are used.
         **kwargs
             Other parameters passed through to ``LGBMRegressor.fit()``.
 
@@ -1953,13 +2001,15 @@ class DaskLGBMRegressor(LGBMRegressor, _DaskLGBMModel):
                 Value of the evaluation metric.
             maximize : bool
                 Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
-        """
+        """  # noqa: DOC105
         self._lgb_dask_fit(
             model_factory=LGBMRegressor,
             X=X,
             y=y,
             sample_weight=sample_weight,
             init_score=init_score,
+            categorical_feature=categorical_feature,
+            feature_name=feature_name,
             eval_set=eval_set,
             eval_names=eval_names,
             eval_X=eval_X,
@@ -2026,7 +2076,7 @@ class DaskLGBMRegressor(LGBMRegressor, _DaskLGBMModel):
             If ``pred_leaf=True``, the predicted leaf of every tree for each sample.
         X_SHAP_values : Dask Array of shape = [n_samples, n_features + 1]
             If ``pred_contrib=True``, the feature contributions for each sample.
-        """
+        """  # noqa: DOC105
         return _predict(
             model=self.to_local(),
             data=X,
@@ -2200,7 +2250,7 @@ class DaskLGBMRanker(LGBMRanker, _DaskLGBMModel):
 
         For multi-class task, y_pred is a numpy 2-D array of shape = [n_samples, n_classes],
         and grad and hess should be returned in the same format.
-        """
+        """  # noqa: DOC105
         self.client = client
         super().__init__(
             boosting_type=boosting_type,
@@ -2243,8 +2293,10 @@ class DaskLGBMRanker(LGBMRanker, _DaskLGBMModel):
         eval_metric: Optional[_LGBM_ScikitEvalMetricType] = None,
         eval_at: Union[List[int], Tuple[int, ...]] = (1, 2, 3, 4, 5),
         *,
+        categorical_feature: _LGBM_CategoricalFeatureConfiguration = "auto",
         eval_X: Optional[Union[_DaskMatrixLike, Tuple[_DaskMatrixLike]]] = None,
         eval_y: Optional[Union[_DaskCollection, Tuple[_DaskCollection]]] = None,
+        feature_name: _LGBM_FeatureNameConfiguration = "auto",
         **kwargs: Any,
     ) -> "DaskLGBMRanker":
         """
@@ -2302,8 +2354,9 @@ class DaskLGBMRanker(LGBMRanker, _DaskLGBMModel):
                 Support for ``polars`` inputs
 
         eval_set : list or None, optional (default=None)
+            A list of (X, y) tuple pairs to use as validation sets.
+
             .. deprecated:: 4.7.0
-                A list of (X, y) tuple pairs to use as validation sets.
                 Use ``eval_X`` and ``eval_y`` instead.
         eval_names : list of str, or None, optional (default=None)
             Unique identifiers for each evaluation dataset.
@@ -2322,9 +2375,6 @@ class DaskLGBMRanker(LGBMRanker, _DaskLGBMModel):
             Default: 'l2' for LGBMRegressor, 'logloss' for LGBMClassifier, 'ndcg' for LGBMRanker.
         eval_at : list or tuple of int, optional (default=(1, 2, 3, 4, 5))
             The evaluation positions of the specified metric.
-        feature_name : list of str, or 'auto', optional (default='auto')
-            Feature names.
-            If 'auto' and data is pandas DataFrame, data columns names are used.
         categorical_feature : list of str or int, or 'auto', optional (default='auto')
             Categorical features.
             If list of int, interpreted as indices.
@@ -2335,6 +2385,13 @@ class DaskLGBMRanker(LGBMRanker, _DaskLGBMModel):
             All negative values in categorical features will be treated as missing values.
             The output cannot be monotonically constrained with respect to a categorical feature.
             Floating point numbers in categorical features will be rounded towards 0.
+        eval_X : Dask Array or Dask DataFrame, tuple thereof or None, optional (default=None)
+            Feature matrix or tuple thereof, e.g. ``(X_val0, X_val1)``, to use as validation sets.
+        eval_y : Dask Array or Dask DataFrame or Dask Series, tuple thereof or None, optional (default=None)
+            Target values or tuple thereof, e.g. ``(y_val0, y_val1)``, to use as validation sets.
+        feature_name : list of str, or 'auto', optional (default='auto')
+            Feature names.
+            If 'auto' and data is pandas DataFrame, data columns names are used.
         **kwargs
             Other parameters passed through to ``LGBMRanker.fit()``.
 
@@ -2371,7 +2428,7 @@ class DaskLGBMRanker(LGBMRanker, _DaskLGBMModel):
                 Value of the evaluation metric.
             maximize : bool
                 Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
-        """
+        """  # noqa: DOC105
         self._lgb_dask_fit(
             model_factory=LGBMRanker,
             X=X,
@@ -2379,6 +2436,8 @@ class DaskLGBMRanker(LGBMRanker, _DaskLGBMModel):
             sample_weight=sample_weight,
             init_score=init_score,
             group=group,
+            categorical_feature=categorical_feature,
+            feature_name=feature_name,
             eval_set=eval_set,
             eval_names=eval_names,
             eval_X=eval_X,
@@ -2447,7 +2506,7 @@ class DaskLGBMRanker(LGBMRanker, _DaskLGBMModel):
             If ``pred_leaf=True``, the predicted leaf of every tree for each sample.
         X_SHAP_values : Dask Array of shape = [n_samples, n_features + 1]
             If ``pred_contrib=True``, the feature contributions for each sample.
-        """
+        """  # noqa: DOC105
         return _predict(
             model=self.to_local(),
             data=X,

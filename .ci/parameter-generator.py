@@ -23,9 +23,9 @@ def get_parameter_infos(config_hpp: Path) -> Tuple[List[Tuple[str, int]], List[L
 
     Returns
     -------
-    infos : tuple
+    tuple
         Tuple with names and content of sections.
-    """
+    """  # noqa: DOC105
     is_inparameter = False
     cur_key = None
     key_lvl = 0
@@ -96,9 +96,9 @@ def get_names(infos: List[List[Dict[str, List]]]) -> List[str]:
 
     Returns
     -------
-    names : list
+    list
         Names of all parameters.
-    """
+    """  # noqa: DOC105
     names = []
     for x in infos:
         for y in x:
@@ -116,9 +116,9 @@ def get_alias(infos: List[List[Dict[str, List]]]) -> List[Tuple[str, str]]:
 
     Returns
     -------
-    pairs : list
+    list
         List of tuples (param alias, param name).
-    """
+    """  # noqa: DOC105
     pairs = []
     for x in infos:
         for y in x:
@@ -142,9 +142,9 @@ def parse_check(check: str, reverse: bool = False) -> Tuple[str, str]:
 
     Returns
     -------
-    pair : tuple
+    tuple
         Parsed constraint in the form of tuple (value, sign).
-    """
+    """  # noqa: DOC105
     try:
         idx = 1
         float(check[idx:])
@@ -172,9 +172,9 @@ def set_one_var_from_string(name: str, param_type: str, checks: List[str]) -> st
 
     Returns
     -------
-    ret : str
+    str
         Lines of auto config file with getting and checks of one parameter value.
-    """
+    """  # noqa: DOC105
     ret = ""
     univar_mapper = {"int": "GetInt", "double": "GetDouble", "bool": "GetBool", "std::string": "GetString"}
     if "vector" not in param_type:
@@ -209,7 +209,7 @@ def gen_parameter_description(
         Structured descriptions of parameters.
     params_rst : pathlib.Path
         Path to the file with parameters documentation.
-    """
+    """  # noqa: DOC105
     params_to_write = []
     lvl_mapper = {1: "-", 2: "~"}
     for (section_name, section_lvl), section_params in zip(sections, descriptions, strict=True):
@@ -274,9 +274,9 @@ def gen_parameter_code(
 
     Returns
     -------
-    infos : tuple
+    tuple
         Tuple with names and content of sections.
-    """
+    """  # noqa: DOC105
     keys, infos = get_parameter_infos(config_hpp)
     names = get_names(infos)
     alias = get_alias(infos)

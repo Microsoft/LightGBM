@@ -193,11 +193,11 @@ class _ObjectiveFunctionWrapper:
                     The value of the second order derivative (Hessian) of the loss
                     with respect to the elements of y_pred for each sample point.
 
-        .. note::
+            .. note::
 
-            For multi-class task, y_pred is a numpy 2-D array of shape = [n_samples, n_classes],
-            and grad and hess should be returned in the same format.
-        """
+                For multi-class task, y_pred is a numpy 2-D array of shape = [n_samples, n_classes],
+                and grad and hess should be returned in the same format.
+        """  # noqa: DOC105
         self.func = func
 
     def __call__(
@@ -222,7 +222,7 @@ class _ObjectiveFunctionWrapper:
         hess : numpy 1-D array of shape = [n_samples] or numpy 2-D array of shape = [n_samples, n_classes] (for multi-class task)
             The value of the second order derivative (Hessian) of the loss
             with respect to the elements of preds for each sample point.
-        """
+        """  # noqa: DOC105
         labels = _get_label_from_constructed_dataset(dataset)
         argc = len(signature(self.func).parameters)
         if argc == 2:
@@ -280,7 +280,7 @@ class _EvalFunctionWrapper:
                     Value of the evaluation metric.
                 maximize : bool
                     Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
-        """
+        """  # noqa: DOC105
         self.func = func
 
     def __call__(
@@ -305,7 +305,7 @@ class _EvalFunctionWrapper:
             Value of the evaluation metric.
         maximize : bool
             Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
-        """
+        """  # noqa: DOC105
         labels = _get_label_from_constructed_dataset(dataset)
         argc = len(signature(self.func).parameters)
         if argc == 2:
@@ -354,10 +354,20 @@ def _validate_eval_set_Xy(
 ) -> Optional[List[_LGBM_ScikitValidSet]]:
     """Validate eval args.
 
+    Parameters
+    ----------
+    eval_set : list or None
+        A list of (X, y) tuple pairs to use as validation sets.
+    eval_X : numpy array, pandas DataFrame, pyarrow Table, polars DataFrame, scipy.sparse, list of lists of int or float of shape = [n_samples, n_features], or tuple of such inputs, or None, optional (default=None)
+        Feature matrix or tuple thereof, e.g. ``(X_val0, X_val1)``, to use as validation sets.
+    eval_y : numpy array, pandas DataFrame, pandas Series, list of int or float, pyarrow ChunkedArray or polars Series of shape = [n_samples], or tuple of such inputs, or None, optional (default=None)
+        Target values or tuple thereof, e.g. ``(y_val0, y_val1)``, to use as validation sets.
+
     Returns
     -------
-    eval_set
-    """
+    eval_set : list
+        Evaluation sets in a list of (X, y) tuple pairs.
+    """  # noqa: DOC105
     if eval_set is not None:
         msg = "The argument 'eval_set' is deprecated, use 'eval_X' and 'eval_y' instead."
         warnings.warn(msg, category=LGBMDeprecationWarning, stacklevel=2)
@@ -526,7 +536,7 @@ class LGBMModel(_LGBMModelBase):
 
         For multi-class task, y_pred is a numpy 2-D array of shape = [n_samples, n_classes],
         and grad and hess should be returned in the same format.
-        """
+        """  # noqa: DOC105
         if not SKLEARN_INSTALLED:
             raise LightGBMError(
                 "scikit-learn is required for lightgbm.sklearn. "
@@ -663,7 +673,7 @@ class LGBMModel(_LGBMModelBase):
         -------
         params : dict
             Parameter names mapped to their values.
-        """
+        """  # noqa: DOC105
         # Based on: https://github.com/dmlc/xgboost/blob/bd92b1c9c0db3e75ec3dfa513e1435d518bb535d/python-package/xgboost/sklearn.py#L941
         # which was based on: https://stackoverflow.com/questions/59248211
         #
@@ -701,14 +711,14 @@ class LGBMModel(_LGBMModelBase):
 
         Parameters
         ----------
-        **params
+        **params : object
             Parameter names with their new values.
 
         Returns
         -------
         self : object
             Returns self.
-        """
+        """  # noqa: DOC105
         for key, value in params.items():
             setattr(self, key, value)
             if hasattr(self, f"_{key}"):
@@ -815,7 +825,7 @@ class LGBMModel(_LGBMModelBase):
         -------
         n_jobs : int
             The value of n_jobs with special values converted to actual number of threads.
-        """
+        """  # noqa: DOC105
         if n_jobs is None:
             n_jobs = _LGBMCpuCount(only_physical_cores=True)
         elif n_jobs < 0:
@@ -899,8 +909,9 @@ class LGBMModel(_LGBMModelBase):
                 Support for ``polars`` inputs
 
         eval_set : list or None, optional (default=None)
+            A list of (X, y) tuple pairs to use as validation sets.
+
             .. deprecated:: 4.7.0
-                A list of (X, y) tuple pairs to use as validation sets.
                 Use ``eval_X`` and ``eval_y`` instead.
         eval_names : list of str, or None, optional (default=None)
             Unique identifiers for each evaluation dataset.
@@ -980,7 +991,7 @@ class LGBMModel(_LGBMModelBase):
                 Value of the evaluation metric.
             maximize : bool
                 Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
-        """
+        """  # noqa: DOC105
         params = self._process_params(stage="fit")
 
         # Do not modify original args in fit function
@@ -1202,7 +1213,7 @@ class LGBMModel(_LGBMModelBase):
             If ``pred_leaf=True``, the predicted leaf of every tree for each sample.
         X_SHAP_values : array-like of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes] or list with n_classes length of such objects
             If ``pred_contrib=True``, the feature contributions for each sample.
-        """
+        """  # noqa: DOC105
         if not self.__sklearn_is_fitted__():
             raise LGBMNotFittedError("Estimator not fitted, call fit before exploiting the model.")
         if not isinstance(X, pd_DataFrame) and not nwd.is_into_dataframe(X):
@@ -1558,7 +1569,7 @@ class LGBMRegressor(_LGBMRegressorBase, LGBMModel):
 
         For multi-class task, y_pred is a numpy 2-D array of shape = [n_samples, n_classes],
         and grad and hess should be returned in the same format.
-        """
+        """  # noqa: DOC105
         super().__init__(
             boosting_type=boosting_type,
             num_leaves=num_leaves,
@@ -1656,8 +1667,9 @@ class LGBMRegressor(_LGBMRegressorBase, LGBMModel):
                 Support for ``polars`` inputs
 
         eval_set : list or None, optional (default=None)
+            A list of (X, y) tuple pairs to use as validation sets.
+
             .. deprecated:: 4.7.0
-                A list of (X, y) tuple pairs to use as validation sets.
                 Use ``eval_X`` and ``eval_y`` instead.
         eval_names : list of str, or None, optional (default=None)
             Unique identifiers for each evaluation dataset.
@@ -1733,7 +1745,7 @@ class LGBMRegressor(_LGBMRegressorBase, LGBMModel):
                 Value of the evaluation metric.
             maximize : bool
                 Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
-        """
+        """  # noqa: DOC105
         super().fit(
             X,
             y,
@@ -1900,7 +1912,7 @@ class LGBMClassifier(_LGBMClassifierBase, LGBMModel):
 
         For multi-class task, y_pred is a numpy 2-D array of shape = [n_samples, n_classes],
         and grad and hess should be returned in the same format.
-        """
+        """  # noqa: DOC105
         super().__init__(
             boosting_type=boosting_type,
             num_leaves=num_leaves,
@@ -2003,8 +2015,9 @@ class LGBMClassifier(_LGBMClassifierBase, LGBMModel):
                 Support for ``polars`` inputs
 
         eval_set : list or None, optional (default=None)
+            A list of (X, y) tuple pairs to use as validation sets.
+
             .. deprecated:: 4.7.0
-                A list of (X, y) tuple pairs to use as validation sets.
                 Use ``eval_X`` and ``eval_y`` instead.
         eval_names : list of str, or None, optional (default=None)
             Unique identifiers for each evaluation dataset.
@@ -2082,7 +2095,7 @@ class LGBMClassifier(_LGBMClassifierBase, LGBMModel):
                 Value of the evaluation metric.
             maximize : bool
                 Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
-        """
+        """  # noqa: DOC105
         _LGBMAssertAllFinite(y)
         _LGBMCheckClassificationTargets(y)
         self._le = _LGBMLabelEncoder().fit(y)
@@ -2212,7 +2225,7 @@ class LGBMClassifier(_LGBMClassifierBase, LGBMModel):
             If ``pred_leaf=True``, the predicted leaf of every tree for each sample.
         X_SHAP_values : array-like of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes] or list with n_classes length of such objects
             If ``pred_contrib=True``, the feature contributions for each sample.
-        """
+        """  # noqa: DOC105
         result = self.predict_proba(
             X=X,
             raw_score=raw_score,
@@ -2284,7 +2297,7 @@ class LGBMClassifier(_LGBMClassifierBase, LGBMModel):
             If ``pred_leaf=True``, the predicted leaf of every tree for each sample.
         X_SHAP_values : array-like of shape = [n_samples, n_features + 1] or shape = [n_samples, (n_features + 1) * n_classes] or list with n_classes length of such objects
             If ``pred_contrib=True``, the feature contributions for each sample.
-        """
+        """  # noqa: DOC105
         result = super().predict(
             X=X,
             raw_score=raw_score,
@@ -2347,7 +2360,7 @@ class LGBMClassifier(_LGBMClassifierBase, LGBMModel):
         -------
         raw_score : array-like of shape = [n_samples] or shape = [n_samples, n_classes]
             The predicted values.
-        """
+        """  # noqa: DOC105
         return super().predict(
             X=X,
             raw_score=True,
@@ -2530,7 +2543,7 @@ class LGBMRanker(LGBMModel):
 
         For multi-class task, y_pred is a numpy 2-D array of shape = [n_samples, n_classes],
         and grad and hess should be returned in the same format.
-        """
+        """  # noqa: DOC105
         super().__init__(
             boosting_type=boosting_type,
             num_leaves=num_leaves,
@@ -2631,8 +2644,9 @@ class LGBMRanker(LGBMModel):
                 Support for ``polars`` inputs
 
         eval_set : list or None, optional (default=None)
+            A list of (X, y) tuple pairs to use as validation sets.
+
             .. deprecated:: 4.7.0
-                A list of (X, y) tuple pairs to use as validation sets.
                 Use ``eval_X`` and ``eval_y`` instead.
         eval_names : list of str, or None, optional (default=None)
             Unique identifiers for each evaluation dataset.
@@ -2712,7 +2726,7 @@ class LGBMRanker(LGBMModel):
                 Value of the evaluation metric.
             maximize : bool
                 Are higher values better? e.g. ``True`` for AUC and ``False`` for binary error.
-        """
+        """  # noqa: DOC105
         # check group data
         if group is None:
             raise ValueError("Should set group for ranking task")
