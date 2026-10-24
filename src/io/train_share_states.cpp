@@ -156,6 +156,17 @@ void MultiValBinWrapper::HistMerge(std::vector<hist_t,
       }
     } else if (HIST_BITS == 16 && INNER_HIST_BITS == 8) {
       int32_t* dst = reinterpret_cast<int32_t*>(hist_buf->data()) + hist_buf->size() / 2;
+      if (is_use_subcol_) {
+        // Match HistMove<true, 16, 8>'s column-subset read location (and the
+        // 16/16 merge branch's convention): under is_use_subcol_ the moved
+        // histogram is read from num_bin_aligned_ packed entries BEFORE
+        // hist_buf->size()/2. Without this adjustment the merged 8-bit-block
+        // histogram was written num_bin_aligned_ int32s away from where
+        // HistMove reads, so column-sampled trees consumed stale buffer bytes
+        // for every small (8-bit inner) leaf — corrupt bins, phantom splits,
+        // and the best_split_info.left_count/right_count engine aborts.
+        dst -= static_cast<size_t>(num_bin_aligned_);
+      }
       std::memset(reinterpret_cast<void*>(dst), 0, num_bin_ * kInt16HistBufferEntrySize);
       #pragma omp parallel for schedule(static, 1) num_threads(num_threads_)
       for (int t = 0; t < n_bin_block; ++t) {

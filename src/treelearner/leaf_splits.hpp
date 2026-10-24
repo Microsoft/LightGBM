@@ -184,7 +184,17 @@ class LeafSplits {
       const data_size_t idx = data_indices_[i];
       tmp_sum_gradients += int_gradients_and_hessians[2 * idx + 1] * grad_scale;
       tmp_sum_hessians += int_gradients_and_hessians[2 * idx] * hess_scale;
-      const int16_t packed_int_grad_and_hess = packed_int_gradients_and_hessians[i];
+      // Index by idx (the leaf's actual row), not the loop counter i: this
+      // partial-data overload receives the GLOBAL discretized gradient array,
+      // so packed pairs must be gathered through data_indices_ exactly like
+      // the two float sums above. Indexing by i summed the packed int totals
+      // over the wrong rows whenever data_indices_ is a proper subset (e.g.
+      // the bagged root), desynchronizing the leaf's int64 total from its
+      // histogram bins; FixHistogramInt then materializes the difference as
+      // phantom mass in most-frequent bins, which can select splits with an
+      // empty real side (the "Check failed: (best_split_info.left_count) >
+      // (0)" family, #5994/#5982 residue) or silently corrupt the model.
+      const int16_t packed_int_grad_and_hess = packed_int_gradients_and_hessians[idx];
       const int64_t packed_long_int_grad_and_hess =
         (static_cast<int64_t>(static_cast<int8_t>(packed_int_grad_and_hess >> 8)) << 32) |
         (static_cast<int64_t>(packed_int_grad_and_hess & 0x00ff));

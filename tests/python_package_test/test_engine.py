@@ -4987,6 +4987,82 @@ def test_quantized_training():
     assert quant_rmse < rmse + 6.0
 
 
+def test_quantized_training_with_bagging():
+    # regression test: with bagging active, the quantized root leaf's packed
+    # int64 gradient/hessian total was gathered by loop counter instead of
+    # data_indices_, desynchronizing the leaf total from its histogram bins;
+    # FixHistogramInt then materialized the discrepancy as phantom mass in
+    # most-frequent bins, which could select splits with an empty real side:
+    # "Check failed: (best_split_info.left_count) > (0)"
+    rng = np.random.default_rng(8186409)
+    n_rows, n_features = 16_200, 200
+    X = rng.normal(0.0, 0.35, size=(n_rows, n_features)).astype(np.float32)
+    y = ((X[:, 3].astype(np.float64) * 0.7 + rng.normal(0.0, 0.35, n_rows)) > 0.0).astype(np.float32)
+
+    def logistic_fobj(preds, train_data):
+        labels = np.asarray(train_data.get_label(), dtype=np.float64)
+        p = 1.0 / (1.0 + np.exp(-np.clip(np.asarray(preds, dtype=np.float64), -60.0, 60.0)))
+        return p - labels, np.maximum(p * (1.0 - p), 1e-6)
+
+    params = {
+        "objective": logistic_fobj,
+        "use_quantized_grad": True,
+        "num_grad_quant_bins": 4,
+        "stochastic_rounding": True,
+        "bagging_fraction": 0.85,
+        "bagging_freq": 1,
+        "num_leaves": 31,
+        "learning_rate": 0.04,
+        "min_data_in_leaf": 32,
+        "feature_fraction": 0.85,
+        "force_row_wise": True,
+        "seed": 8186415,
+        "num_threads": 2,
+        "verbose": -1,
+    }
+    booster = lgb.train(params, lgb.Dataset(X, label=y), num_boost_round=256)
+    assert booster.num_trees() == 256
+    assert np.all(np.isfinite(booster.predict(X)))
+
+
+def test_quantized_training_sparse_small_leaves_feature_subsampling():
+    # regression test: HistMerge<true, 16, 8> wrote the merged 8-bit-block
+    # histogram without the is_use_subcol_ destination adjustment its reader
+    # HistMove<true, 16, 8> applies, so under column subsetting every small
+    # (8-bit inner) leaf consumed stale buffer bytes as its histogram —
+    # crashing via the left_count/right_count checks or silently degrading
+    # the model. Sparse features drive the multi-val road where column
+    # subsetting activates; tiny leaves drive the 8-bit path; bagging stays
+    # OFF to isolate this defect from the bagging one above.
+    rng = np.random.default_rng(8186409)
+    n_rows, n_features = 6_000, 400
+    dense = rng.random(size=(n_rows, n_features)) * (rng.random(size=(n_rows, n_features)) < 0.05)
+    X = csr_matrix(dense)
+    y = (dense[:, 3] * 3.0 + rng.normal(0.0, 0.35, n_rows)).astype(np.float64)
+
+    base_params = {
+        "num_leaves": 255,
+        "learning_rate": 0.04,
+        "min_data_in_leaf": 5,
+        "feature_fraction": 0.6,
+        "force_row_wise": True,
+        "seed": 8186415,
+        "num_threads": 2,
+        "verbose": -1,
+    }
+    control = lgb.train(dict(base_params), lgb.Dataset(X, label=y), num_boost_round=64)
+    control_rmse = np.sqrt(np.mean((control.predict(X) - y) ** 2))
+
+    quant_params = dict(base_params)
+    quant_params.update({"use_quantized_grad": True, "num_grad_quant_bins": 4, "stochastic_rounding": True})
+    quant_bst = lgb.train(quant_params, lgb.Dataset(X, label=y), num_boost_round=64)
+    quant_rmse = np.sqrt(np.mean((quant_bst.predict(X) - y) ** 2))
+
+    assert quant_bst.num_trees() == 64
+    # quality clause: catches silent histogram corruption, not just the crash
+    assert quant_rmse < control_rmse * 1.5 + 1e-3
+
+
 def test_bagging_by_query_in_lambdarank():
     rank_example_dir = Path(__file__).absolute().parents[2] / "examples" / "lambdarank"
     X_train, y_train = load_svmlight_file(str(rank_example_dir / "rank.train"))
