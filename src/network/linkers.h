@@ -14,8 +14,11 @@
 #include <string>
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <ctime>
+#include <exception>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -179,6 +182,15 @@ class Linkers {
   bool is_init_;
 
   #ifdef USE_SOCKET
+  // SendRecv calls on one Linkers instance are sequential. The sender only
+  // overlaps the blocking send with the caller's blocking receive.
+  void SendWorkerLoop();
+  void StopSendWorker();
+  void DispatchSend(int rank, char* data, int64_t len);
+  void WaitForSend();
+  void SendRecvWithWorker(int send_rank, char* send_data, int64_t send_len,
+                          int recv_rank, char* recv_data, int64_t recv_len);
+
   /*! \brief use to store client ips */
   std::vector<std::string> client_ips_;
   /*! \brief use to store client ports */
@@ -191,6 +203,16 @@ class Linkers {
   std::vector<std::unique_ptr<TcpSocket>> linkers_;
   /*! \brief Local socket listener */
   std::unique_ptr<TcpSocket> listener_;
+  std::thread send_worker_;
+  std::mutex send_mutex_;
+  std::condition_variable send_condition_;
+  bool send_stop_ = false;
+  bool send_pending_ = false;
+  bool send_done_ = true;
+  int send_rank_ = -1;
+  char* send_data_ = nullptr;
+  int64_t send_len_ = 0;
+  std::exception_ptr send_error_;
   #endif  // USE_SOCKET
 };
 
@@ -232,12 +254,16 @@ inline void Linkers::Send(int rank, char* data, int64_t len) const {
 inline void Linkers::SendRecv(int send_rank, char* send_data, int64_t send_len,
                               int recv_rank, char* recv_data, int64_t recv_len) {
   auto start_time = std::chrono::high_resolution_clock::now();
+  #ifdef USE_SOCKET
+  SendRecvWithWorker(send_rank, send_data, send_len, recv_rank, recv_data, recv_len);
+  #else
   std::thread send_worker(
     [this, send_rank, send_data, send_len]() {
     Send(send_rank, send_data, send_len);
   });
   Recv(recv_rank, recv_data, recv_len);
   send_worker.join();
+  #endif
   // wait for send complete
   auto end_time = std::chrono::high_resolution_clock::now();
   // output used time on each iteration
@@ -273,13 +299,8 @@ inline void Linkers::SendRecv(int send_rank, char* send_data, int send_len,
     Send(send_rank, send_data, send_len);
     Recv(recv_rank, recv_data, recv_len);
   } else {
-    // if buffer is not enough, use another thread to send, since send will be blocking
-    std::thread send_worker(
-      [this, send_rank, send_data, send_len]() {
-      Send(send_rank, send_data, send_len);
-    });
-    Recv(recv_rank, recv_data, recv_len);
-    send_worker.join();
+    // Reuse a sender to overlap blocking send and receive.
+    SendRecvWithWorker(send_rank, send_data, send_len, recv_rank, recv_data, recv_len);
   }
   // wait for send complete
   auto end_time = std::chrono::high_resolution_clock::now();

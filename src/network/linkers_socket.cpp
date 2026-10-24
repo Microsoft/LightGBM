@@ -69,6 +69,7 @@ Linkers::Linkers(Config config) {
 }
 
 Linkers::~Linkers() {
+  StopSendWorker();
   if (is_init_) {
     for (size_t i = 0; i < linkers_.size(); ++i) {
       if (linkers_[i] != nullptr) {
@@ -77,6 +78,96 @@ Linkers::~Linkers() {
     }
     TcpSocket::Finalize();
     Log::Info("Finished linking network in %f seconds", network_time_ * 1e-3);
+  }
+}
+
+void Linkers::DispatchSend(int rank, char* data, int64_t len) {
+  {
+    std::lock_guard<std::mutex> lock(send_mutex_);
+    // Start lazily: small-message-only callers do not need a sender thread.
+    if (!send_worker_.joinable()) {
+      send_worker_ = std::thread(&Linkers::SendWorkerLoop, this);
+    }
+    send_rank_ = rank;
+    send_data_ = data;
+    send_len_ = len;
+    send_error_ = nullptr;
+    send_done_ = false;
+    send_pending_ = true;
+  }
+  send_condition_.notify_one();
+}
+
+void Linkers::WaitForSend() {
+  std::exception_ptr error;
+  {
+    std::unique_lock<std::mutex> lock(send_mutex_);
+    send_condition_.wait(lock, [this]() { return send_done_; });
+    error = send_error_;
+  }
+  if (error) {
+    std::rethrow_exception(error);
+  }
+}
+
+void Linkers::SendWorkerLoop() {
+  std::unique_lock<std::mutex> lock(send_mutex_);
+  while (true) {
+    send_condition_.wait(lock, [this]() { return send_pending_ || send_stop_; });
+    if (send_stop_) {
+      return;
+    }
+    const int rank = send_rank_;
+    char* data = send_data_;
+    const int64_t len = send_len_;
+    send_pending_ = false;
+    lock.unlock();
+    std::exception_ptr error;
+    try {
+      Send(rank, data, len);
+    } catch (...) {
+      error = std::current_exception();
+    }
+    lock.lock();
+    send_error_ = error;
+    send_done_ = true;
+    send_condition_.notify_one();
+  }
+}
+
+void Linkers::StopSendWorker() {
+  if (send_worker_.joinable()) {
+    {
+      std::lock_guard<std::mutex> lock(send_mutex_);
+      send_stop_ = true;
+    }
+    send_condition_.notify_one();
+    send_worker_.join();
+  }
+}
+
+void Linkers::SendRecvWithWorker(int send_rank, char* send_data, int64_t send_len,
+                                 int recv_rank, char* recv_data, int64_t recv_len) {
+  DispatchSend(send_rank, send_data, send_len);
+  std::exception_ptr recv_error;
+  try {
+    Recv(recv_rank, recv_data, recv_len);
+  } catch (...) {
+    recv_error = std::current_exception();
+  }
+  // Even if receive failed, do not return while the sender uses the buffer.
+  // This preserves the existing blocking-send behavior and socket policy.
+  std::exception_ptr send_error;
+  try {
+    WaitForSend();
+  } catch (...) {
+    send_error = std::current_exception();
+  }
+  if (recv_error) {
+    std::rethrow_exception(recv_error);
+  }
+  if (send_error) {
+    std::rethrow_exception(send_error);
   }
 }
 
