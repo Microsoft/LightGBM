@@ -28,6 +28,11 @@ from sklearn.utils.validation import check_is_fitted
 
 import lightgbm as lgb
 from lightgbm.basic import LGBMDeprecationWarning
+from lightgbm.compat import (
+    PANDAS_INSTALLED,
+    pd_DataFrame,
+    pd_Series,
+)
 
 from .utils import (
     BuildInfo,
@@ -2164,12 +2169,12 @@ def test_default_n_jobs(tmp_path):
     assert bool(re.search(rf"\[num_threads: {n_cores}\]", model_txt))
 
 
+@pytest.mark.skipif(not PANDAS_INSTALLED, reason="pandas is not installed")
 @pytest.mark.parametrize("task", all_tasks)
 def test_validate_features(task):
-    pd = pytest.importorskip("pandas")
     X, y, g = _create_data(task, n_features=4)
     features = ["x1", "x2", "x3", "x4"]
-    df = pd.DataFrame(X, columns=features)
+    df = pd_DataFrame(X, columns=features)
     model = task_to_model_factory[task](n_estimators=10, num_leaves=15, verbose=-1)
     if task == "ranking":
         model.fit(df, y, group=g)
@@ -2235,9 +2240,6 @@ def test_predict_rejects_inputs_with_incorrect_number_of_features(predict_disabl
 def _run_minimal_test(*, X_type, y_type, g_type, task, rng):
     if any(t.startswith("pa_") for t in [X_type, y_type, g_type]):
         pa = pytest.importorskip("pyarrow")
-        pd = pytest.importorskip("pandas")
-    if any(t.startswith("pd_") for t in [X_type, y_type, g_type]):
-        pd = pytest.importorskip("pandas")
     if any(t.startswith("pl_") for t in [X_type, y_type, g_type]):
         pl = pytest.importorskip("polars")
 
@@ -2259,9 +2261,9 @@ def _run_minimal_test(*, X_type, y_type, g_type, task, rng):
     elif X_type == "scipy_csr":
         X = scipy.sparse.csr_matrix(X)
     elif X_type == "pd_DataFrame":
-        X = pd.DataFrame(X)
+        X = pd_DataFrame(X)
     elif X_type == "pa_Table":
-        X = pa.Table.from_pandas(pd.DataFrame(X))
+        X = pa.Table.from_pandas(pd_DataFrame(X))
     elif X_type == "pl_DataFrame":
         X = pl.DataFrame(X)
     elif X_type != "numpy":
@@ -2274,24 +2276,24 @@ def _run_minimal_test(*, X_type, y_type, g_type, task, rng):
         weights = weights.tolist()
         init_score = init_score.tolist()
     elif y_type == "pd_DataFrame":
-        y = pd.DataFrame(y)
-        weights = pd.Series(weights)
+        y = pd_DataFrame(y)
+        weights = pd_Series(weights)
         if task == "multiclass-classification":
-            init_score = pd.DataFrame(init_score)
+            init_score = pd_DataFrame(init_score)
         else:
-            init_score = pd.Series(init_score)
+            init_score = pd_Series(init_score)
     elif y_type == "pd_Series":
-        y = pd.Series(y)
-        weights = pd.Series(weights)
+        y = pd_Series(y)
+        weights = pd_Series(weights)
         if task == "multiclass-classification":
-            init_score = pd.DataFrame(init_score)
+            init_score = pd_DataFrame(init_score)
         else:
-            init_score = pd.Series(init_score)
+            init_score = pd_Series(init_score)
     elif y_type == "pa_ChunkedArray":
         y = pa.chunked_array([y])
         weights = pa.chunked_array([weights])
         if task == "multiclass-classification":
-            init_score = pa.Table.from_pandas(pd.DataFrame(init_score))
+            init_score = pa.Table.from_pandas(pd_DataFrame(init_score))
         else:
             init_score = pa.chunked_array([init_score])
     elif y_type == "pl_Series":
@@ -2309,7 +2311,7 @@ def _run_minimal_test(*, X_type, y_type, g_type, task, rng):
     elif g_type == "list1d_int":
         g = g.astype("int").tolist()
     elif g_type == "pd_Series":
-        g = pd.Series(g)
+        g = pd_Series(g)
     elif g_type == "pa_ChunkedArray":
         g = pa.chunked_array([g])
     elif g_type == "pl_Series":
@@ -2387,6 +2389,8 @@ def test_classification_and_regression_minimally_work_with_all_accepted_data_typ
     task,
     rng,
 ):
+    if any(t.startswith("pd_") for t in [X_type, y_type]) and not PANDAS_INSTALLED:
+        pytest.skip("pandas is not installed")
     _run_minimal_test(X_type=X_type, y_type=y_type, g_type="numpy", task=task, rng=rng)
 
 
@@ -2399,6 +2403,8 @@ def test_ranking_minimally_works_with_all_accepted_data_types(
     g_type,
     rng,
 ):
+    if any(t.startswith("pd_") for t in [X_type, y_type]) and not PANDAS_INSTALLED:
+        pytest.skip("pandas is not installed")
     _run_minimal_test(X_type=X_type, y_type=y_type, g_type=g_type, task="ranking", rng=rng)
 
 

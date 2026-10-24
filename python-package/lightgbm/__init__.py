@@ -35,7 +35,6 @@ def __getattr__(name: str, *args: Any, **kwargs: Any) -> Any:
     motivations for PEP 562 (https://peps.python.org/pep-0562/), so it should continue
     to be supported in future Python versions.
     """
-    print(f"calling __getattr() for name {name!r}")
     import importlib  # noqa: PLC0415
 
     # submodules that unconditionally require scikit-learn,
