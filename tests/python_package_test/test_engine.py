@@ -3472,6 +3472,33 @@ def test_early_stopping_for_only_first_metric():
     )
 
 
+@pytest.mark.parametrize("seed", [123, None], ids=["fixed_seed", "randomized"])
+def test_reset_feature_fraction_to_one(seed):
+    if seed is None:
+        seed = int(np.random.default_rng().integers(0, 1000000))
+    X = np.random.RandomState(0).normal(size=(200, 8))
+    y = X @ np.arange(1, 9)
+    params = {
+        "objective": "regression",
+        "feature_fraction": 0.5,
+        "max_depth": 3,
+        "seed": seed,
+        "num_threads": 1,
+        "verbosity": -1,
+    }
+    actual = lgb.train(params, lgb.Dataset(X, label=y), num_boost_round=1, keep_training_booster=True)
+    expected = lgb.train(
+        dict(params, feature_fraction=1.0),
+        lgb.Dataset(X, label=y),
+        num_boost_round=2,
+        init_model=actual,
+    )
+    actual.reset_parameter({"feature_fraction": 1.0})
+    for _ in range(2):
+        actual.update()
+    np.testing.assert_allclose(actual.predict(X), expected.predict(X), err_msg=f"seed={seed}")
+
+
 def test_node_level_subcol():
     X, y = load_breast_cancer(return_X_y=True)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)

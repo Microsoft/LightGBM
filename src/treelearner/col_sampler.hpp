@@ -39,7 +39,7 @@ class ColSampler {
 
   void SetTrainingData(const Dataset* train_data) {
     train_data_ = train_data;
-    is_feature_used_.resize(train_data_->num_features(), 1);
+    is_feature_used_.assign(train_data_->num_features(), 1);
     valid_feature_indices_ = train_data->ValidFeatureIndices();
     if (fraction_bytree_ >= 1.0f) {
       need_reset_bytree_ = false;
@@ -55,7 +55,7 @@ class ColSampler {
   void SetConfig(const Config* config) {
     fraction_bytree_ = config->feature_fraction;
     fraction_bynode_ = config->feature_fraction_bynode;
-    is_feature_used_.resize(train_data_->num_features(), 1);
+    is_feature_used_.assign(train_data_->num_features(), 1);
     // seed is changed
     if (seed_ != config->feature_fraction_seed) {
       seed_ = config->feature_fraction_seed;
